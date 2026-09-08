@@ -1,0 +1,681 @@
+// ============================================================
+// Ish Qidirish Platformasi — Prisma Schema (MongoDB)
+// Arxitektura hujjatining 8-bo'limiga (DB sxemasi) asoslangan
+//
+// Eslatma: MongoDB'da SQL ma'nosidagi migratsiya yo'q. Sxema
+// `prisma db push` bilan qo'llanadi — u kolleksiya va indekslarni
+// yaratadi/yangilaydi. Shuning uchun `prisma/migrations/` papkasi yo'q.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// Enumlar
+// ------------------------------------------------------------
+
+enum UserRole {
+  job_seeker
+  employer
+  admin
+}
+
+enum CompanyMemberRole {
+  owner
+  recruiter
+}
+
+enum ResumeStatus {
+  draft
+  published
+  hidden
+}
+
+enum EmploymentType {
+  full_time
+  part_time
+  remote
+  shift
+}
+
+enum ScheduleType {
+  five_two // 5/2
+  two_two // 2/2
+  vahta
+  gibkiy
+  smenniy
+}
+
+enum ExperienceRequired {
+  none
+  one_to_three
+  three_to_six
+  six_plus
+}
+
+enum SalaryType {
+  gross
+  net
+}
+
+enum VacancyStatus {
+  draft
+  moderation
+  active
+  archived
+  rejected
+}
+
+enum ApplicationSource {
+  site
+  telegram
+}
+
+enum ApplicationStatus {
+  sent
+  viewed
+  invited
+  rejected
+  accepted
+}
+
+enum NotificationType {
+  new_application
+  application_status_changed
+  new_vacancy_match
+  system
+}
+
+enum NotificationChannel {
+  email
+  push
+  in_app
+  telegram
+}
+
+enum SavedSearchFrequency {
+  instant
+  daily
+}
+
+enum ReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+enum PaymentProvider {
+  payme
+  click
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  failed
+  refunded
+}
+
+// ------------------------------------------------------------
+// Foydalanuvchi va profil
+// ------------------------------------------------------------
+
+model User {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  email           String   @unique
+  phone           String?
+  passwordHash    String   @map("password_hash")
+  role            UserRole
+  isEmailVerified Boolean  @default(false) @map("is_email_verified")
+  isPhoneVerified Boolean  @default(false) @map("is_phone_verified")
+  isBlocked       Boolean  @default(false) @map("is_blocked")
+  // MongoDB'da unique indeks `null` qiymatlarni ham teng deb biladi, shuning
+  // uchun bu maydon unique EMAS (bog'lanmagan foydalanuvchilarda null bo'ladi
+  // va ular bir-biriga to'qnashardi). Yagonalikni kod ta'minlaydi: yangi
+  // bog'lanishda o'sha chat boshqa hisobdan uziladi (telegram.service.ts).
+  telegramChatId  String?  @map("telegram_chat_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  jobSeekerProfile      JobSeekerProfile?
+  ownedCompanies        Company[]                  @relation("CompanyOwner")
+  companyMembers        CompanyMember[]
+  applications          Application[]
+  favorites             Favorite[]
+  savedSearches         SavedSearch[]
+  notifications         Notification[]
+  notificationPrefs     NotificationPreference[]
+  articles              Article[]
+  companyReviews        CompanyReview[]
+  statusChanges         ApplicationStatusHistory[] @relation("ChangedBy")
+  sentMessages          Message[]
+  employerConversations Conversation[]             @relation("EmployerConversations")
+  seekerConversations   Conversation[]             @relation("SeekerConversations")
+  ratingsGiven          PeerRating[]               @relation("RatingsGiven")
+  ratingsReceived       PeerRating[]               @relation("RatingsReceived")
+  pushSubscriptions     PushSubscription[]
+
+  @@index([telegramChatId])
+  @@index([role])
+  @@map("users")
+}
+
+model JobSeekerProfile {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String    @unique @map("user_id") @db.ObjectId
+  firstName       String    @map("first_name")
+  lastName        String    @map("last_name")
+  birthDate       DateTime? @map("birth_date")
+  gender          String?
+  avatarUrl       String?   @map("avatar_url")
+  headline        String?
+  resumeUrl       String?   @map("resume_url")
+  additionalPhone String?   @map("additional_phone")
+  regionId        String?   @map("region_id") @db.ObjectId
+  isOpenToWork    Boolean   @default(true) @map("is_open_to_work")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  region  Region? @relation(fields: [regionId], references: [id])
+  resumes Resume[]
+
+  @@index([regionId])
+  @@map("job_seeker_profiles")
+}
+
+// ------------------------------------------------------------
+// Rezyume
+// ------------------------------------------------------------
+
+model Resume {
+  id              String           @id @default(auto()) @map("_id") @db.ObjectId
+  jobSeekerId     String           @map("job_seeker_id") @db.ObjectId
+  title           String
+  summary         String?
+  desiredSalary   Int?             @map("desired_salary")
+  currency        String?          @default("UZS")
+  employmentTypes EmploymentType[] @map("employment_types")
+  status          ResumeStatus     @default(draft)
+  viewsCount      Int              @default(0) @map("views_count")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  jobSeeker    JobSeekerProfile   @relation(fields: [jobSeekerId], references: [id], onDelete: Cascade)
+  experience   ResumeExperience[]
+  education    ResumeEducation[]
+  skills       ResumeSkill[]
+  applications Application[]
+
+  @@index([jobSeekerId])
+  @@index([status])
+  @@map("resumes")
+}
+
+model ResumeExperience {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  resumeId    String    @map("resume_id") @db.ObjectId
+  companyName String    @map("company_name")
+  position    String
+  startDate   DateTime  @map("start_date")
+  endDate     DateTime? @map("end_date")
+  isCurrent   Boolean   @default(false) @map("is_current")
+  description String?
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@index([resumeId])
+  @@map("resume_experience")
+}
+
+model ResumeEducation {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  resumeId    String  @map("resume_id") @db.ObjectId
+  institution String
+  degree      String?
+  field       String?
+  startYear   Int     @map("start_year")
+  endYear     Int?    @map("end_year")
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@index([resumeId])
+  @@map("resume_education")
+}
+
+model ResumeSkill {
+  id        String @id @default(auto()) @map("_id") @db.ObjectId
+  resumeId  String @map("resume_id") @db.ObjectId
+  skillName String @map("skill_name")
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@index([resumeId])
+  @@map("resume_skills")
+}
+
+// ------------------------------------------------------------
+// Kompaniya
+// ------------------------------------------------------------
+
+model Company {
+  id                    String    @id @default(auto()) @map("_id") @db.ObjectId
+  ownerUserId           String    @map("owner_user_id") @db.ObjectId
+  name                  String
+  legalName             String?   @map("legal_name")
+  stir                  String?
+  slug                  String    @unique
+  logoUrl               String?   @map("logo_url")
+  description           String?
+  website               String?
+  industryId            String?   @map("industry_id")
+  industry              String?
+  employeeCount         String?   @map("employee_count")
+  foundedYear           Int?      @map("founded_year")
+  regionId              String?   @map("region_id") @db.ObjectId
+  isVerified            Boolean   @default(false) @map("is_verified")
+  subscriptionPlanId    String?   @map("subscription_plan_id") @db.ObjectId
+  subscriptionExpiresAt DateTime? @map("subscription_expires_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  owner            User              @relation("CompanyOwner", fields: [ownerUserId], references: [id])
+  region           Region?           @relation(fields: [regionId], references: [id])
+  subscriptionPlan SubscriptionPlan? @relation(fields: [subscriptionPlanId], references: [id])
+  members          CompanyMember[]
+  vacancies        Vacancy[]
+  reviews          CompanyReview[]
+  payments         Payment[]
+  conversations    Conversation[]
+
+  @@index([ownerUserId])
+  @@index([regionId])
+  @@index([subscriptionPlanId])
+  @@map("companies")
+}
+
+model CompanyMember {
+  id        String            @id @default(auto()) @map("_id") @db.ObjectId
+  companyId String            @map("company_id") @db.ObjectId
+  userId    String            @map("user_id") @db.ObjectId
+  role      CompanyMemberRole @default(recruiter)
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId])
+  @@index([userId])
+  @@map("company_members")
+}
+
+// ------------------------------------------------------------
+// Katalog: kasblar va geografiya
+// ------------------------------------------------------------
+
+model VacancyCategory {
+  id       String  @id @default(auto()) @map("_id") @db.ObjectId
+  parentId String? @map("parent_id") @db.ObjectId
+  name     String
+  slug     String  @unique
+
+  parent    VacancyCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children  VacancyCategory[] @relation("CategoryTree")
+  vacancies Vacancy[]
+
+  @@map("vacancy_categories")
+}
+
+model Region {
+  id       String  @id @default(auto()) @map("_id") @db.ObjectId
+  parentId String? @map("parent_id") @db.ObjectId
+  name     String
+  slug     String  @unique
+
+  parent            Region?            @relation("RegionTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children          Region[]           @relation("RegionTree")
+  vacancies         Vacancy[]
+  companies         Company[]
+  jobSeekerProfiles JobSeekerProfile[]
+
+  @@map("regions")
+}
+
+// ------------------------------------------------------------
+// Vakansiya
+// ------------------------------------------------------------
+
+model Vacancy {
+  id                 String             @id @default(auto()) @map("_id") @db.ObjectId
+  companyId          String             @map("company_id") @db.ObjectId
+  title              String
+  slug               String             @unique
+  description        String
+  requirements       String?
+  conditions         String?
+  categoryId         String?            @map("category_id") @db.ObjectId
+  regionId           String?            @map("region_id") @db.ObjectId
+  address            String?
+  latitude           Float?
+  longitude          Float?
+  employmentType     EmploymentType     @map("employment_type")
+  scheduleType       ScheduleType?      @map("schedule_type")
+  experienceRequired ExperienceRequired @default(none) @map("experience_required")
+  salaryMin          Int?               @map("salary_min")
+  salaryMax          Int?               @map("salary_max")
+  currency           String             @default("UZS")
+  salaryType         SalaryType?        @map("salary_type")
+  isSalaryHidden     Boolean            @default(false) @map("is_salary_hidden")
+  applyWithoutResume Boolean            @default(false) @map("apply_without_resume")
+  // Ish beruvchining ixtiyoriy bog'lanish yo'llari — vakansiya sahifasida ko'rsatiladi
+  contactEmail       String?            @map("contact_email")
+  contactTelegram    String?            @map("contact_telegram")
+  contactPhone       String?            @map("contact_phone")
+  status             VacancyStatus      @default(draft)
+  isUrgent           Boolean            @default(false) @map("is_urgent")
+  isPremium          Boolean            @default(false) @map("is_premium")
+  rejectionReason    String?            @map("rejection_reason")
+  publishedAt        DateTime?          @map("published_at")
+  expiresAt          DateTime?          @map("expires_at")
+  viewsCount         Int                @default(0) @map("views_count")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  company      Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category     VacancyCategory? @relation(fields: [categoryId], references: [id])
+  region       Region?          @relation(fields: [regionId], references: [id])
+  applications Application[]
+  favorites    Favorite[]
+
+  @@index([status, publishedAt])
+  @@index([companyId])
+  @@index([categoryId])
+  @@index([regionId])
+  @@map("vacancies")
+}
+
+// ------------------------------------------------------------
+// Ariza
+// ------------------------------------------------------------
+
+model Application {
+  id          String            @id @default(auto()) @map("_id") @db.ObjectId
+  vacancyId   String            @map("vacancy_id") @db.ObjectId
+  jobSeekerId String            @map("job_seeker_id") @db.ObjectId
+  resumeId    String?           @map("resume_id") @db.ObjectId
+  coverLetter String?           @map("cover_letter")
+  source      ApplicationSource @default(site)
+  status      ApplicationStatus @default(sent)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  vacancy       Vacancy                    @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  jobSeeker     User                       @relation(fields: [jobSeekerId], references: [id], onDelete: Cascade)
+  resume        Resume?                    @relation(fields: [resumeId], references: [id])
+  statusHistory ApplicationStatusHistory[]
+
+  // Bir nomzod bir vakansiyaga faqat bitta ariza yuboradi (kodda ham
+  // tekshiriladi, indeks poyga holatini ham yopadi).
+  @@unique([vacancyId, jobSeekerId])
+  @@index([jobSeekerId])
+  @@index([resumeId])
+  @@map("applications")
+}
+
+model ApplicationStatusHistory {
+  id            String             @id @default(auto()) @map("_id") @db.ObjectId
+  applicationId String             @map("application_id") @db.ObjectId
+  oldStatus     ApplicationStatus? @map("old_status")
+  newStatus     ApplicationStatus  @map("new_status")
+  changedBy     String?            @map("changed_by") @db.ObjectId
+  createdAt     DateTime           @default(now()) @map("created_at")
+
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  changedByUser User?       @relation("ChangedBy", fields: [changedBy], references: [id])
+
+  @@index([applicationId])
+  @@index([changedBy])
+  @@map("application_status_history")
+}
+
+// ------------------------------------------------------------
+// Chat (to'g'ridan-to'g'ri: ish beruvchi <-> nomzod, juftlik bo'yicha)
+// ------------------------------------------------------------
+
+model Conversation {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  employerUserId String   @map("employer_user_id") @db.ObjectId
+  seekerUserId   String   @map("seeker_user_id") @db.ObjectId
+  companyId      String?  @map("company_id") @db.ObjectId
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  employer User         @relation("EmployerConversations", fields: [employerUserId], references: [id], onDelete: Cascade)
+  seeker   User         @relation("SeekerConversations", fields: [seekerUserId], references: [id], onDelete: Cascade)
+  company  Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  messages Message[]
+  ratings  PeerRating[]
+
+  @@unique([employerUserId, seekerUserId])
+  @@index([seekerUserId])
+  @@index([companyId])
+  @@map("conversations")
+}
+
+// O'zaro baho: suhbat doirasida ikkala tomon ham yozgan bo'lsagina qo'yiladi
+// (server tekshiradi). Har bir suhbatda har bir tomon bitta baho beradi.
+model PeerRating {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String   @map("conversation_id") @db.ObjectId
+  raterUserId    String   @map("rater_user_id") @db.ObjectId
+  ratedUserId    String   @map("rated_user_id") @db.ObjectId
+  score          Int
+  comment        String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  rater        User         @relation("RatingsGiven", fields: [raterUserId], references: [id], onDelete: Cascade)
+  rated        User         @relation("RatingsReceived", fields: [ratedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, raterUserId])
+  @@index([ratedUserId])
+  @@index([raterUserId])
+  @@map("peer_ratings")
+}
+
+model Message {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String   @map("conversation_id") @db.ObjectId
+  senderId       String   @map("sender_id") @db.ObjectId
+  body           String
+  isRead         Boolean  @default(false) @map("is_read")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+// ------------------------------------------------------------
+// Sevimlilar va saqlangan qidiruv
+// ------------------------------------------------------------
+
+model Favorite {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @map("user_id") @db.ObjectId
+  vacancyId String   @map("vacancy_id") @db.ObjectId
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vacancy Vacancy @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, vacancyId])
+  @@index([vacancyId])
+  @@map("favorites")
+}
+
+model SavedSearch {
+  id                 String               @id @default(auto()) @map("_id") @db.ObjectId
+  userId             String               @map("user_id") @db.ObjectId
+  name               String
+  queryParams        Json                 @map("query_params")
+  emailAlertsEnabled Boolean              @default(true) @map("email_alerts_enabled")
+  frequency          SavedSearchFrequency @default(daily)
+  lastNotifiedAt     DateTime?            @map("last_notified_at")
+  createdAt          DateTime             @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("saved_searches")
+}
+
+// ------------------------------------------------------------
+// Notification
+// ------------------------------------------------------------
+
+model Notification {
+  id        String           @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String           @map("user_id") @db.ObjectId
+  type      NotificationType
+  title     String
+  body      String
+  payload   Json?
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id               String              @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String              @map("user_id") @db.ObjectId
+  notificationType NotificationType    @map("notification_type")
+  channel          NotificationChannel
+  isEnabled        Boolean             @default(true) @map("is_enabled")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, notificationType, channel])
+  @@map("notification_preferences")
+}
+
+// ------------------------------------------------------------
+// Maqolalar (SEO content)
+// ------------------------------------------------------------
+
+model Article {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  title           String
+  slug            String    @unique
+  content         String
+  coverImageUrl   String?   @map("cover_image_url")
+  authorId        String?   @map("author_id") @db.ObjectId
+  metaTitle       String?   @map("meta_title")
+  metaDescription String?   @map("meta_description")
+  publishedAt     DateTime? @map("published_at")
+
+  author User? @relation(fields: [authorId], references: [id])
+
+  @@index([authorId])
+  @@index([publishedAt])
+  @@map("articles")
+}
+
+// ------------------------------------------------------------
+// Kompaniya sharhlari
+// ------------------------------------------------------------
+
+model CompanyReview {
+  id        String       @id @default(auto()) @map("_id") @db.ObjectId
+  companyId String       @map("company_id") @db.ObjectId
+  userId    String       @map("user_id") @db.ObjectId
+  rating    Int
+  comment   String?
+  status    ReviewStatus @default(pending)
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Bitta foydalanuvchi bitta kompaniyaga bitta sharh qoldiradi
+  @@unique([companyId, userId])
+  @@index([userId])
+  @@index([status])
+  @@map("company_reviews")
+}
+
+// ------------------------------------------------------------
+// Monetizatsiya
+// ------------------------------------------------------------
+
+model SubscriptionPlan {
+  id                   String  @id @default(auto()) @map("_id") @db.ObjectId
+  slug                 String  @unique
+  name                 String
+  price                Int
+  currency             String  @default("UZS")
+  maxActiveVacancies   Int     @map("max_active_vacancies")
+  maxFeaturedVacancies Int     @default(0) @map("max_featured_vacancies")
+  canSearchCandidates  Boolean @default(false) @map("can_search_candidates")
+  isActive             Boolean @default(true) @map("is_active")
+  sortOrder            Int     @default(0) @map("sort_order")
+  features             Json?
+  durationDays         Int     @map("duration_days")
+
+  companies Company[]
+  payments  Payment[]
+
+  @@map("subscription_plans")
+}
+
+model Payment {
+  id       String          @id @default(auto()) @map("_id") @db.ObjectId
+  companyId String         @map("company_id") @db.ObjectId
+  planId   String          @map("plan_id") @db.ObjectId
+  amount   Int
+  status   PaymentStatus   @default(pending)
+  provider PaymentProvider
+  // Har doim `createCheckout` da beriladi. MongoDB'da unique indeks null
+  // qiymatlarni teng deb bilgani uchun maydon majburiy qilingan.
+  transactionId String     @unique @map("transaction_id")
+  paidAt        DateTime?  @map("paid_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  company Company          @relation(fields: [companyId], references: [id])
+  plan    SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([companyId, status])
+  @@index([planId])
+  @@map("payments")
+}
+
+// ------------------------------------------------------------
+// Brauzer push obunalari (Web Push / VAPID)
+// ------------------------------------------------------------
+
+model PushSubscription {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @map("user_id") @db.ObjectId
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}

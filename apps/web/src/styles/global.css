@@ -1,0 +1,378 @@
+/* @font-face'lar shu yerga @import qilinadi — Vite ularni BUILD paytida shu
+   faylga singdiradi, ya'ni brauzer ikkita emas, bitta render-blocking CSS
+   so'rovi qiladi (fonts.css alohida bo'lganda ortiqcha bitta RTT yo'qolardi).
+   Ish paytida alohida fayl bo'lib turgani qulay — shriftlar bir joyda. */
+@import "./fonts.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   "OSMON INDIGO" identiteti (foydalanuvchi tasdiqlagan referens).
+
+   Kunduzgi: havorang-oq osmon fon, oq kartalar, indigo tugmalar,
+   ko'k→binafsha→pushti gradient urg'ular. Logoning oltini faqat
+   "!" belgisi va yulduzlarda qoladi.
+   Tungi: to'q ko'k-ko'mir fon, xuddi shu indigo/gradient tili.
+   Tokenlar RGB kanallari (Tailwind alpha modifikatori uchun).
+   ============================================================ */
+:root {
+  --paper: 244 248 254; /* #F4F8FE havorang-oq osmon */
+  --surface: 255 255 255; /* #FFFFFF */
+  --surface-2: 238 243 251; /* #EEF3FB */
+  --ink: 15 23 42; /* #0F172A */
+  --dusk: 90 106 133; /* #5A6A85 — paper'da 4.9:1 ✓ */
+  --line: 227 234 245; /* #E3EAF5 */
+
+  --signal: 79 70 229; /* #4F46E5 indigo tugma — oq matn 6:1 ✓ */
+  --signal-strong: 67 56 202; /* #4338CA hover */
+  --signal-soft: 238 241 254; /* #EEF1FE indigo tint */
+
+  --gold: 245 158 11; /* #F59E0B logo amberi — "!" va yulduzlar */
+  --gold-deep: 180 83 9; /* #B45309 amber TEXT — oq fonda 4.6:1 ✓ */
+  --growth: 4 120 87; /* #047857 maosh — oq fonda 5.9:1 ✓ */
+
+  --danger: 190 24 60; /* #BE123C xato matni — 5.9:1 ✓ */
+  --scrollbar: 199 210 228;
+  --focus: 79 70 229;
+}
+
+.dark {
+  --paper: 11 15 26; /* #0B0F1A to'q ko'k-ko'mir */
+  --surface: 18 24 40; /* #121828 */
+  --surface-2: 26 34 54; /* #1A2236 */
+  --ink: 229 234 245; /* #E5EAF5 */
+  --dusk: 147 160 184; /* #93A0B8 — 6.5:1 ✓ */
+  --line: 35 46 69; /* #232E45 */
+
+  --signal: 99 102 241; /* #6366F1 indigo — oq matn 4.9:1 ✓ */
+  --signal-strong: 129 140 248; /* #818CF8 hover */
+  --signal-soft: 28 33 64; /* #1C2140 indigo tint */
+
+  --gold: 245 184 46; /* #F5B82E */
+  --gold-deep: 240 192 96; /* #F0C060 — 9:1 ✓ */
+  --growth: 61 206 143; /* #3DCE8F — 8:1 ✓ */
+
+  --danger: 244 120 130; /* #F47882 — 6:1 ✓ */
+  --scrollbar: 52 64 92;
+  --focus: 129 140 248;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: rgb(var(--paper));
+  color: rgb(var(--ink));
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+::selection {
+  background: rgb(99 102 241 / 0.22);
+}
+.dark ::selection {
+  background: rgb(129 140 248 / 0.3);
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--scrollbar));
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Bosh sahifa hero rasmi (shaffof webp) — qirqilgan qirralar fonga singiydi:
+   chapda strelka dumi, o'ngda daraxtlar, pastda ko'l/ko'kalamzor.
+   Tepa qirqim kichik — strelka uchi so'nmasligi kerak. */
+.hero-photo {
+  -webkit-mask-image:
+    linear-gradient(90deg, transparent 0, #000 110px, #000 calc(100% - 40px), transparent 100%),
+    linear-gradient(180deg, transparent 0, #000 28px, #000 78%, transparent 99%);
+  mask-image:
+    linear-gradient(90deg, transparent 0, #000 110px, #000 calc(100% - 40px), transparent 100%),
+    linear-gradient(180deg, transparent 0, #000 28px, #000 78%, transparent 99%);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+/* Tungi rejim: kunduzgi yorqin shahar tunga singishi uchun biroz xiralashadi */
+.dark .hero-photo {
+  opacity: 0.92;
+  filter: brightness(0.85) saturate(0.92);
+}
+
+/* ---------------------------------------------------------
+   Donador tekstura (grain) — premium "materiallik" hissi.
+   SVG feTurbulence data-URI, GPU'siz, bitta qatlam.
+--------------------------------------------------------- */
+.grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+}
+.dark .grain::before {
+  opacity: 0.45;
+}
+
+/* ---------------------------------------------------------
+   Jonli hero fon: iliq amber "cho'g'lar" (avvalgi ko'k orblar o'rniga).
+   Klass nomlari saqlangan — HeroBackdrop va sahifalar o'zgarishsiz ishlaydi.
+   Faqat transform/opacity — GPU'da yengil.
+--------------------------------------------------------- */
+.orb {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  will-change: transform;
+  filter: blur(2px);
+}
+.orb-blue {
+  /* logo ko'ki — indigo-binafsha tuman */
+  background: radial-gradient(circle at 40% 40%, rgb(99 102 241 / 0.2), rgb(124 58 237 / 0.09) 55%, transparent 72%);
+}
+.dark .orb-blue {
+  background: radial-gradient(circle at 40% 40%, rgb(99 102 241 / 0.5), rgb(124 58 237 / 0.2) 55%, transparent 74%);
+}
+.orb-gold {
+  /* nom tarixiy — endi binafsha tuman */
+  background: radial-gradient(circle at 40% 40%, rgb(124 58 237 / 0.16), rgb(124 58 237 / 0.06) 55%, transparent 72%);
+}
+.dark .orb-gold {
+  background: radial-gradient(circle at 40% 40%, rgb(139 92 246 / 0.42), rgb(139 92 246 / 0.16) 55%, transparent 74%);
+}
+.orb-rose {
+  background: radial-gradient(circle at 40% 40%, rgb(225 29 72 / 0.12), rgb(190 24 93 / 0.05) 55%, transparent 72%);
+}
+.dark .orb-rose {
+  background: radial-gradient(circle at 40% 40%, rgb(244 63 94 / 0.34), rgb(190 24 93 / 0.13) 55%, transparent 74%);
+}
+.orb-glow {
+  filter: blur(42px);
+  border: none;
+}
+
+@keyframes drift-a {
+  0%   { transform: translate(0, 0) scale(1); }
+  25%  { transform: translate(190px, -120px) scale(1.25); }
+  50%  { transform: translate(-110px, -220px) scale(0.85); }
+  75%  { transform: translate(-220px, -60px) scale(1.15); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+@keyframes drift-b {
+  0%   { transform: translate(0, 0) scale(1); }
+  30%  { transform: translate(-260px, 110px) scale(1.3); }
+  60%  { transform: translate(150px, 200px) scale(0.82); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+@keyframes drift-c {
+  0%   { transform: translate(0, 0) scale(1); }
+  40%  { transform: translate(180px, 130px) scale(1.2); }
+  70%  { transform: translate(-120px, 40px) scale(0.9); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+.drift-a { animation: drift-a 14s ease-in-out infinite; }
+.drift-b { animation: drift-b 17s ease-in-out infinite; }
+.drift-c { animation: drift-c 11s ease-in-out infinite; }
+
+/* Butun jonli fon qatlami pastga qarab sahifa foniga singiydi — bo'lim
+   chegarasida chok ham, kartalar ortida xira dog' ham qolmaydi. */
+.hero-backdrop {
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 68%, transparent 97%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 68%, transparent 97%);
+}
+
+/* Yuqoriga ko'tarilib turuvchi cho'g' zarrachalari */
+@keyframes rise {
+  0%   { transform: translateY(0) scale(1); opacity: 0; }
+  8%   { opacity: 0.9; }
+  85%  { opacity: 0.5; }
+  100% { transform: translateY(-620px) scale(0.5); opacity: 0; }
+}
+.particle {
+  position: absolute;
+  bottom: -10px;
+  border-radius: 999px;
+  pointer-events: none;
+  animation: rise linear infinite;
+  will-change: transform, opacity;
+}
+.particle-blue {
+  /* nom tarixiy — endi indigo uchqun */
+  background: rgb(99 102 241 / 0.7);
+  box-shadow: 0 0 12px 2px rgb(99 102 241 / 0.4);
+}
+.dark .particle-blue {
+  background: rgb(165 174 252 / 0.95);
+  box-shadow: 0 0 14px 3px rgb(129 140 248 / 0.65);
+}
+.particle-gold {
+  background: rgb(236 72 153 / 0.75);
+  box-shadow: 0 0 12px 2px rgb(236 72 153 / 0.4);
+}
+.dark .particle-gold {
+  background: rgb(249 168 212 / 0.95);
+  box-shadow: 0 0 14px 3px rgb(244 114 182 / 0.6);
+}
+
+/* Logo atrofida kengayib so'nuvchi halqa (premium puls) */
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  80% { transform: scale(1.55); opacity: 0; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+.pulse-ring { animation: pulse-ring 2.8s ease-out infinite; }
+
+/* Logo atrofida sekin aylanuvchi orbita (nuqta bilan) */
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.spin-slow { animation: spin-slow 14s linear infinite; }
+
+/* Logoning yumshoq nafas oluvchi nuri */
+@keyframes breathe {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(1.12); }
+}
+.breathe { animation: breathe 4s ease-in-out infinite; }
+
+/* Scroll-reveal (useReveal hook bilan): SSR'da element ko'rinib turadi (LCP xavfsiz),
+   JS faqat hali ekrandan pastda bo'lganlarni yashirib, scroll'da yumshoq ochadi */
+.reveal-pending {
+  opacity: 0;
+  transform: translateY(26px);
+}
+.reveal-in {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.55s ease-out, transform 0.55s ease-out;
+}
+
+/* Asosiy tugma nuri — kunduzgi siyoh soya, tungi amber nur.
+   Hover'da kuchayadi + yaltiroq chiziq o'tadi. */
+.glow-signal {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 20px -6px rgb(79 70 229 / 0.4);
+  transition: box-shadow 0.25s ease, transform 0.2s ease, background-color 0.2s ease;
+}
+.glow-signal:hover {
+  box-shadow: 0 12px 28px -8px rgb(79 70 229 / 0.5);
+}
+.dark .glow-signal {
+  box-shadow: 0 8px 22px -6px rgb(99 102 241 / 0.45);
+}
+.dark .glow-signal:hover {
+  box-shadow: 0 12px 30px -8px rgb(99 102 241 / 0.6);
+}
+.glow-signal::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.35), transparent);
+  transform: translateX(-150%) skewX(-18deg);
+  transition: transform 0.55s ease;
+  pointer-events: none;
+}
+.glow-signal:hover::after {
+  transform: translateX(320%) skewX(-18deg);
+}
+
+/* Hero'dagi urg'u so'z — endi gradient emas, "marker" uslubi:
+   so'z ostidan amber bo'yoq yurgizilgandek. Matn rangi meros bo'lib qoladi,
+   shuning uchun kontrast har ikki rejimda ham mukammal. */
+@keyframes shine-move {
+  to { background-position: 200% center; }
+}
+/* Urg'u so'z — ko'k→binafsha→pushti oqib turuvchi gradient matn
+   (tasdiqlangan referens). Katta displey matn uchun kontrast yetarli. */
+.text-shine {
+  background-image: linear-gradient(90deg, #2563EB, #7C3AED 36%, #EC4899 68%, #2563EB 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine-move 8s linear infinite;
+}
+.dark .text-shine {
+  background-image: linear-gradient(90deg, #60A5FA, #A78BFA 36%, #F472B6 68%, #60A5FA 100%);
+}
+
+/* Navigatsiya havolasi ostidan chiziq chiqadi (hover) */
+.nav-underline::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 5px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgb(var(--signal));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.25s ease;
+}
+.nav-underline:hover::after {
+  transform: scaleX(1);
+}
+/* Aktiv sahifa — chiziq doimo ko'rinadi */
+.nav-underline-active::after {
+  transform: scaleX(1);
+}
+
+/* Sahifa boshidagi scroll-progress chizig'i (faqat transform — GPU) */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 60;
+  background: linear-gradient(90deg, #2563EB, #7C3AED, #EC4899);
+  transform: scaleX(0);
+  transform-origin: left;
+  pointer-events: none;
+}
+
+/* Skeleton shimmer */
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(var(--ink) / 0.04),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Eslatma: brend talabi — jonli fon har doim harakatda bo'ladi,
+   shu sababli prefers-reduced-motion bilan animatsiya o'chirilmaydi. */
+
+:focus-visible {
+  outline: 2px solid rgb(var(--focus));
+  outline-offset: 2px;
+}

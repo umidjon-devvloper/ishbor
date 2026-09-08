@@ -1,0 +1,48 @@
+# Mahalliy ishlab chiqish uchun yordamchi xizmatlar.
+# Prodda ular kerak emas: baza — MongoDB Atlas, API — Railway, sayt — Vercel.
+#
+# Docker o'rnatilmagan bo'lsa bu faylni umuman ishlatmang: MongoDB Atlas'ning
+# bepul M0 klasteriga ulanib ham dev qilaverasiz (DATABASE_URL ni o'zgartirib).
+
+services:
+  # Prisma tranzaksiyalari replica set talab qiladi, shuning uchun bitta
+  # tugunli replica set sifatida ko'taramiz (Atlas'da bu sukut bo'yicha bor).
+  #
+  # Birinchi marta ko'targandan keyin bir marta ishga tushiring:
+  #   docker compose exec mongo mongosh --eval "rs.initiate()"
+  #
+  # Ulanish satri:
+  #   DATABASE_URL="mongodb://localhost:27017/ishbor?replicaSet=rs0&directConnection=true"
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Qidiruv dvigateli — IXTIYORIY.
+  # Ko'tarmasangiz sayt MongoDB qidiruvi bilan to'liq ishlaydi.
+  # Yoqish:  docker compose --profile search up -d
+  # so'ng apps/api/.env ga:  MEILI_HOST="http://localhost:7700"
+  meilisearch:
+    image: getmeili/meilisearch:v1.10
+    profiles: ["search"]
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilidata:/meili_data
+
+volumes:
+  mongodata:
+  meilidata:
