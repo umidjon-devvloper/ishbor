@@ -7,11 +7,11 @@ export function CompanyCard({ company, index = 0 }: { company: Company; index?: 
   const l = useHref();
   return (
     <a
-      href={l(`/employer/${company.slug}`)}
+      href={l(`/companies/${company.slug}`)}
       style={{ animationDelay: `${Math.min(index * 50, 250)}ms` }}
       className="group flex animate-fade-up gap-4 rounded-2xl border border-line bg-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-signal/40 hover:shadow-card-hover"
     >
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-2 font-display text-xl font-700 text-ink">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-2 font-display text-xl font-bold text-ink">
         {company.logoUrl ? (
           <img src={company.logoUrl} alt="" width={56} height={56} loading="lazy" decoding="async" className="h-full w-full object-cover" />
         ) : (
@@ -20,7 +20,7 @@ export function CompanyCard({ company, index = 0 }: { company: Company; index?: 
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <p className="truncate font-display text-[15px] font-600 text-ink transition-colors group-hover:text-signal">
+          <p className="truncate font-display text-[15px] font-semibold text-ink transition-colors group-hover:text-signal">
             {company.name}
           </p>
           {company.isVerified && <VerifiedBadge title={t.company.verified} />}

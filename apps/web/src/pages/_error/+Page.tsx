@@ -1,6 +1,10 @@
 import React from "react";
 import { usePageContext } from "vike-react/usePageContext";
 import { useT, useHref } from "../../lib/i18n/index.js";
+import { VACANCY_NOT_FOUND } from "../../lib/vacancies/detail.js";
+import { VacancyNotFound } from "../../components/vacancies/detail/VacancyDetailStates.js";
+import { COMPANY_NOT_FOUND } from "../../lib/companies/detail.js";
+import { CompanyNotFound } from "../../components/companies/detail/CompanyDetailStates.js";
 
 export default function Page() {
   const pageContext = usePageContext();
@@ -8,14 +12,24 @@ export default function Page() {
   const t = useT();
   const l = useHref();
 
+  // /vacancies/:slug yoki /companies/:slug topilmadi — xos holat (HTTP 404 saqlanadi)
+  const reason = (pageContext as { abortReason?: unknown }).abortReason;
+  if (is404 && (reason === VACANCY_NOT_FOUND || reason === COMPANY_NOT_FOUND)) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 pb-16 pt-6 sm:px-6">
+        {reason === VACANCY_NOT_FOUND ? <VacancyNotFound /> : <CompanyNotFound />}
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-[72vh] items-center justify-center px-4">
       <div className="animate-fade-up text-center">
         {/* Dekorativ katta raqam (past kontrast ataylab) — h1 mazmunni beradi */}
-        <div className="font-display text-7xl font-700 text-line sm:text-8xl" aria-hidden>
+        <div className="font-display text-7xl font-bold text-line sm:text-8xl" aria-hidden>
           {is404 ? "404" : "500"}
         </div>
-        <h1 className="mt-2 font-display text-2xl font-700 text-ink sm:text-3xl">
+        <h1 className="mt-2 font-display text-2xl font-bold text-ink sm:text-3xl">
           {is404 ? t.error.title404 : t.error.title500}
         </h1>
         <p className="mx-auto mt-2 max-w-sm text-dusk">{is404 ? t.error.desc404 : t.error.desc500}</p>
@@ -28,7 +42,7 @@ export default function Page() {
             {t.error.backHome}
           </a>
           <a
-            href={l("/search/vacancy")}
+            href={l("/vacancies")}
             className="rounded-xl border border-line px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-signal hover:text-signal"
           >
             {t.error.viewVacancies}

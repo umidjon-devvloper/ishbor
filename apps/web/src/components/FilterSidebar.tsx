@@ -118,7 +118,7 @@ function Group({
   return (
     <div className={last ? "" : "mb-5 border-b border-line pb-5"}>
       {/* Sarlavha emas (h1→h3 sakramasin) — filtr guruhi yorlig'i */}
-      <p className="mb-3 font-display text-sm font-600 text-ink">{title}</p>
+      <p className="mb-3 font-display text-sm font-semibold text-ink">{title}</p>
       {children}
     </div>
   );

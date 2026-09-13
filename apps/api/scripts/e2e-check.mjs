@@ -3,7 +3,7 @@
 //
 // Haqiqiy MongoDB ustida `dist/server.js` ni ko'taradi va asosiy oqimlarni
 // HTTP orqali tekshiradi: ro'yxatdan o'tish, seans cookie'si, vakansiya,
-// ariza, chat, sharh, admin paneli, CORS, sitemap, OG rasm, tarif limiti.
+// ariza, rezyume, chat, sharh, admin paneli, CORS, sitemap, OG rasm, tarif limiti.
 //
 // Ishlatish:
 //   npm run build
@@ -126,10 +126,13 @@ await check("GET /health", async () => {
   if (status !== 200 || body.db !== "up") throw new Error(JSON.stringify(body));
 });
 
-// Startup bootstrap fonda ishlaydi — kataloglar to'lishini kutamiz
-for (let i = 0; i < 40; i++) {
-  const { body } = await j("/api/regions");
-  if (body?.items?.length > 0) break;
+// Startup bootstrap fonda ishlaydi — kataloglar TO'LIQ to'lishini kutamiz.
+// Shart pastdagi tekshiruvlar bilan bir xil bo'lishi kerak: ilgari "kamida 1 ta
+// hudud" kutilardi, keyin esa ">= 14" tekshirilardi — yuklangan mashinada test
+// bootstrap'ning o'rtasiga tushib, tasodifan yiqilardi.
+for (let i = 0; i < 60; i++) {
+  const [regions, plans] = await Promise.all([j("/api/regions"), j("/api/plans")]);
+  if ((regions.body?.items?.length ?? 0) >= 14 && (plans.body?.items?.length ?? 0) >= 3) break;
   await sleep(500);
 }
 
@@ -223,9 +226,63 @@ await check("GET /api/vacancies (ro'yxat + qidiruv + saralash)", async () => {
   if (sorted.items.length !== 1) throw new Error("saralash: " + sorted.items.length);
 });
 
+await check("vakansiyalar: ko'p qiymatli filtrlar, kompaniya, facets, yangi saralash", async () => {
+  const regions = (await j("/api/regions")).body.items;
+  const detail = (await j(`/api/vacancies/${vacancySlug}`)).body;
+  const own = detail.region.slug;
+  const other = regions.find((r) => r.slug !== own).slug;
+  const total = async (qs) => (await j(`/api/vacancies?${qs}`)).body.total;
+
+  if ((await total(`area=${other},${own}`)) !== 1) throw new Error("hudud (csv)");
+  if ((await total(`area=${other}`)) !== 0) throw new Error("boshqa hudud");
+  if ((await total("experience=six_plus,none")) !== 1) throw new Error("tajriba (csv)");
+  if ((await total("experience=six_plus")) !== 0) throw new Error("tajriba six_plus");
+  if ((await total("employment=part_time,full_time")) !== 1) throw new Error("bandlik (csv)");
+  if ((await total("employment=yoq")) !== 1) throw new Error("noma'lum bandlik e'tiborsiz qolishi kerak");
+  if ((await total(`company=${detail.company.slug}`)) !== 1) throw new Error("kompaniya");
+  if ((await total("company=yoq-kompaniya")) !== 0) throw new Error("begona kompaniya");
+  if ((await total("premium=1")) !== 0) throw new Error("premium");
+  for (const sort of ["popular", "date", "relevance", "salary_desc"]) {
+    const res = await j(`/api/vacancies?sort=${sort}&pageSize=10`);
+    if (res.status !== 200 || res.body.items.length !== 1) throw new Error("saralash " + sort);
+  }
+
+  const facets = (await j(`/api/vacancies/facets?area=${other}`)).body;
+  if (facets.total !== 0) throw new Error("facets total: " + facets.total);
+  // Hudud o'lchovi o'z filtrini chetlab hisoblanadi — tanlanmagan hudud soni ham ko'rinadi
+  if (facets.regions.find((r) => r.slug === own)?.count !== 1) throw new Error("facets hudud: " + JSON.stringify(facets.regions));
+  if (facets.employment.find((e) => e.value === "full_time").count !== 0) throw new Error("facets bandlik hudud bilan torayishi kerak");
+  const all = (await j("/api/vacancies/facets")).body;
+  if (all.total !== 1 || all.companies[0]?.slug !== detail.company.slug || all.experience.find((e) => e.value === "none").count !== 1) {
+    throw new Error("facets: " + JSON.stringify(all).slice(0, 300));
+  }
+});
+
 await check("GET /api/vacancies/:slug (ko'rishlar +1)", async () => {
   const { status, body } = await j(`/api/vacancies/${vacancySlug}`);
   if (status !== 200 || body.slug !== vacancySlug) throw new Error(status + " " + JSON.stringify(body).slice(0, 200));
+  // Detail sahifasi uchun: rasmlar (bo'sh ro'yxat), kompaniya hududi va faol vakansiyalar soni
+  if (!Array.isArray(body.images) || !Array.isArray(body.company.images)) throw new Error("images maydoni yo'q");
+  if (body.company._count?.vacancies !== 1) throw new Error("kompaniya _count: " + JSON.stringify(body.company._count));
+});
+
+await check("GET /api/vacancies/:slug/similar (o'zi chiqmaydi, soha bo'yicha, 404)", async () => {
+  const alone = await j(`/api/vacancies/${vacancySlug}/similar`);
+  if (alone.status !== 200 || alone.body.items.length !== 0) throw new Error("yagona vakansiya: " + JSON.stringify(alone.body).slice(0, 200));
+
+  const detail = (await j(`/api/vacancies/${vacancySlug}`)).body;
+  const second = await post("/api/vacancies", {
+    title: "Backend dasturchi", description: "Uzun tavsif matni bu yerda",
+    employmentType: "full_time", categoryId: detail.categoryId, regionId: detail.regionId,
+  }, employerToken);
+  if (second.status !== 201) throw new Error("ikkinchi vakansiya: " + second.status);
+  const list = (await j(`/api/vacancies/${vacancySlug}/similar?limit=4`)).body.items;
+  if (list.length !== 1 || list[0].slug !== second.body.slug || !list[0].company?.name) {
+    throw new Error("o'xshash: " + JSON.stringify(list).slice(0, 200));
+  }
+  if ((await j("/api/vacancies/yoq-vakansiya/similar")).status !== 404) throw new Error("404 kutilgan");
+  // Keyingi tekshiruvlar bitta vakansiyaga tayanadi — vaqtinchalik e'lonni o'chiramiz
+  await j(`/api/vacancies/${second.body.id}`, { method: "DELETE", headers: { authorization: `Bearer ${employerToken}` } });
 });
 
 await check("nomzod ro'yxatdan o'tadi + ariza yuboradi", async () => {
@@ -309,6 +366,66 @@ await check("sevimlilar (upsert, dublikatsiz)", async () => {
   if (ids.body.ids?.length !== 1) throw new Error("soni: " + ids.body.ids?.length);
 });
 
+await check("kompaniyalar katalogi: hisoblangan ko'rsatkichlar, filtr, cursor", async () => {
+  const first = await j("/api/companies?limit=1");
+  if (first.status !== 200 || !Array.isArray(first.body.items) || typeof first.body.total !== "number") {
+    throw new Error("javob shakli: " + JSON.stringify(first.body).slice(0, 200));
+  }
+  const c = first.body.items[0];
+  for (const key of ["id", "slug", "name", "rating", "reviewCount", "activeVacancyCount"]) {
+    if (!(key in c)) throw new Error("maydon yo'q: " + key);
+  }
+  // Barcha sahifalarni cursor bilan aylanib chiqish — takror va tushib qolish yo'q
+  const seen = new Set();
+  let cursor = null;
+  do {
+    const page = await j(`/api/companies?limit=1&sort=newest${cursor ? `&cursor=${cursor}` : ""}`);
+    if (page.status !== 200) throw new Error("sahifa: " + page.status);
+    for (const item of page.body.items) {
+      if (seen.has(item.id)) throw new Error("takror: " + item.slug);
+      seen.add(item.id);
+    }
+    cursor = page.body.nextCursor;
+  } while (cursor);
+  if (seen.size !== first.body.total) throw new Error(`jami ${first.body.total}, aylanildi ${seen.size}`);
+  const hiring = await j("/api/companies?hiring=1");
+  if (hiring.body.items.some((x) => x.activeVacancyCount === 0)) throw new Error("hiring filtri");
+  const bad = await j("/api/companies?cursor=buzilgan");
+  if (bad.status !== 400) throw new Error("buzilgan cursor: " + bad.status);
+  const guestSaved = await j("/api/companies?saved=1");
+  if (guestSaved.status !== 401) throw new Error("saved=1 mehmon: " + guestSaved.status);
+});
+
+await check("kompaniyani saqlash (upsert, saved=1 filtri, o'chirish)", async () => {
+  const company = (await j("/api/employer/company", { headers: { authorization: `Bearer ${employerToken}` } })).body.company;
+  for (let i = 0; i < 2; i++) {
+    const r = await post(`/api/favorites/companies/${company.id}`, {}, seekerToken);
+    if (r.status !== 201) throw new Error("saqlash: " + r.status);
+  }
+  const auth = { headers: { authorization: `Bearer ${seekerToken}` } };
+  const ids = await j("/api/favorites/companies/ids", auth);
+  if (ids.body.ids?.length !== 1) throw new Error("ids: " + JSON.stringify(ids.body));
+  const list = await j("/api/companies?saved=1", auth);
+  if (list.body.total !== 1 || list.body.items[0].id !== company.id) throw new Error("saved ro'yxat: " + JSON.stringify(list.body).slice(0, 200));
+  const del = await j(`/api/favorites/companies/${company.id}`, { method: "DELETE", ...auth });
+  if (del.status !== 200) throw new Error("o'chirish: " + del.status);
+  const after = await j("/api/companies?saved=1", auth);
+  if (after.body.total !== 0) throw new Error("o'chirilgandan keyin: " + after.body.total);
+});
+
+await check("o'xshash kompaniyalar (o'zi chiqmaydi, 404) va sitemap /companies/:slug", async () => {
+  const company = (await j("/api/employer/company", { headers: { authorization: `Bearer ${employerToken}` } })).body.company;
+  const detail = await j(`/api/companies/${company.slug}`);
+  if (detail.status !== 200 || !Array.isArray(detail.body.images)) throw new Error("detail: " + detail.status);
+  const similar = await j(`/api/companies/${company.slug}/similar?limit=5`);
+  if (similar.status !== 200 || !Array.isArray(similar.body.items) || similar.body.items.some((c) => c.slug === company.slug)) {
+    throw new Error("similar: " + similar.status + " " + JSON.stringify(similar.body).slice(0, 200));
+  }
+  if ((await j("/api/companies/yoq-kompaniya/similar")).status !== 404) throw new Error("404 kutilgan");
+  const sm = (await j("/sitemap-employer.xml")).body;
+  if (!sm.includes(`https://sayt.example/companies/${company.slug}`) || sm.includes("/employer/")) throw new Error(sm.slice(0, 300));
+});
+
 await check("saqlangan qidiruv (Json)", async () => {
   const r = await post("/api/saved-searches", {
     name: "IT Toshkent", queryParams: { text: "dasturchi", area: "tashkent" }, frequency: "daily",
@@ -337,11 +454,30 @@ await check("maosh statistikasi", async () => {
   if (status !== 200 || body.summary?.count !== 1) throw new Error(status + " " + JSON.stringify(body).slice(0, 200));
 });
 
+await check("maosh statistikasi: kasb, matn, tajriba kesimi, bozor bazasi", async () => {
+  // Yagona maoshli vakansiya: "Frontend dasturchi (React)", 15–25 mln, tajribasiz
+  const role = (await j("/api/stats/salary?role=frontend-developer")).body;
+  if (role.summary?.count !== 1 || role.summary.median !== 20000000) throw new Error("role: " + JSON.stringify(role.summary));
+  if (role.vacancyCount < 1 || role.market?.count !== 1) throw new Error("vacancyCount/market: " + role.vacancyCount + " " + JSON.stringify(role.market));
+  if (role.byExperience?.length !== 4 || role.byExperience[0].level !== "none" || role.byExperience[0].count !== 1) {
+    throw new Error("byExperience: " + JSON.stringify(role.byExperience));
+  }
+  const hr = (await j("/api/stats/salary?role=hr")).body;
+  if (hr.summary.count !== 0 || hr.vacancyCount !== 0 || hr.market.count !== 1) throw new Error("hr: " + JSON.stringify(hr.summary));
+  const text = (await j("/api/stats/salary?q=react")).body;
+  if (text.summary.count !== 1) throw new Error("q=react: " + text.summary.count);
+  // Tajriba filtri kartalarni toraytiradi, lekin tajriba grafigi o'z filtrini chetlab hisoblanadi
+  const senior = (await j("/api/stats/salary?experience=six_plus")).body;
+  if (senior.summary.count !== 0 || senior.byExperience[0].count !== 1) throw new Error("experience: " + JSON.stringify(senior.byExperience));
+  const bad = await j("/api/stats/salary?role=astronavt");
+  if (bad.status !== 400) throw new Error("noto'g'ri kasb: " + bad.status);
+});
+
 await check("robots.txt va sitemap sayt domeniga ishora qiladi", async () => {
   const robots = (await j("/robots.txt")).body;
   if (!robots.includes("Sitemap: https://sayt.example/sitemap.xml")) throw new Error(robots.slice(0, 200));
   const sm = (await j("/sitemap-vacancy.xml")).body;
-  if (!sm.includes(`https://sayt.example/vacancy/${vacancySlug}`)) throw new Error(sm.slice(0, 300));
+  if (!sm.includes(`https://sayt.example/vacancies/${vacancySlug}`)) throw new Error(sm.slice(0, 300));
 });
 
 await check("OG rasm chiziladi", async () => {
@@ -375,6 +511,122 @@ await check("tarif limiti: bepul rejada 3 ta faol vakansiya", async () => {
   if (over.status !== 402 || over.body.error !== "PLAN_LIMIT_REACHED") {
     throw new Error(over.status + " " + JSON.stringify(over.body));
   }
+});
+
+await check("rezyume bo'sh bo'limlar bilan saqlanadi (ta'lim/ko'nikmasiz)", async () => {
+  // MongoDB bo'sh `createMany` ni rad etadi — ilgari bu 500 berib, rezyumeni
+  // yarim yozib qo'yardi. Profil sahifasi har bo'limni alohida saqlaydi, shuning
+  // uchun bo'sh bo'limli hujjat odatiy holat.
+  const put = (data) =>
+    j("/api/resume", {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${seekerToken}` },
+      body: JSON.stringify(data),
+    });
+  const partial = await put({
+    title: "Frontend dasturchi", summary: "Qisqa tavsif", skills: [], education: [],
+    experience: [{ companyName: "X", position: "Dev", startDate: "2023-01", endDate: null, isCurrent: true }],
+  });
+  if (partial.status !== 200) throw new Error("qisman: " + partial.status + " " + JSON.stringify(partial.body).slice(0, 200));
+  const back = await j("/api/resume", { headers: { authorization: `Bearer ${seekerToken}` } });
+  const r = back.body.resume;
+  if (r?.summary !== "Qisqa tavsif" || r.experience.length !== 1 || r.education.length !== 0 || r.skills.length !== 0) {
+    throw new Error("saqlangan holat noto'g'ri: " + JSON.stringify(r).slice(0, 200));
+  }
+  const empty = await put({ title: "Frontend dasturchi", skills: [], experience: [], education: [] });
+  if (empty.status !== 200) throw new Error("hammasi bo'sh: " + empty.status);
+});
+
+await check("nomzodning o'z arizalari (GET /api/applications) — kompaniya bilan", async () => {
+  const { status, body } = await j("/api/applications", { headers: { authorization: `Bearer ${seekerToken}` } });
+  if (status !== 200 || !Array.isArray(body) || body.length < 1) throw new Error(status + " " + JSON.stringify(body).slice(0, 200));
+  const first = body[0];
+  if (!first.status || !first.vacancy?.slug || !first.vacancy?.company?.name) {
+    throw new Error("maydonlar yetishmaydi: " + JSON.stringify(first).slice(0, 200));
+  }
+  if (!first.vacancy.employmentType || !first.vacancy.experienceRequired || !("isVerified" in first.vacancy.company)) {
+    throw new Error("vakansiya metamaydonlari yo'q: " + JSON.stringify(first.vacancy).slice(0, 200));
+  }
+  // Kompaniyaning ichki maydonlari nomzodga chiqmaydi
+  if ("ownerUserId" in first.vacancy.company || "stir" in first.vacancy.company) {
+    throw new Error("kompaniya ichki maydonlari ochiq: " + JSON.stringify(first.vacancy.company).slice(0, 200));
+  }
+  if (first.resume?.title !== "Frontend dasturchi") throw new Error("rezyume: " + JSON.stringify(first.resume));
+  // Ish beruvchi holatni "invited" ga o'zgartirgan — tarixda haqiqiy yozuv bor
+  const last = first.statusHistory?.[first.statusHistory.length - 1];
+  if (first.status !== "invited" || last?.newStatus !== "invited" || !last.createdAt) {
+    throw new Error("holat tarixi: " + JSON.stringify(first.statusHistory));
+  }
+});
+
+await check("arizalar faqat egasiga ko'rinadi (boshqa nomzod — bo'sh, ish beruvchi — 403)", async () => {
+  const other = await post("/api/auth/register", {
+    email: "seeker2@test.uz", password: "parol12345", role: "job_seeker", firstName: "Boshqa", lastName: "Nomzod",
+  });
+  const mine = await j("/api/applications", { headers: { authorization: `Bearer ${other.body.accessToken}` } });
+  if (mine.status !== 200 || !Array.isArray(mine.body) || mine.body.length !== 0) {
+    throw new Error("begona arizalar ko'rindi: " + mine.status + " " + JSON.stringify(mine.body).slice(0, 200));
+  }
+  const employer = await j("/api/applications", { headers: { authorization: `Bearer ${employerToken}` } });
+  if (employer.status !== 403) throw new Error("ish beruvchi: " + employer.status);
+  const guest = await j("/api/applications");
+  if (guest.status !== 401) throw new Error("mehmon: " + guest.status);
+});
+
+await check("saqlangan vakansiyalar: javob shakli va faqat egasiga (ichki maydonlarsiz)", async () => {
+  const mine = await j("/api/favorites", { headers: { authorization: `Bearer ${seekerToken}` } });
+  const item = mine.body.items?.[0];
+  if (mine.status !== 200 || mine.body.items?.length !== 1 || item.id !== vacancyId) {
+    throw new Error("ro'yxat: " + mine.status + " " + JSON.stringify(mine.body).slice(0, 200));
+  }
+  if (!item.favoritedAt || typeof item.isClosed !== "boolean" || !item.company?.name || !("logoUrl" in item.company)) {
+    throw new Error("maydonlar: " + JSON.stringify(item).slice(0, 300));
+  }
+  if ("ownerUserId" in item.company || "stir" in item.company || "description" in item) {
+    throw new Error("ichki maydonlar chiqdi: " + Object.keys(item.company).join(","));
+  }
+  const other = await post("/api/auth/login", { email: "seeker2@test.uz", password: "parol12345" });
+  const theirs = await j("/api/favorites", { headers: { authorization: `Bearer ${other.body.accessToken}` } });
+  if (theirs.status !== 200 || theirs.body.items?.length !== 0) throw new Error("begona saqlanganlar: " + JSON.stringify(theirs.body).slice(0, 200));
+  const employer = await j("/api/favorites", { headers: { authorization: `Bearer ${employerToken}` } });
+  if (employer.status !== 403) throw new Error("ish beruvchi: " + employer.status);
+  const guest = await j("/api/favorites");
+  if (guest.status !== 401) throw new Error("mehmon: " + guest.status);
+});
+
+await check("bildirishnomalar: faqat egasiga (begona o'qish/o'chirish — 403), tashqi havola yo'q, hammasini o'qish, o'chirish", async () => {
+  const auth = { headers: { authorization: `Bearer ${seekerToken}` } };
+  const list = await j("/api/notifications?limit=100", auth);
+  const first = list.body.items?.[0];
+  if (list.status !== 200 || !first || typeof list.body.unreadCount !== "number") {
+    throw new Error("ro'yxat: " + list.status + " " + JSON.stringify(list.body).slice(0, 200));
+  }
+  const other = await post("/api/auth/login", { email: "seeker2@test.uz", password: "parol12345" });
+  const otherAuth = { headers: { authorization: `Bearer ${other.body.accessToken}` } };
+  const theirs = await j("/api/notifications?limit=100", otherAuth);
+  if ((theirs.body.items ?? []).some((n) => n.id === first.id)) throw new Error("begona bildirishnoma ko'rindi");
+  const readForeign = await post(`/api/notifications/${first.id}/read`, {}, other.body.accessToken);
+  if (readForeign.status !== 403) throw new Error("begona o'qish: " + readForeign.status);
+  const delForeign = await j(`/api/notifications/${first.id}`, { method: "DELETE", ...otherAuth });
+  if (delForeign.status !== 403) throw new Error("begona o'chirish: " + delForeign.status);
+
+  // payload.url "//host" — tashqi sayt, ro'yxatda havola bo'lmasligi kerak
+  const owner = await prisma.notification.findUnique({ where: { id: first.id }, select: { userId: true } });
+  const evil = await prisma.notification.create({
+    data: { userId: owner.userId, type: "system", title: "Tashqi havola", body: "test", payload: { url: "//evil.example/x" } },
+  });
+  const withEvil = await j("/api/notifications?limit=100", auth);
+  const evilItem = withEvil.body.items.find((n) => n.id === evil.id);
+  if (!evilItem || evilItem.url !== null) throw new Error("tashqi havola o'tib ketdi: " + JSON.stringify(evilItem));
+
+  const all = await post("/api/notifications/read-all", {}, seekerToken);
+  const count = await j("/api/notifications/unread-count", auth);
+  if (all.status !== 200 || count.body.count !== 0) throw new Error("hammasini o'qish: " + JSON.stringify(count.body));
+  const del = await j(`/api/notifications/${evil.id}`, { method: "DELETE", ...auth });
+  const after = await j("/api/notifications?limit=100", auth);
+  if (del.status !== 200 || after.body.items.some((n) => n.id === evil.id)) throw new Error("o'chirish: " + del.status);
+  const guest = await j("/api/notifications");
+  if (guest.status !== 401) throw new Error("mehmon: " + guest.status);
 });
 
 await prisma.$disconnect();

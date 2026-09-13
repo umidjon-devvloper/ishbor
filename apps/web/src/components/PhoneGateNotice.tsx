@@ -7,11 +7,11 @@ export function PhoneGateNotice({ className = "" }: { className?: string }) {
   const l = useHref();
   return (
     <div className={`animate-slide-down rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm ${className}`}>
-      <p className="font-600 text-ink">⚠️ {t.telegram.gateTitle}</p>
+      <p className="font-semibold text-ink">⚠️ {t.telegram.gateTitle}</p>
       <p className="mt-1 leading-relaxed text-dusk">{t.telegram.gateMessage}</p>
       <a
         href={l("/profile")}
-        className="mt-2 inline-block font-600 text-signal transition-colors hover:text-signal-dark"
+        className="mt-2 inline-block font-semibold text-signal transition-colors hover:text-signal-dark"
       >
         {t.telegram.gateAction} →
       </a>

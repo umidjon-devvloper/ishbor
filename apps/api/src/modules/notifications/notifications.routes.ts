@@ -39,11 +39,16 @@ const pushSubSchema = z.object({
   keys: z.object({ p256dh: z.string().min(10).max(255), auth: z.string().min(5).max(255) }),
 });
 
-/** Notification.payload ichidagi `url` ni xavfsiz o'qiydi (faqat ichki yo'l). */
+/**
+ * Notification.payload ichidagi `url` ni xavfsiz o'qiydi (faqat ichki yo'l).
+ * "//host" va "/\host" ham "/" bilan boshlanadi, lekin brauzer ularni boshqa saytga
+ * ochadi — rad etiladi.
+ */
 function urlFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
   const url = (payload as { url?: unknown }).url;
-  return typeof url === "string" && url.startsWith("/") ? url : null;
+  if (typeof url !== "string" || !url.startsWith("/") || url.startsWith("//") || url.startsWith("/\\")) return null;
+  return url;
 }
 
 export async function notificationRoutes(app: FastifyInstance) {

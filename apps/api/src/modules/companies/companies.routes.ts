@@ -9,6 +9,8 @@ import { Errors } from "../../common/errors.js";
 import { requireAuth, requireRole } from "../../common/auth-guard.js";
 import { uniqueSlug } from "../../common/slug.js";
 import { UPLOAD_DIR, ensureUploadDir } from "../../common/uploads.js";
+import { verifyAccessToken } from "../../common/jwt.js";
+import { listCompanies, listCompaniesQuery, similarCompanies } from "./companies.list.js";
 
 const LOGO_MIME_EXT: Record<string, string> = {
   "image/png": "png",
@@ -44,24 +46,23 @@ function normalizeWebsite(value?: string | null): string | null {
 }
 
 export async function companyRoutes(app: FastifyInstance) {
-  // Kompaniyalar katalogi (nomi bo'yicha qidiruv + reyting va faol vakansiya soni)
-  //
-  // `take` chegarasi bor: bu so'rov har bir kompaniya bilan birga uning barcha
-  // sharhlari va faol vakansiyalarini tortadi. Chegarasiz u kompaniyalar soni
-  // o'sishi bilan bazani ham, javob hajmini ham cheksiz bosardi.
+  // Kompaniyalar katalogi: qidiruv, filtrlar, saralash va cursor sahifalash
+  // (batafsil: companies.list.ts). Javob: { items, nextCursor, total }.
+  // `saved=1` faqat kirgan foydalanuvchi uchun — boshqa hollarda token shart emas.
   app.get("/api/companies", async (req) => {
-    const { text } = req.query as { text?: string };
-    const companies = await prisma.company.findMany({
-      where: text ? { name: { contains: text, mode: "insensitive" } } : {},
-      orderBy: [{ isVerified: "desc" }, { createdAt: "desc" }],
-      take: 100,
-      include: {
-        region: true,
-        reviews: { where: { status: "approved" }, select: { rating: true } },
-        vacancies: { where: { status: "active" }, select: { id: true } },
-      },
-    });
-    return { items: companies };
+    const query = listCompaniesQuery.parse(req.query);
+    let viewerId: string | undefined;
+    if (query.saved) {
+      const header = req.headers.authorization;
+      const token = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+      if (!token) throw Errors.unauthorized();
+      try {
+        viewerId = verifyAccessToken(token).sub;
+      } catch {
+        throw Errors.unauthorized("Token yaroqsiz yoki muddati tugagan");
+      }
+    }
+    return listCompanies(query, viewerId);
   });
 
   // Ish beruvchining o'z kompaniyasi (profil uchun)
@@ -198,6 +199,13 @@ export async function companyRoutes(app: FastifyInstance) {
     });
     if (!company) throw Errors.notFound("Kompaniya topilmadi");
     return company;
+  });
+
+  // Ochiq kompaniya sahifasidagi "O'xshash kompaniyalar"
+  app.get("/api/companies/:slug/similar", async (req) => {
+    const { slug } = req.params as { slug: string };
+    const { limit } = z.object({ limit: z.coerce.number().int().min(1).max(10).optional() }).parse(req.query);
+    return similarCompanies(slug, limit);
   });
 
   app.post(

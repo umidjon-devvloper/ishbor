@@ -77,19 +77,19 @@ function PaymentsTable() {
         <AdminTable
           head={
             <>
-              <th className="px-4 py-2.5 font-600">{t.admin.payments.company}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.payments.plan}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.payments.amount}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.payments.provider}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.payments.status}</th>
-              <th className="px-4 py-2.5 font-600">&nbsp;</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.payments.company}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.payments.plan}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.payments.amount}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.payments.provider}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.payments.status}</th>
+              <th className="px-4 py-2.5 font-semibold">&nbsp;</th>
             </>
           }
         >
           {(data?.items ?? []).map((row) => (
             <tr key={row.id} className="border-b border-line/60 last:border-0">
               <td className="px-4 py-3">
-                <span className="block font-600 text-ink">{row.companyName}</span>
+                <span className="block font-semibold text-ink">{row.companyName}</span>
                 <span className="block font-mono text-[11px] text-dusk">{row.transactionId}</span>
               </td>
               <td className="px-4 py-3 text-dusk">{row.planName}</td>
@@ -99,7 +99,7 @@ function PaymentsTable() {
               <td className="px-4 py-3 text-dusk">{row.provider}</td>
               <td className="px-4 py-3">
                 <span
-                  className={`rounded-md px-2 py-0.5 text-xs font-600 ${
+                  className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
                     row.status === "paid" ? "bg-growth/10 text-growth" : "bg-surface-2 text-dusk"
                   }`}
                 >

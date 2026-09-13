@@ -36,7 +36,7 @@ export function NotificationBell({ token }: { token: string | null }) {
           <path d="M13.7 19a2 2 0 01-3.4 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-signal px-1 text-[10px] font-700 leading-none text-white ring-2 ring-paper">
+          <span className="absolute -right-0.5 -top-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-signal px-1 text-[10px] font-bold leading-none text-white ring-2 ring-paper">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
@@ -45,7 +45,7 @@ export function NotificationBell({ token }: { token: string | null }) {
       {open && (
         <div className="absolute right-0 z-50 mt-2 w-[336px] max-w-[calc(100vw-2rem)] origin-top-right animate-pop overflow-hidden rounded-xl border border-line bg-surface shadow-pop">
           <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
-            <span className="font-display text-sm font-700 text-ink">{t.notifications.title}</span>
+            <span className="font-display text-sm font-bold text-ink">{t.notifications.title}</span>
             {unreadCount > 0 ? (
               <button
                 type="button"
@@ -115,7 +115,7 @@ function NotificationRow({
         aria-hidden
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-600 text-ink">{notification.title}</span>
+        <span className="block truncate text-sm font-semibold text-ink">{notification.title}</span>
         <span className="mt-0.5 block line-clamp-2 text-xs leading-relaxed text-dusk">
           {notification.body}
         </span>

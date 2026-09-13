@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchInboxSummary } from "./api.js";
+import { INBOX_CHANGED } from "./messages/events.js";
 import type { InboxSummary } from "./types.js";
 
 const EMPTY: InboxSummary = { unreadMessages: 0, newApplications: 0 };
@@ -26,12 +27,14 @@ export function useInboxSummary(token: string | null) {
     }
     refresh();
     const id = window.setInterval(refresh, 20000);
-    // Boshqa sahifadan qaytganda darrov yangilash uchun
+    // Boshqa sahifadan qaytganda va /messages'da suhbat o'qilganda darrov yangilash uchun
     const onFocus = () => refresh();
     window.addEventListener("focus", onFocus);
+    window.addEventListener(INBOX_CHANGED, onFocus);
     return () => {
       window.clearInterval(id);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(INBOX_CHANGED, onFocus);
     };
   }, [token, refresh]);
 

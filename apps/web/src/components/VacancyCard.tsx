@@ -41,7 +41,7 @@ export function VacancyCard({
 
       {/* Yuqori qator: kompaniya + vaqt */}
       <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-2 font-display text-sm font-700 text-ink ring-1 ring-line">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-2 font-display text-sm font-bold text-ink ring-1 ring-line">
           {vacancy.companyName.charAt(0)}
         </span>
         <p className="min-w-0 flex-1 truncate text-[13px] text-dusk">
@@ -56,18 +56,18 @@ export function VacancyCard({
       {/* Sarlavha */}
       <div className="mt-3 flex items-start gap-2">
         <a
-          href={l(`/vacancy/${vacancy.slug}`)}
-          className="font-display text-[16px] font-600 leading-snug tracking-tight text-ink transition-colors before:absolute before:inset-0 before:content-[''] group-hover:text-signal"
+          href={l(`/vacancies/${vacancy.slug}`)}
+          className="font-display text-[16px] font-semibold leading-snug tracking-tight text-ink transition-colors before:absolute before:inset-0 before:content-[''] group-hover:text-signal"
         >
           {vacancy.title}
         </a>
         {vacancy.isPremium && (
-          <span className="mt-0.5 shrink-0 rounded bg-gold px-1.5 py-0.5 text-[9px] font-700 uppercase tracking-wider text-[#231A05]">
+          <span className="mt-0.5 shrink-0 rounded bg-gold px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#231A05]">
             {t.vacancyCard.premium}
           </span>
         )}
         {vacancy.isUrgent && !vacancy.isPremium && (
-          <span className="mt-0.5 shrink-0 rounded border border-gold-deep/40 px-1.5 py-0.5 text-[9px] font-700 uppercase tracking-wider text-gold-deep">
+          <span className="mt-0.5 shrink-0 rounded border border-gold-deep/40 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gold-deep">
             {t.vacancyCard.urgent}
           </span>
         )}
@@ -75,7 +75,7 @@ export function VacancyCard({
 
       {/* Pastki qator: maosh + meta + yurakcha */}
       <div className="mt-auto flex items-center gap-3 pt-4">
-        <span className="font-mono text-[13.5px] font-600 tabular-nums text-growth">
+        <span className="font-mono text-[13.5px] font-semibold tabular-nums text-growth">
           {formatSalary(vacancy.salaryMin, vacancy.salaryMax, t.fmt, vacancy.isSalaryHidden)}
         </span>
         <span className="hidden min-w-0 truncate text-xs text-dusk sm:block">

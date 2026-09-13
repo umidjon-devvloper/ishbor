@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useCallback, useEffect } from "react";
 import { usePageContext } from "vike-react/usePageContext";
 import { getMessages, type Messages } from "./messages.js";
-import { DEFAULT_LOCALE, isLocale, localizeHref, type Locale } from "./config.js";
+import { localizeHref, type Locale } from "./config.js";
+import { pageLocale } from "./pageLocale.js";
 
 interface I18nState {
   locale: Locale;
@@ -14,7 +15,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const pageContext = usePageContext();
   // Til URL'dan (onBeforeRoute) keladi. pageContext navigatsiyada yangilanadi —
   // shuning uchun til almashtirilganda butun daraxt yangi tilda qayta render bo'ladi.
-  const locale = isLocale(pageContext.locale) ? pageContext.locale : DEFAULT_LOCALE;
+  const { locale } = pageLocale(pageContext);
 
   useEffect(() => {
     if (typeof document !== "undefined") document.documentElement.lang = locale;

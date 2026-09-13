@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { ApplicationStatus } from "@prisma/client";
 import type { SocketStream } from "@fastify/websocket";
 import { z } from "zod";
 import { objectId } from "../../common/validation.js";
@@ -45,6 +46,9 @@ const startSchema = z.object({
   companySlug: z.string().optional(),
 });
 
+/** Suhbat kontekstidagi arizani tanlash tartibi: taklif/qabul — faol muloqot, rad etilgan — oxirida. */
+const CONTEXT_RANK: Record<ApplicationStatus, number> = { invited: 0, accepted: 1, viewed: 2, sent: 3, rejected: 4 };
+
 const rateSchema = z.object({
   score: z.number().int().min(1).max(5),
   comment: z.string().max(1000).optional(),
@@ -77,7 +81,7 @@ export async function chatRoutes(app: FastifyInstance) {
     addSocket(userId, ws);
 
     ws.on("message", async (raw) => {
-      let data: { type?: string; conversationId?: string; body?: string };
+      let data: { type?: string; conversationId?: string; body?: string; clientId?: unknown };
       try {
         data = JSON.parse(raw.toString());
       } catch {
@@ -107,19 +111,18 @@ export async function chatRoutes(app: FastifyInstance) {
       const saved = await prisma.message.create({
         data: { conversationId, senderId: userId, body: body.slice(0, 4000) },
       });
-      const payload = JSON.stringify({
-        type: "message",
-        message: {
-          id: saved.id,
-          conversationId,
-          senderId: userId,
-          body: saved.body,
-          isRead: false,
-          createdAt: saved.createdAt,
-        },
-      });
-      sendToUser(parts.seekerId, payload);
-      sendToUser(parts.employerId, payload);
+      const message = {
+        id: saved.id,
+        conversationId,
+        senderId: userId,
+        body: saved.body,
+        isRead: false,
+        createdAt: saved.createdAt,
+      };
+      // Yuboruvchi oynasi o'z `clientId`sini qaytarib oladi — "yuborilmoqda" pufagi shu bilan tasdiqlanadi
+      const clientId = typeof data.clientId === "string" && data.clientId.length <= 64 ? data.clientId : undefined;
+      sendToUser(userId, JSON.stringify({ type: "message", message, ...(clientId ? { clientId } : {}) }));
+      sendToUser(otherId, JSON.stringify({ type: "message", message }));
 
       // Qabul qiluvchi saytda oflayn bo'lsa — Telegram orqali xabar beramiz
       if (!isOnline(otherId)) {
@@ -162,11 +165,24 @@ export async function chatRoutes(app: FastifyInstance) {
     const convs = await prisma.conversation.findMany({
       where: { OR: [{ employerUserId: userId }, { seekerUserId: userId }] },
       include: {
-        company: { select: { name: true, slug: true } },
-        seeker: {
-          select: { email: true, jobSeekerProfile: { select: { firstName: true, lastName: true, headline: true } } },
+        company: {
+          select: {
+            name: true,
+            slug: true,
+            logoUrl: true,
+            isVerified: true,
+            industry: true,
+            description: true,
+            region: { select: { name: true } },
+          },
         },
-        employer: { select: { email: true } },
+        seeker: {
+          select: {
+            email: true,
+            jobSeekerProfile: { select: { firstName: true, lastName: true, headline: true, avatarUrl: true } },
+          },
+        },
+        employer: { select: { email: true, role: true } },
         messages: { orderBy: { createdAt: "desc" }, take: 1 },
       },
     });
@@ -181,6 +197,51 @@ export async function chatRoutes(app: FastifyInstance) {
       : [];
     const unreadMap = new Map(unreadRows.map((r) => [r.conversationId, r._count._all]));
 
+    // Vakansiya konteksti: suhbatda vakansiya maydoni yo'q — nomzodning shu kompaniya
+    // vakansiyalariga bergan arizasidan olinadi (bir nechta bo'lsa — faol bosqichdagisi).
+    const withCompany = convs.filter((c) => c.companyId);
+    const applications = withCompany.length
+      ? await prisma.application.findMany({
+          where: {
+            jobSeekerId: { in: [...new Set(withCompany.map((c) => c.seekerUserId))] },
+            vacancy: { is: { companyId: { in: [...new Set(withCompany.map((c) => c.companyId as string))] } } },
+          },
+          select: {
+            jobSeekerId: true,
+            status: true,
+            createdAt: true,
+            vacancy: {
+              select: {
+                companyId: true,
+                title: true,
+                slug: true,
+                status: true,
+                employmentType: true,
+                experienceRequired: true,
+                salaryMin: true,
+                salaryMax: true,
+                currency: true,
+                isSalaryHidden: true,
+                region: { select: { name: true } },
+              },
+            },
+          },
+        })
+      : [];
+    const contextOf = new Map<string, (typeof applications)[number]>();
+    for (const application of applications) {
+      const key = `${application.jobSeekerId}:${application.vacancy.companyId}`;
+      const current = contextOf.get(key);
+      const rank = CONTEXT_RANK[application.status];
+      if (
+        !current ||
+        rank < CONTEXT_RANK[current.status] ||
+        (rank === CONTEXT_RANK[current.status] && application.createdAt > current.createdAt)
+      ) {
+        contextOf.set(key, application);
+      }
+    }
+
     const items = convs.map((c) => {
       const iAmEmployer = c.employerUserId === userId;
       const sp = c.seeker.jobSeekerProfile;
@@ -188,6 +249,7 @@ export async function chatRoutes(app: FastifyInstance) {
       const title = iAmEmployer ? seekerName : c.company?.name ?? c.employer.email;
       const subtitle = iAmEmployer ? sp?.headline ?? c.seeker.email : c.company?.name ? "Ish beruvchi" : c.employer.email;
       const last = c.messages[0];
+      const vacancy = c.companyId ? contextOf.get(`${c.seekerUserId}:${c.companyId}`)?.vacancy : undefined;
       return {
         id: c.id,
         title,
@@ -197,6 +259,37 @@ export async function chatRoutes(app: FastifyInstance) {
         lastMessage: last?.body ?? null,
         lastMessageAt: last?.createdAt ?? c.createdAt,
         unread: unreadMap.get(c.id) ?? 0,
+        // /messages sahifasi uchun qo'shimcha (ixtiyoriy) maydonlar
+        otherRole: iAmEmployer ? "job_seeker" : c.employer.role,
+        otherHeadline: iAmEmployer ? sp?.headline ?? null : null,
+        avatarUrl: iAmEmployer ? sp?.avatarUrl ?? null : c.company?.logoUrl ?? null,
+        lastMessageMine: last ? last.senderId === userId : false,
+        lastMessageRead: last?.isRead ?? false,
+        company: c.company
+          ? {
+              name: c.company.name,
+              slug: c.company.slug,
+              logoUrl: c.company.logoUrl,
+              isVerified: c.company.isVerified,
+              industry: c.company.industry,
+              description: c.company.description,
+              regionName: c.company.region?.name ?? null,
+            }
+          : null,
+        vacancy: vacancy
+          ? {
+              title: vacancy.title,
+              slug: vacancy.slug,
+              isClosed: vacancy.status !== "active",
+              employmentType: vacancy.employmentType,
+              experienceRequired: vacancy.experienceRequired,
+              // Yashirilgan maosh raqamlari javobga umuman qo'shilmaydi
+              salaryMin: vacancy.isSalaryHidden ? null : vacancy.salaryMin,
+              salaryMax: vacancy.isSalaryHidden ? null : vacancy.salaryMax,
+              currency: vacancy.currency,
+              regionName: vacancy.region?.name ?? null,
+            }
+          : null,
       };
     });
 

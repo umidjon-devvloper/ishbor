@@ -100,11 +100,11 @@ function VacanciesTable() {
           minWidth={780}
           head={
             <>
-              <th className="px-4 py-2.5 font-600">{t.admin.nav.vacancies}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.vacancies.status}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.vacancies.views}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.vacancies.applications}</th>
-              <th className="px-4 py-2.5 font-600">&nbsp;</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.nav.vacancies}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.vacancies.status}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.vacancies.views}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.vacancies.applications}</th>
+              <th className="px-4 py-2.5 font-semibold">&nbsp;</th>
             </>
           }
         >
@@ -112,8 +112,8 @@ function VacanciesTable() {
             <tr key={row.id} className="border-b border-line/60 last:border-0">
               <td className="px-4 py-3">
                 <a
-                  href={l(`/vacancy/${row.slug}`)}
-                  className="block font-600 text-ink transition-colors hover:text-signal"
+                  href={l(`/vacancies/${row.slug}`)}
+                  className="block font-semibold text-ink transition-colors hover:text-signal"
                 >
                   {row.title}
                 </a>
@@ -123,7 +123,7 @@ function VacanciesTable() {
                   {row.salaryMin ? ` · ${formatNumber(row.salaryMin)}` : ""}
                 </span>
                 {row.isPremium && (
-                  <span className="mt-1 inline-block rounded-md bg-gold/20 px-1.5 py-0.5 text-[10px] font-700 uppercase text-gold-deep">
+                  <span className="mt-1 inline-block rounded-md bg-gold/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-gold-deep">
                     {t.vacancyCard.premium}
                   </span>
                 )}

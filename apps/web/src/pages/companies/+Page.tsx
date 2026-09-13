@@ -1,78 +1,185 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useData } from "vike-react/useData";
 import type { data } from "./+data.js";
-import { CompanyCard } from "../../components/CompanyCard.js";
-import { CompanyCardSkeleton, SkeletonGrid } from "../../components/Skeleton.js";
-import { fetchCompanies } from "../../lib/api.js";
+import { fetchFeaturedCompanies } from "../../lib/api.js";
 import type { Company } from "../../lib/types.js";
 import { useT, useHref } from "../../lib/i18n/index.js";
 import { useRedirectRole } from "../../lib/useRoleGuard.js";
+import { useAuth } from "../../components/AuthContext.js";
+import { useCompanyQuery } from "../../lib/companies/useCompanyQuery.js";
+import { useSavedCompanies } from "../../lib/companies/useSavedCompanies.js";
+import { clearFilters, countFilters, toSearchParams, type CompanyQuery } from "../../lib/companies/query.js";
+import { CompaniesHero } from "../../components/companies/CompaniesHero.js";
+import { CompanySearch } from "../../components/companies/CompanySearch.js";
+import { QuickCompanyFilters } from "../../components/companies/QuickCompanyFilters.js";
+import { FeaturedCompanies } from "../../components/companies/FeaturedCompanies.js";
+import { CompanyFilters } from "../../components/companies/CompanyFilters.js";
+import { CompanyFilterDrawer } from "../../components/companies/CompanyFilterDrawer.js";
+import { ActiveFilterChips, CompanyToolbar } from "../../components/companies/CompanyToolbar.js";
+import { CompanyResults } from "../../components/companies/CompanyResults.js";
+import { CompanyGridSkeleton } from "../../components/companies/CompanySkeleton.js";
+import { SavedLoginState } from "../../components/companies/CompaniesStates.js";
+import type { CardView } from "../../components/companies/CompanyCard.js";
+
+type Data = Awaited<ReturnType<typeof data>>;
+
+const VIEW_KEY = "ishbor:companies:view";
+
+/** Katak/ro'yxat tanlovi — shu brauzerda eslab qolinadi (SSR'da doim katak). */
+function useCardView(): [CardView, (view: CardView) => void] {
+  const [view, setView] = useState<CardView>("grid");
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(VIEW_KEY) === "list") setView("list");
+    } catch {
+      // saqlash bloklangan — standart ko'rinish
+    }
+  }, []);
+  const change = useCallback((next: CardView) => {
+    setView(next);
+    try {
+      window.localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // e'tiborsiz
+    }
+  }, []);
+  return [view, change];
+}
 
 export default function Page() {
-  const initial = useData<Awaited<ReturnType<typeof data>>>();
+  const initial = useData<Data>();
   const t = useT();
   const l = useHref();
   useRedirectRole("employer", "/employer/candidates");
-  const [companies, setCompanies] = useState<Company[]>(initial.companies);
-  const [text, setText] = useState("");
-  const [loading, setLoading] = useState(false);
+  const { status } = useAuth();
+  const { query, urlQuery, urlKey, pending, update } = useCompanyQuery();
+  const saved = useSavedCompanies();
+  const [view, setView] = useCardView();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [total, setTotal] = useState<number | null>(initial.first?.total ?? null);
+  const resultsRef = useRef<HTMLElement>(null);
 
-  async function runSearch(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    const result = await fetchCompanies(text || undefined);
-    setCompanies(result);
-    setLoading(false);
-  }
+  // "Top kompaniyalar": serverdan kelgani, sahifaga boshqa sahifadan o'tilganda esa brauzerda
+  const [featured, setFeatured] = useState<Company[] | null>(initial.featured);
+  useEffect(() => {
+    if (initial.featured) setFeatured(initial.featured);
+  }, [initial.featured]);
+  useEffect(() => {
+    if (featured === null) void fetchFeaturedCompanies().then(setFeatured);
+    // faqat birinchi yuklanishda
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    setTotal(initial.first?.total ?? null);
+  }, [initial.key, initial.first]);
+
+  const params = useMemo(() => toSearchParams(urlQuery), [urlQuery]);
+
+  /** Filtr o'zgarishi: URL yangilanadi, sahifa natijalar boshidan pastda bo'lsa — tepaga. */
+  const change = useCallback(
+    (patch: Partial<CompanyQuery> | ((current: CompanyQuery) => CompanyQuery)) => {
+      update(patch);
+      const el = resultsRef.current;
+      if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    [update]
+  );
+
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+
+  const { enabled: saveEnabled, toggle: toggleSaved } = saved;
+  const onToggleSave = useCallback(
+    (company: Company) => {
+      if (saveEnabled) void toggleSaved(company.id);
+      else window.location.assign(l("/login"));
+    },
+    [saveEnabled, toggleSaved, l]
+  );
+
+  // Mehmon ham yurakchani ko'radi (bosganda kirishga taklif); tekshiruv tugamaguncha — yashirin
+  const canSave = saved.enabled || status === "guest";
+  const filterCount = countFilters(query);
+  const savedNeedsLogin = urlQuery.saved && status === "guest";
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <div className="mb-2 text-sm text-dusk">
-        <a href={l("/")} className="hover:text-signal">
-          {t.search.breadcrumbHome}
-        </a>{" "}
-        / {t.companies.breadcrumb}
-      </div>
-      <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.companies.title}</h1>
-      <p className="mt-1 text-sm text-dusk">{t.companies.subtitle(companies.length)}</p>
+    <div className="mx-auto max-w-7xl px-4 pb-16 sm:px-6">
+      <CompaniesHero>
+        <CompanySearch value={query.q} pending={pending} onSearch={(q) => update({ q }, { replace: true })} />
+      </CompaniesHero>
 
-      <form onSubmit={runSearch} className="mt-5 flex max-w-xl gap-2">
-        <div className="flex flex-1 items-center gap-2.5 rounded-xl border border-line bg-surface px-4 focus-within:border-signal">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="shrink-0 text-dusk" aria-hidden>
-            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-            <path d="M20 20L16.5 16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-          <input
-            type="text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={t.companies.searchPlaceholder}
-            className="h-11 w-full bg-transparent text-sm text-ink placeholder:text-dusk focus:outline-none"
+      <div className="mt-5">
+        <QuickCompanyFilters query={query} onChange={change} />
+      </div>
+
+      <FeaturedCompanies items={featured} />
+
+      <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-[264px_minmax(0,1fr)]">
+        <aside className="hidden lg:block" aria-label={t.companiesPage.filters.title}>
+          <div className="sticky top-24 max-h-[calc(100vh-7.5rem)] overflow-y-auto overscroll-contain rounded-3xl border border-line bg-surface p-5 shadow-card">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <h2 className="font-display text-[17px] font-bold text-ink">{t.companiesPage.filters.title}</h2>
+              {filterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => change((current) => clearFilters(current, true))}
+                  className="rounded-md text-[13px] font-semibold text-signal hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  {t.companiesPage.filters.clear}
+                </button>
+              )}
+            </div>
+            <CompanyFilters value={query} onChange={change} canFilterSaved={saved.enabled} />
+          </div>
+        </aside>
+
+        <section ref={resultsRef} className="min-w-0 scroll-mt-28" aria-busy={pending}>
+          <CompanyToolbar
+            total={pending ? null : total}
+            query={query}
+            view={view}
+            onViewChange={setView}
+            onSortChange={(sort) => change({ sort })}
+            onOpenFilters={() => setDrawerOpen(true)}
           />
-        </div>
-        <button
-          type="submit"
-          className="h-11 shrink-0 rounded-xl bg-signal px-5 text-sm font-semibold text-white transition-colors hover:bg-signal-dark"
-        >
-          {t.home.searchButton}
-        </button>
-      </form>
+          <div className="mt-3 empty:hidden">
+            <ActiveFilterChips query={query} onChange={(next) => change(() => next)} />
+          </div>
 
-      <div className="mt-7">
-        {loading ? (
-          <SkeletonGrid count={6} Item={CompanyCardSkeleton} className="grid grid-cols-1 gap-4 sm:grid-cols-2" />
-        ) : companies.length === 0 ? (
-          <div className="rounded-2xl border border-line bg-surface p-10 text-center text-sm text-dusk">
-            {t.companies.empty}
+          <div className="mt-5">
+            {savedNeedsLogin ? (
+              <SavedLoginState loginHref={l("/login")} />
+            ) : pending ? (
+              <CompanyGridSkeleton count={6} view={view} />
+            ) : (
+              <CompanyResults
+                key={urlKey}
+                params={params}
+                initial={initial.key === urlKey ? initial.first : null}
+                token={saved.accessToken}
+                needsToken={urlQuery.saved}
+                view={view}
+                isSaved={canSave ? saved.isSaved : undefined}
+                onToggleSave={canSave ? onToggleSave : undefined}
+                onTotal={setTotal}
+                onReset={() => change((current) => clearFilters(current))}
+                savedMode={urlQuery.saved}
+              />
+            )}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {companies.map((c, i) => (
-              <CompanyCard key={c.slug} company={c} index={i} />
-            ))}
-          </div>
-        )}
+        </section>
       </div>
+
+      <CompanyFilterDrawer
+        open={drawerOpen}
+        value={query}
+        canFilterSaved={saved.enabled}
+        onClose={closeDrawer}
+        onApply={(next) => {
+          setDrawerOpen(false);
+          change(() => next);
+        }}
+      />
     </div>
   );
 }

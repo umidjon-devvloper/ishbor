@@ -84,8 +84,25 @@ export default {
           "0%": { opacity: "0.01", transform: "translateY(18px) scale(0.98)" },
           "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
         },
+        // Filtr paneli: telefonda pastdan, planshetda o'ngdan
+        "sheet-in": {
+          "0%": { transform: "translateY(24px)", opacity: "0" },
+          "100%": { transform: "translateY(0)", opacity: "1" },
+        },
+        "drawer-in": {
+          "0%": { transform: "translateX(32px)", opacity: "0" },
+          "100%": { transform: "translateX(0)", opacity: "1" },
+        },
+        // Maosh grafiklari: ustunlar pastdan o'sadi (origin-bottom bilan)
+        "bar-grow": {
+          "0%": { transform: "scaleY(0)" },
+          "100%": { transform: "scaleY(1)" },
+        },
       },
       animation: {
+        "bar-grow": "bar-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) both",
+        "sheet-in": "sheet-in 0.22s ease-out",
+        "drawer-in": "drawer-in 0.22s ease-out",
         pop: "pop 0.16s ease-out",
         "slide-down": "slide-down 0.2s ease-out",
         "fade-in": "fade-in 0.3s ease-out",

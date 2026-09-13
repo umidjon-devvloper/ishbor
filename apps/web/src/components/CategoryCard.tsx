@@ -25,7 +25,7 @@ export function CategoryCard({
   const l = useHref();
   return (
     <a
-      href={l(`/search/vacancy?categorySlug=${slug}`)}
+      href={l(`/vacancies?category=${slug}`)}
       style={{ animationDelay: `${Math.min(index * 50, 250)}ms` }}
       className="group flex animate-fade-up flex-col rounded-2xl border border-line bg-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-card-hover"
     >
@@ -41,7 +41,7 @@ export function CategoryCard({
           </svg>
         </span>
       </div>
-      <p className="mt-4 font-display text-[15px] font-600 leading-snug text-ink transition-colors group-hover:text-signal">
+      <p className="mt-4 font-display text-[15px] font-semibold leading-snug text-ink transition-colors group-hover:text-signal">
         {name}
       </p>
       <span className="mt-1 font-mono text-[13px] tabular-nums text-dusk">{t.fmt.vacanciesCount(count)}</span>

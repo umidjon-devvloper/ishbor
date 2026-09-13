@@ -121,18 +121,18 @@ export default function Page() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <h1 className="mb-5 font-display text-2xl font-700 text-ink sm:text-3xl">{t.chat.title}</h1>
+      <h1 className="mb-5 font-display text-2xl font-bold text-ink sm:text-3xl">{t.chat.title}</h1>
 
       {conversations.length === 0 ? (
         <div className="animate-fade-up rounded-2xl border border-line bg-surface p-12 text-center">
-          <p className="font-display text-lg font-600 text-ink">{t.chat.empty}</p>
+          <p className="font-display text-lg font-semibold text-ink">{t.chat.empty}</p>
           <p className="mt-1 text-sm text-dusk">{t.chat.emptyHint}</p>
         </div>
       ) : (
         <div className="grid h-[68vh] grid-cols-1 overflow-hidden rounded-2xl border border-line bg-surface md:grid-cols-[320px_1fr]">
           {/* Suhbatlar ro'yxati */}
           <div className={`flex-col border-line md:flex md:border-r ${activeId ? "hidden" : "flex"}`}>
-            <div className="border-b border-line px-4 py-3 font-display text-sm font-600 text-ink">
+            <div className="border-b border-line px-4 py-3 font-display text-sm font-semibold text-ink">
               {t.chat.conversations}
             </div>
             <div className="flex-1 overflow-y-auto">
@@ -144,14 +144,14 @@ export default function Page() {
                     c.id === activeId ? "bg-surface-2" : ""
                   }`}
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-sm font-700 text-ink">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-sm font-bold text-ink">
                     {c.title.charAt(0).toUpperCase()}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-600 text-ink">{c.title}</span>
+                      <span className="truncate text-sm font-semibold text-ink">{c.title}</span>
                       {c.unread > 0 && (
-                        <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-signal px-1 text-[10px] font-700 leading-none text-white">
+                        <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-signal px-1 text-[10px] font-bold leading-none text-white">
                           {c.unread > 99 ? "99+" : c.unread}
                         </span>
                       )}
@@ -160,7 +160,7 @@ export default function Page() {
                     {c.lastMessage && (
                       <span
                         className={`mt-0.5 line-clamp-1 text-xs ${
-                          c.unread > 0 ? "font-600 text-ink" : "text-dusk"
+                          c.unread > 0 ? "font-semibold text-ink" : "text-dusk"
                         }`}
                       >
                         {c.lastMessage}
@@ -198,11 +198,11 @@ export default function Page() {
                     title={t.chat.partnerInfo}
                     className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left transition-colors hover:bg-surface-2/60"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-signal font-display text-sm font-700 text-white">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-signal font-display text-sm font-bold text-white">
                       {active.title.charAt(0).toUpperCase()}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-600 text-ink transition-colors group-hover:text-signal">
+                      <span className="block truncate text-sm font-semibold text-ink transition-colors group-hover:text-signal">
                         {active.title}
                       </span>
                       <span className="flex items-center gap-2">
@@ -220,7 +220,7 @@ export default function Page() {
                       berilmagan bo'lsa — tugma */}
                   {rating &&
                     (rating.myScore ? (
-                      <span className="flex shrink-0 items-center gap-1 rounded-lg bg-gold/10 px-2.5 py-1.5 text-xs font-700 text-gold-deep">
+                      <span className="flex shrink-0 items-center gap-1 rounded-lg bg-gold/10 px-2.5 py-1.5 text-xs font-bold text-gold-deep">
                         <span aria-hidden className="text-gold">★</span>
                         {rating.myScore}/5
                       </span>
@@ -433,7 +433,7 @@ function PartnerModal({ partner, onClose }: { partner: UserSummary | null; onClo
         ) : (
           <>
             <div className="flex items-start gap-3.5">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-surface-2 font-display text-xl font-700 text-ink">
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-surface-2 font-display text-xl font-bold text-ink">
                 {partner.company?.logoUrl ? (
                   <img src={partner.company.logoUrl} alt="" width={56} height={56} decoding="async" className="h-full w-full object-cover" />
                 ) : (
@@ -441,7 +441,7 @@ function PartnerModal({ partner, onClose }: { partner: UserSummary | null; onClo
                 )}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="font-display text-lg font-700 leading-tight text-ink">{partner.name}</p>
+                <p className="font-display text-lg font-bold leading-tight text-ink">{partner.name}</p>
                 {partner.headline && <p className="mt-0.5 text-sm text-dusk">{partner.headline}</p>}
                 {partner.company?.industry && (
                   <p className="mt-0.5 text-sm text-dusk">{partner.company.industry}</p>
@@ -460,7 +460,7 @@ function PartnerModal({ partner, onClose }: { partner: UserSummary | null; onClo
                 <p className="text-dusk">📍 {partner.regionName}</p>
               )}
               {partner.role === "job_seeker" && partner.isOpenToWork && (
-                <p className="inline-flex rounded-md bg-growth/10 px-2 py-0.5 text-xs font-600 text-growth">
+                <p className="inline-flex rounded-md bg-growth/10 px-2 py-0.5 text-xs font-semibold text-growth">
                   {t.chat.openToWorkYes}
                 </p>
               )}
@@ -485,7 +485,7 @@ function PartnerModal({ partner, onClose }: { partner: UserSummary | null; onClo
             <div className="mt-5 flex items-center justify-between gap-3">
               {partner.company ? (
                 <a
-                  href={l(`/employer/${partner.company.slug}`)}
+                  href={l(`/companies/${partner.company.slug}`)}
                   className="text-sm font-medium text-signal hover:underline"
                 >
                   {t.employerProfile.view} →

@@ -118,7 +118,7 @@ export function EmployerCompanyForm({
               className="h-full w-full object-cover"
             />
           ) : (
-            <span className="font-display text-2xl font-700 text-dusk">
+            <span className="font-display text-2xl font-bold text-dusk">
               {(name || "?").charAt(0).toUpperCase()}
             </span>
           )}
@@ -212,7 +212,7 @@ export function EmployerCompanyForm({
         </button>
         {saved && <span className="text-sm font-medium text-growth">{t.employerProfile.saved}</span>}
         {slug && (
-          <a href={l(`/employer/${slug}`)} className="text-sm font-medium text-dusk hover:text-signal">
+          <a href={l(`/companies/${slug}`)} className="text-sm font-medium text-dusk hover:text-signal">
             {t.employerProfile.view} →
           </a>
         )}

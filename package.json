@@ -18,6 +18,7 @@
     "db:push": "npm --prefix apps/api run prisma:push",
     "db:studio": "npm --prefix apps/api run prisma:studio",
     "db:seed": "npm --prefix apps/api run prisma:seed",
+    "db:demo": "npm --prefix apps/api run seed:demo --",
     "push:keys": "npm --prefix apps/api run push:keys",
     "alerts:run": "npm --prefix apps/api run alerts:run"
   }

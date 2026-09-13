@@ -196,10 +196,15 @@ export async function searchVacancyIds(
   if (!index) return null;
 
   const filters: string[] = ['status = "active"'];
+  // Hudud, tajriba va bandlik — bitta qiymat yoki vergul bilan bir nechtasi
+  const oneOf = (field: string, value: string | undefined) => {
+    const list = (value ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+    if (list.length) filters.push(`${field} IN [${list.map((v) => `"${escapeFilter(v)}"`).join(", ")}]`);
+  };
   if (query.categorySlug) filters.push(`categorySlug = "${escapeFilter(query.categorySlug)}"`);
-  if (query.area) filters.push(`regionSlug = "${escapeFilter(query.area)}"`);
-  if (query.experience) filters.push(`experienceRequired = "${escapeFilter(query.experience)}"`);
-  if (query.employment) filters.push(`employmentType = "${escapeFilter(query.employment)}"`);
+  oneOf("regionSlug", query.area);
+  oneOf("experienceRequired", query.experience);
+  oneOf("employmentType", query.employment);
   if (query.salary) filters.push(`salaryMin >= ${Math.trunc(query.salary)}`);
   if (query.salaryTo) filters.push(`salaryMin <= ${Math.trunc(query.salaryTo)}`);
 

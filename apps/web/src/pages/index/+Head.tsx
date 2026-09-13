@@ -18,7 +18,7 @@ export default function Head() {
       "@type": "SearchAction",
       target: {
         "@type": "EntryPoint",
-        urlTemplate: `${SITE_ORIGIN}${localizeHref("/search/vacancy", locale)}?text={search_term_string}`,
+        urlTemplate: `${SITE_ORIGIN}${localizeHref("/vacancies", locale)}?q={search_term_string}`,
       },
       "query-input": "required name=search_term_string",
     },

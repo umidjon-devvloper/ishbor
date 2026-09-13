@@ -6,14 +6,16 @@ import {
   markNotificationRead,
   deleteNotification as deleteNotificationApi,
 } from "./apiExtra.js";
+import { NOTIFICATIONS_CHANGED, emitNotificationReceived } from "./notifications/events.js";
 import type { AppNotification } from "./types.js";
 
 /**
- * Header qo'ng'irog'i va bildirishnomalar sahifasi uchun.
+ * Header qo'ng'irog'i uchun (to'liq markaz — `/notifications`, `useNotificationCenter`).
  *
  * Ikki manba: WebSocket (darrov keladi, sayt ochiq bo'lsa) va davriy so'rov
  * (socket uzilib qolsa ham son to'g'ri qoladi). Ikkalasi bir-birini to'ldiradi —
  * WS xabari kelganda ro'yxat boshiga qo'shiladi, so'rov esa to'liq holatni tiklaydi.
+ * Kelgan xabar sahifaga ham uzatiladi; sahifada o'zgarish bo'lsa son qayta so'raladi.
  */
 export function useNotifications(token: string | null, options?: { limit?: number }) {
   const [items, setItems] = useState<AppNotification[]>([]);
@@ -45,9 +47,12 @@ export function useNotifications(token: string | null, options?: { limit?: numbe
     const id = window.setInterval(() => void refresh(), 45_000);
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
+    // `/notifications` sahifasida o'qildi/o'chirildi — son va ro'yxat yangilansin
+    window.addEventListener(NOTIFICATIONS_CHANGED, onFocus);
     return () => {
       window.clearInterval(id);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(NOTIFICATIONS_CHANGED, onFocus);
     };
   }, [token, refresh]);
 
@@ -66,6 +71,7 @@ export function useNotifications(token: string | null, options?: { limit?: numbe
           prev.some((n) => n.id === incoming.id) ? prev : [incoming, ...prev].slice(0, limit)
         );
         setUnreadCount((c) => c + 1);
+        emitNotificationReceived(incoming);
       } catch {
         /* noto'g'ri JSON — e'tiborsiz qoldiramiz */
       }

@@ -19,7 +19,7 @@ export function SearchBar({ defaultValue = "" }: { defaultValue?: string }) {
 
   return (
     <form
-      action={l("/search/vacancy")}
+      action={l("/vacancies")}
       style={{ animationDelay: "100ms" }}
       className="flex w-full max-w-3xl animate-fade-up flex-col gap-2 rounded-2xl border border-line bg-surface p-2 shadow-card transition-colors focus-within:border-ink/25 sm:flex-row sm:items-center sm:gap-1"
     >
@@ -29,7 +29,7 @@ export function SearchBar({ defaultValue = "" }: { defaultValue?: string }) {
           <path d="M20 20L16.5 16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </svg>
         <input
-          name="text"
+          name="q"
           type="text"
           defaultValue={defaultValue}
           placeholder={t.home.searchPlaceholder}
@@ -48,7 +48,7 @@ export function SearchBar({ defaultValue = "" }: { defaultValue?: string }) {
           value={area}
           onChange={setArea}
           options={regionOptions}
-          name="area"
+          name="region"
           variant="bare"
           className="flex-1"
         />

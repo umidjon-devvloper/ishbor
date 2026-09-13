@@ -18,6 +18,9 @@ const paramsSchema = z.object({
   employment: z.string().max(40).optional(),
   salary: z.coerce.number().int().min(0).optional(),
   salaryTo: z.coerce.number().int().min(0).optional(),
+  company: z.string().max(2000).optional(),
+  verified: z.boolean().optional(),
+  premium: z.boolean().optional(),
 });
 
 const createSchema = z.object({
@@ -34,10 +37,10 @@ const updateSchema = z.object({
 });
 
 /** Bo'sh maydonlarni tashlab, saqlanadigan toza obyekt qaytaradi. */
-function cleanParams(input: z.infer<typeof paramsSchema>): Record<string, string | number> {
-  const out: Record<string, string | number> = {};
+function cleanParams(input: z.infer<typeof paramsSchema>): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(input)) {
-    if (value !== undefined && value !== "") out[key] = value;
+    if (value !== undefined && value !== "" && value !== false) out[key] = value;
   }
   return out;
 }

@@ -109,6 +109,53 @@ body {
   filter: brightness(0.85) saturate(0.92);
 }
 
+/* Auth panelida foto — FON, matn uning ustida. Parda ikki qatlamli:
+   chapdan panel foniga o'tadi (sarlavha va ustunliklar shu yerda o'qiladi),
+   pastdan pastga qarab quyuqlashadi (raqamlar uchun). Shu tufayli matn
+   fotoning yorug' yoki band joyiga tushib qolsa ham kontrast saqlanadi. */
+.auth-scrim {
+  background:
+    linear-gradient(
+      100deg,
+      rgb(var(--signal-soft)) 0%,
+      rgb(var(--signal-soft) / 0.97) 30%,
+      rgb(var(--signal-soft) / 0.9) 46%,
+      rgb(var(--signal-soft) / 0.22) 66%,
+      transparent 82%
+    ),
+    linear-gradient(
+      180deg,
+      transparent 48%,
+      rgb(var(--signal-soft) / 0.35) 70%,
+      rgb(var(--signal-soft) / 0.8) 86%,
+      rgb(var(--signal-soft) / 0.96) 100%
+    );
+}
+/* Tungi rejimda foto yorug' — pardani quyuqroq va kengroq olamiz */
+.dark .auth-scrim {
+  background:
+    linear-gradient(
+      100deg,
+      rgb(var(--surface)) 0%,
+      rgb(var(--surface) / 0.96) 34%,
+      rgb(var(--surface) / 0.88) 48%,
+      rgb(var(--surface) / 0.34) 70%,
+      transparent 88%
+    ),
+    linear-gradient(
+      180deg,
+      transparent 44%,
+      rgb(var(--surface) / 0.4) 68%,
+      rgb(var(--surface) / 0.86) 85%,
+      rgb(var(--surface) / 0.97) 100%
+    );
+}
+/* Tungi rejimda fotoning o'zi ham biroz so'nadi */
+.dark .auth-desk {
+  opacity: 0.78;
+  filter: saturate(0.9) brightness(0.82);
+}
+
 /* ---------------------------------------------------------
    Donador tekstura (grain) — premium "materiallik" hissi.
    SVG feTurbulence data-URI, GPU'siz, bitta qatlam.
@@ -371,6 +418,21 @@ body {
 
 /* Eslatma: brend talabi — jonli fon har doim harakatda bo'ladi,
    shu sababli prefers-reduced-motion bilan animatsiya o'chirilmaydi. */
+
+/* Gorizontal aylanadigan qatorlar (mobil tab'lar) — aylanadi, lekin chiziq ko'rinmaydi */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Vakansiya sahifasi: pastki "Ariza yuborish" paneli ko'ringanda footer yopilib qolmasin */
+@media (max-width: 1023.98px) {
+  body.has-sticky-cta {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+}
 
 :focus-visible {
   outline: 2px solid rgb(var(--focus));

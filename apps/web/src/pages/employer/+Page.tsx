@@ -20,7 +20,7 @@ export default function Page() {
         <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24">
           <div className="max-w-3xl">
           {/* CSS animatsiya — SSR paint bilanoq boshlanadi (LCP hidratsiyani kutmaydi) */}
-          <h1 className="animate-fade-up font-display text-[2.6rem] font-700 leading-[1.05] tracking-tight text-ink sm:text-6xl">
+          <h1 className="animate-fade-up font-display text-[2.6rem] font-bold leading-[1.05] tracking-tight text-ink sm:text-6xl">
             {t.employerLanding.heroTitle1}{" "}
             <span className="text-shine">{t.employerLanding.heroHighlight}</span>{" "}
             {t.employerLanding.heroTitle2}
@@ -44,13 +44,13 @@ export default function Page() {
 
           <div className="mt-14 grid grid-cols-2 border-t border-line">
             <div className="py-6 pr-4">
-              <div className="font-display text-2xl font-700 tabular-nums text-ink sm:text-[2rem]">
+              <div className="font-display text-2xl font-bold tabular-nums text-ink sm:text-[2rem]">
                 <CountUp value={3204} suffix="+" />
               </div>
               <div className="mt-2 text-xs text-dusk sm:text-[13px]">{t.employerLanding.statCompanies}</div>
             </div>
             <div className="border-l border-line py-6 pl-6 sm:pl-10">
-              <div className="font-display text-2xl font-700 tabular-nums text-ink sm:text-[2rem]">
+              <div className="font-display text-2xl font-bold tabular-nums text-ink sm:text-[2rem]">
                 <CountUp value={48000} suffix="+" />
               </div>
               <div className="mt-2 text-xs text-dusk sm:text-[13px]">{t.employerLanding.statResumes}</div>
@@ -67,10 +67,10 @@ export default function Page() {
               style={{ animationDelay: `${i * 80}ms` }}
               className="animate-fade-up rounded-2xl border border-line bg-surface p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-signal/40 hover:shadow-card-hover"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-signal-soft font-display text-sm font-700 text-signal">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-signal-soft font-display text-sm font-bold text-signal">
                 {i + 1}
               </div>
-              <p className="mt-4 font-display text-base font-600 text-ink">{b.title}</p>
+              <p className="mt-4 font-display text-base font-semibold text-ink">{b.title}</p>
               <p className="mt-1.5 text-sm leading-relaxed text-dusk">{b.desc}</p>
             </div>
           ))}
@@ -80,7 +80,7 @@ export default function Page() {
       <section className="mx-auto max-w-4xl px-4 pb-20 sm:px-6">
         <div className="relative overflow-hidden rounded-3xl border border-line bg-surface-2 px-8 py-12 text-center">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(50%_80%_at_20%_20%,rgba(30,136,229,0.12),transparent_60%)]" />
-          <h2 className="relative font-display text-2xl font-700 text-ink sm:text-3xl">
+          <h2 className="relative font-display text-2xl font-bold text-ink sm:text-3xl">
             {t.employerLanding.bottomTitle}
           </h2>
           <p className="relative mx-auto mt-2 max-w-sm text-dusk">{t.employerLanding.bottomDesc}</p>

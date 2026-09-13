@@ -34,7 +34,7 @@ export default function Page() {
         </a>{" "}
         / {t.contact.breadcrumb}
       </div>
-      <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.contact.title}</h1>
+      <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">{t.contact.title}</h1>
       <p className="mt-1 text-sm text-dusk">{t.contact.subtitle}</p>
 
       <div className="mt-7 grid gap-6 md:grid-cols-[1fr_240px]">
@@ -75,7 +75,7 @@ export default function Page() {
           className="animate-fade-up rounded-2xl border border-line bg-surface-2 p-5"
         >
           {/* h1 → h3 sakramasligi uchun sarlavha emas, ta'kidlangan matn */}
-          <p className="font-display text-sm font-600 text-ink">{t.contact.channelsTitle}</p>
+          <p className="font-display text-sm font-semibold text-ink">{t.contact.channelsTitle}</p>
           <ul className="mt-3 space-y-2.5 text-sm text-dusk">
             <li>
               <a href="mailto:support@ishbor-ishkerak.uz" className="transition-colors hover:text-signal">

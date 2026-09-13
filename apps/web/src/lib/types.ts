@@ -2,6 +2,7 @@
 
 export type EmploymentType = "full_time" | "part_time" | "remote" | "shift";
 export type ExperienceLevel = "none" | "one_to_three" | "three_to_six" | "six_plus";
+export type ScheduleType = "five_two" | "two_two" | "vahta" | "gibkiy" | "smenniy";
 
 export interface Vacancy {
   id: string;
@@ -19,22 +20,35 @@ export interface Vacancy {
   isPremium: boolean;
   isUrgent: boolean;
   publishedAt: string | null;
+  // Ro'yxat javobidan (GET /api/vacancies) — boshqa manbalarda bo'lmasligi mumkin
+  companyLogoUrl?: string | null;
+  companyVerified?: boolean;
+  regionSlug?: string | null;
+  categoryName?: string | null;
+  scheduleType?: ScheduleType | null;
+  /** Talablar matnidan ajratilgan ma'lum ko'nikmalar (lib/vacancies/skills.ts). */
+  skills?: string[];
 }
 
-export interface VacancyDetail extends Vacancy {
-  description: string;
-  requirements: string[];
-  conditions: string[];
-  applyWithoutResume: boolean;
-  contactEmail: string | null;
-  contactTelegram: string | null;
-  contactPhone: string | null;
-  companyRating: number;
-  companyReviewCount: number;
-  companyLogoUrl: string | null;
+export interface VacancyPage {
+  items: Vacancy[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pageCount: number;
+}
+
+export interface VacancyFacets {
+  total: number;
+  regions: { slug: string; name: string; count: number }[];
+  employment: { value: EmploymentType; count: number }[];
+  experience: { value: ExperienceLevel; count: number }[];
+  companies: { slug: string; name: string; isVerified: boolean; count: number }[];
+  categories: { slug: string; name: string; count: number }[];
 }
 
 export interface Company {
+  id: string;
   slug: string;
   name: string;
   description: string;
@@ -174,11 +188,52 @@ export interface Category {
 
 export type ApplicationStatus = "sent" | "viewed" | "invited" | "rejected" | "accepted";
 
+/** Arizaning haqiqiy holat o'zgarishi (`ApplicationStatusHistory`). */
+export interface ApplicationHistoryEntry {
+  status: ApplicationStatus;
+  at: string;
+}
+
+/**
+ * Nomzodning o'zi yuborgan ariza (`GET /api/applications`).
+ * Ixtiyoriy maydonlar backend'da bo'lmasa `null` — UI ularni yashiradi.
+ */
+export interface MyApplication {
+  id: string;
+  status: ApplicationStatus;
+  createdAt: string;
+  updatedAt: string;
+  source: "site" | "telegram";
+  coverLetter: string | null;
+  /** Ariza qaysi rezyume bilan yuborilgan (rezyumesiz vakansiyada yoki o'chirilgan bo'lsa `null`). */
+  resume: { id: string; title: string } | null;
+  /** Vaqt bo'yicha o'sib boruvchi holat tarixi; bo'sh bo'lishi mumkin. */
+  history: ApplicationHistoryEntry[];
+  vacancy: {
+    id: string;
+    slug: string;
+    title: string;
+    /** Vakansiya faol emas (arxivlangan, rad etilgan va h.k.). */
+    isClosed: boolean;
+    salaryMin: number | null;
+    salaryMax: number | null;
+    isSalaryHidden: boolean;
+    employmentType: Vacancy["employmentType"] | null;
+    experienceRequired: Vacancy["experienceRequired"] | null;
+    regionSlug: string | null;
+    regionName: string | null;
+  };
+  company: { name: string; slug: string; logoUrl: string | null; isVerified: boolean };
+}
+
 export interface EmployerVacancy {
   id: string;
   slug: string;
   title: string;
+  /** draft | moderation | active | archived | rejected */
   status: string;
+  /** Moderator rad etgan bo'lsa — sababi. */
+  rejectionReason?: string | null;
   employmentType: EmploymentType;
   experienceRequired: ExperienceLevel;
   salaryMin: number | null;
@@ -377,11 +432,15 @@ export interface NotificationPref {
 export interface SavedSearchParams {
   text?: string;
   categorySlug?: string;
+  /** area / experience / employment / company — vergul bilan bir nechta bo'lishi mumkin. */
   area?: string;
   experience?: string;
   employment?: string;
   salary?: number;
   salaryTo?: number;
+  company?: string;
+  verified?: boolean;
+  premium?: boolean;
 }
 
 export interface SavedSearch {
@@ -476,11 +535,26 @@ export interface SalaryGroup {
   average: number;
 }
 
+export interface SalaryLevelStat {
+  level: ExperienceLevel;
+  count: number;
+  median: number;
+  average: number;
+}
+
 export interface SalaryStats {
   summary: SalarySummary;
   distribution: SalaryBucket[];
+  /** Hudud va tajriba filtri bilan, lekin kategoriya filtrisiz (tanlangani ajratiladi). */
   byCategory: SalaryGroup[];
+  /** Kategoriya va tajriba filtri bilan, lekin hudud filtrisiz. */
   byRegion: SalaryGroup[];
+  /** Har doim 4 ta daraja; tajriba filtrisiz. */
+  byExperience: SalaryLevelStat[];
+  /** Tanlovga mos faol vakansiyalar (maoshi yashirinlari ham). */
+  vacancyCount: number;
+  /** Filtrsiz butun bozor. */
+  market: { count: number; median: number; average: number };
 }
 
 // --- Admin ---

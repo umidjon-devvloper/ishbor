@@ -18,6 +18,7 @@ export function Select({
   name,
   variant = "default",
   className = "",
+  id,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -26,6 +27,7 @@ export function Select({
   name?: string;
   variant?: "default" | "bare";
   className?: string;
+  id?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -41,6 +43,7 @@ export function Select({
     <div ref={ref} className={`relative ${className}`}>
       {name && <input type="hidden" name={name} value={value} />}
       <button
+        id={id}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"

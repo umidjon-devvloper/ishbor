@@ -1,8 +1,12 @@
 // Real backend bilan ishlovchi data qatlami — faqat haqiqiy API'dan o'qiydi
 // (namunaviy/mock ma'lumot ishlatilmaydi). Server o'chiq bo'lsa bo'sh natija qaytadi.
+import { extractSkills } from "./vacancies/skills.js";
+import { mapVacancyToViewModel, type VacancyDetailVM } from "./vacancies/detail.js";
+import { mapCompanyToViewModel, type CompanyDetailVM } from "./companies/detail.js";
 import type {
   Vacancy,
-  VacancyDetail,
+  VacancyFacets,
+  VacancyPage,
   Company,
   Article,
   Stats,
@@ -22,6 +26,7 @@ import type {
   ChatMessage,
   ApplicationStatus,
   InboxSummary,
+  MyApplication,
   Candidate,
   CompanyReviewItem,
   TelegramStatus,
@@ -159,21 +164,20 @@ export async function fetchMe(token: string): Promise<CurrentUser | null> {
   return (await res.json()) as CurrentUser;
 }
 
-export async function applyToVacancy(vacancyId: string, token: string): Promise<void> {
-  await authRequest(`/api/vacancies/${vacancyId}/apply`, { source: "site" }, token);
+export interface AppliedApplication {
+  id: string;
+  status: ApplicationStatus;
+  createdAt: string;
+}
+
+/** Ariza yuboradi. Oldin yuborilgan bo'lsa backend o'sha arizani (haqiqiy holati bilan) qaytaradi. */
+export function applyToVacancy(vacancyId: string, token: string): Promise<AppliedApplication> {
+  return authRequest<AppliedApplication>(`/api/vacancies/${vacancyId}/apply`, { source: "site" }, token);
 }
 
 // ---------------------------------------------------------
 // Mapperlar (Prisma JSON -> frontend tiplari)
 // ---------------------------------------------------------
-
-function splitLines(value: unknown): string[] {
-  if (typeof value !== "string") return [];
-  return value
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 function avgRating(reviews: unknown): { rating: number; count: number } {
   const list = Array.isArray(reviews) ? (reviews as { rating: number }[]) : [];
@@ -199,29 +203,22 @@ function mapVacancy(raw: any, companyFallback?: { name: string; slug: string }):
     isPremium: raw.isPremium ?? false,
     isUrgent: raw.isUrgent ?? false,
     publishedAt: raw.publishedAt ?? null,
-  };
-}
-
-function mapVacancyDetail(raw: any): VacancyDetail {
-  const { rating, count } = avgRating(raw.company?.reviews);
-  return {
-    ...mapVacancy(raw),
     companyLogoUrl: raw.company?.logoUrl ? absoluteUploadUrl(raw.company.logoUrl) : null,
-    description: raw.description ?? "",
-    requirements: splitLines(raw.requirements),
-    conditions: splitLines(raw.conditions),
-    applyWithoutResume: raw.applyWithoutResume ?? false,
-    contactEmail: raw.contactEmail ?? null,
-    contactTelegram: raw.contactTelegram ?? null,
-    contactPhone: raw.contactPhone ?? null,
-    companyRating: rating,
-    companyReviewCount: count,
+    companyVerified: Boolean(raw.company?.isVerified),
+    regionSlug: raw.region?.slug ?? null,
+    categoryName: raw.category?.name ?? null,
+    scheduleType: raw.scheduleType ?? null,
+    skills: extractSkills(`${raw.title ?? ""}\n${raw.requirements ?? ""}`),
   };
 }
 
 function mapCompany(raw: any): Company {
-  const { rating, count } = avgRating(raw.reviews);
+  // Katalog (`GET /api/companies`) ko'rsatkichlarni serverda hisoblab beradi;
+  // kompaniya sahifasi (`/api/companies/:slug`) esa sharh va vakansiyalar ro'yxatini.
+  const fromList = typeof raw.reviewCount === "number";
+  const { rating, count } = fromList ? { rating: raw.rating ?? 0, count: raw.reviewCount } : avgRating(raw.reviews);
   return {
+    id: raw.id,
     slug: raw.slug,
     name: raw.name,
     description: raw.description ?? "",
@@ -233,7 +230,11 @@ function mapCompany(raw: any): Company {
     rating,
     reviewCount: count,
     isVerified: raw.isVerified ?? false,
-    activeVacancyCount: Array.isArray(raw.vacancies) ? raw.vacancies.length : 0,
+    activeVacancyCount: fromList
+      ? raw.activeVacancyCount ?? 0
+      : Array.isArray(raw.vacancies)
+        ? raw.vacancies.length
+        : 0,
   };
 }
 
@@ -298,22 +299,136 @@ export async function fetchVacancies(
   return { items, total: json.total ?? items.length };
 }
 
-export async function fetchVacancy(slug: string): Promise<VacancyDetail | null> {
-  const res = await tryFetch(`/api/vacancies/${slug}`);
-  if (!res || !res.ok) return null;
-  return mapVacancyDetail(await res.json());
+/**
+ * `/vacancies` sahifasining bitta sahifasi. `params` — API nomlaridagi
+ * parametrlar (lib/vacancies/query.ts → toApiParams). "Natija yo'q" va
+ * "yuklab bo'lmadi" farqlanadi: xatoda `ApiError` (tarmoq uzilsa status 0),
+ * bekor qilinsa AbortError.
+ */
+export async function fetchVacancyPage(params: URLSearchParams, signal?: AbortSignal): Promise<VacancyPage> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/vacancies?${params}`, { signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    throw new ApiError(0, "Serverga ulanib bo'lmadi");
+  }
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new ApiError(res.status, json?.message ?? "Kutilmagan xatolik", json?.error);
+  const items: Vacancy[] = (json.items ?? []).map((v: any) => mapVacancy(v));
+  return {
+    items,
+    total: json.total ?? items.length,
+    page: json.page ?? 1,
+    pageSize: json.pageSize ?? items.length,
+    pageCount: json.pageCount ?? 1,
+  };
+}
+
+/** Filtr paneli sonlari. Ikkinchi darajali ma'lumot — xatoda `null` (panel sonlarsiz ishlaydi). */
+export async function fetchVacancyFacets(params: URLSearchParams, signal?: AbortSignal): Promise<VacancyFacets | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/vacancies/facets?${params}`, { signal });
+    if (!res.ok) return null;
+    return (await res.json()) as VacancyFacets;
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    return null;
+  }
+}
+
+/**
+ * Detail sahifasi uchun vakansiya (view-model, lib/vacancies/detail.ts).
+ * Topilmasa `null` (404); boshqa xatoda `ApiError` (tarmoq uzilsa status 0) —
+ * sahifa "topilmadi" va "yuklab bo'lmadi" holatlarini farqlaydi.
+ */
+export async function fetchVacancyDetail(slug: string, signal?: AbortSignal): Promise<VacancyDetailVM | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/vacancies/${encodeURIComponent(slug)}`, { signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    throw new ApiError(0, "Serverga ulanib bo'lmadi");
+  }
+  if (res.status === 404) return null;
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new ApiError(res.status, json?.message ?? "Kutilmagan xatolik", json?.error);
+  return mapVacancyToViewModel(json, absoluteUploadUrl);
+}
+
+/** "O'xshash vakansiyalar" — ikkinchi darajali blok: xatoda bo'sh ro'yxat (blok yashiriladi). */
+export async function fetchSimilarVacancies(slug: string, limit = 4, signal?: AbortSignal): Promise<Vacancy[]> {
+  try {
+    const res = await fetch(`${API_URL}/api/vacancies/${encodeURIComponent(slug)}/similar?limit=${limit}`, { signal });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.items ?? []).map((v: any) => mapVacancy(v));
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    return [];
+  }
 }
 
 // ---------------------------------------------------------
 // Kompaniyalar
 // ---------------------------------------------------------
 
-export async function fetchCompanies(text?: string): Promise<Company[]> {
-  const qs = text ? `?text=${encodeURIComponent(text)}` : "";
-  const res = await tryFetch(`/api/companies${qs}`);
+/** Qisqa ro'yxat (bosh sahifa bloklari uchun) — mashhurlik bo'yicha birinchi `limit` ta. */
+export async function fetchCompanies(text?: string, limit = 12): Promise<Company[]> {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (text) qs.set("q", text);
+  const res = await tryFetch(`/api/companies?${qs}`);
   if (!res || !res.ok) return [];
   const json = await res.json();
   return (json.items ?? []).map(mapCompany);
+}
+
+export interface CompanyPage {
+  items: Company[];
+  nextCursor: string | null;
+  /** Faqat birinchi sahifada keladi. */
+  total: number | null;
+}
+
+/**
+ * Katalogning bitta sahifasi. `params` — URL holatidan yasalgan parametrlar
+ * (lib/companies/query.ts). Xatoda `ApiError` uloqtiradi: sahifa bo'sh natija
+ * bilan "yuklab bo'lmadi" holatini farqlashi kerak.
+ */
+export async function fetchCompanyPage(
+  params: URLSearchParams,
+  options: { cursor?: string | null; limit?: number; signal?: AbortSignal; token?: string | null } = {}
+): Promise<CompanyPage> {
+  const qs = new URLSearchParams(params);
+  if (options.limit) qs.set("limit", String(options.limit));
+  if (options.cursor) qs.set("cursor", options.cursor);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/companies?${qs}`, {
+      signal: options.signal,
+      headers: options.token ? { Authorization: `Bearer ${options.token}` } : undefined,
+    });
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") throw err;
+    throw new ApiError(0, "Network error");
+  }
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, json?.message ?? "Request failed", json?.error);
+  return {
+    items: (json?.items ?? []).map(mapCompany),
+    nextCursor: json?.nextCursor ?? null,
+    total: typeof json?.total === "number" ? json.total : null,
+  };
+}
+
+/** "Top kompaniyalar": tasdiqlangan, hozir ishga olayotgan, mashhurlik bo'yicha. Xatoda — bo'sh (blok yashiriladi). */
+export async function fetchFeaturedCompanies(limit = 10): Promise<Company[]> {
+  try {
+    const page = await fetchCompanyPage(new URLSearchParams({ verified: "1", hiring: "1" }), { limit });
+    return page.items;
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchCompany(
@@ -328,6 +443,39 @@ export async function fetchCompany(
   );
   const reviews: CompanyReviewItem[] = (raw.reviews ?? []).map(mapReview);
   return { company, vacancies, reviews };
+}
+
+/**
+ * Ochiq kompaniya sahifasi uchun (view-model, lib/companies/detail.ts).
+ * Topilmasa `null` (404); boshqa xatoda `ApiError` (tarmoq uzilsa status 0).
+ */
+export async function fetchCompanyDetail(slug: string, signal?: AbortSignal): Promise<CompanyDetailVM | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/companies/${encodeURIComponent(slug)}`, { signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    throw new ApiError(0, "Serverga ulanib bo'lmadi");
+  }
+  if (res.status === 404) return null;
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new ApiError(res.status, json?.message ?? "Kutilmagan xatolik", json?.error);
+  const owner = { name: json.name, slug: json.slug, logoUrl: json.logoUrl ?? null, isVerified: json.isVerified ?? false };
+  const vacancies: Vacancy[] = (json.vacancies ?? []).map((v: any) => mapVacancy({ ...v, company: v.company ?? owner }));
+  return mapCompanyToViewModel(json, { resolveUrl: absoluteUploadUrl, vacancies });
+}
+
+/** "O'xshash kompaniyalar" — ikkinchi darajali blok: xatoda bo'sh ro'yxat (blok yashiriladi). */
+export async function fetchSimilarCompanies(slug: string, limit = 5, signal?: AbortSignal): Promise<Company[]> {
+  try {
+    const res = await fetch(`${API_URL}/api/companies/${encodeURIComponent(slug)}/similar?limit=${limit}`, { signal });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.items ?? []).map(mapCompany);
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    return [];
+  }
 }
 
 export async function submitReview(
@@ -422,6 +570,105 @@ export async function saveResume(token: string, data: ResumeInput): Promise<Resu
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, json?.message ?? "Xatolik", json?.error);
   return (json?.resume ?? null) as ResumeData | null;
+}
+
+/** PDF rezyume yuklash — javobda fayl manzili (`/uploads/...`). */
+export async function uploadResumeFile(token: string, file: File): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_URL}/api/profile/resume`, {
+    method: "POST",
+    credentials: "include",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, json?.message ?? "Xatolik", json?.error);
+  return json.resumeUrl as string;
+}
+
+export async function deleteResumeFile(token: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/profile/resume`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => null);
+    throw new ApiError(res.status, json?.message ?? "Xatolik", json?.error);
+  }
+}
+
+// ---------------------------------------------------------
+// Nomzodning arizalari
+// ---------------------------------------------------------
+
+/**
+ * Nomzodning o'z arizalari, eng yangisi birinchi.
+ * Boshqa ro'yxat funksiyalaridan farqli o'laroq xatoni YASHIRMAYDI: profil
+ * sahifasi "ariza yo'q" bilan "yuklab bo'lmadi"ni farqlab ko'rsatishi kerak.
+ */
+export async function fetchMyApplications(token: string): Promise<MyApplication[]> {
+  const res = await tryFetch("/api/applications", { headers: authHeaders(token) });
+  if (!res) throw new ApiError(0, "Network");
+  if (!res.ok) throw new ApiError(res.status, "Xatolik");
+  const rows = (await res.json()) as unknown;
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((row) => row?.vacancy && APPLICATION_STATUSES.includes(row.status)).map(mapMyApplication);
+}
+
+const APPLICATION_STATUSES: ApplicationStatus[] = ["sent", "viewed", "invited", "rejected", "accepted"];
+const EMPLOYMENT_TYPES = ["full_time", "part_time", "remote", "shift"] as const;
+const EXPERIENCE_LEVELS = ["none", "one_to_three", "three_to_six", "six_plus"] as const;
+
+function pick<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+  return allowed.includes(value as T) ? (value as T) : null;
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function positiveInt(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** Backend yozuvi -> `MyApplication`. Yo'q/yaroqsiz maydon `null` bo'ladi, to'qima qiymat qo'yilmaydi. */
+function mapMyApplication(row: any): MyApplication {
+  const vacancy = row.vacancy;
+  const company = vacancy.company ?? {};
+  const history = Array.isArray(row.statusHistory) ? row.statusHistory : [];
+  return {
+    id: String(row.id),
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    source: row.source === "telegram" ? "telegram" : "site",
+    coverLetter: text(row.coverLetter),
+    resume: row.resume?.id && text(row.resume.title) ? { id: String(row.resume.id), title: text(row.resume.title)! } : null,
+    history: history
+      .filter((h: any) => APPLICATION_STATUSES.includes(h?.newStatus) && typeof h.createdAt === "string")
+      .map((h: any) => ({ status: h.newStatus as ApplicationStatus, at: h.createdAt as string })),
+    vacancy: {
+      id: String(vacancy.id),
+      slug: String(vacancy.slug),
+      title: text(vacancy.title) ?? "",
+      isClosed: vacancy.status !== "active",
+      salaryMin: positiveInt(vacancy.salaryMin),
+      salaryMax: positiveInt(vacancy.salaryMax),
+      isSalaryHidden: vacancy.isSalaryHidden === true,
+      employmentType: pick(vacancy.employmentType, EMPLOYMENT_TYPES),
+      experienceRequired: pick(vacancy.experienceRequired, EXPERIENCE_LEVELS),
+      regionSlug: text(vacancy.region?.slug),
+      regionName: text(vacancy.region?.name),
+    },
+    company: {
+      name: text(company.name) ?? "",
+      slug: text(company.slug) ?? "",
+      logoUrl: text(company.logoUrl),
+      isVerified: company.isVerified === true,
+    },
+  };
 }
 
 // ---------------------------------------------------------

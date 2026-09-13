@@ -119,6 +119,20 @@ export function removeFavorite(token: string, vacancyId: string) {
   return send<{ ok: true; favorited: boolean }>(`/api/favorites/${vacancyId}`, "DELETE", token);
 }
 
+// Saqlangan kompaniyalar (ro'yxatning o'zi — `/api/companies?saved=1`)
+export async function fetchSavedCompanyIds(token: string): Promise<string[]> {
+  const json = await get<{ ids: string[] }>("/api/favorites/companies/ids", token, { ids: [] });
+  return json.ids;
+}
+
+export function saveCompany(token: string, companyId: string) {
+  return send<{ ok: true; saved: boolean }>(`/api/favorites/companies/${companyId}`, "POST", token, {});
+}
+
+export function unsaveCompany(token: string, companyId: string) {
+  return send<{ ok: true; saved: boolean }>(`/api/favorites/companies/${companyId}`, "DELETE", token);
+}
+
 // ---------------------------------------------------------
 // Bildirishnomalar
 // ---------------------------------------------------------
@@ -250,14 +264,40 @@ const EMPTY_SALARY: SalaryStats = {
   distribution: [],
   byCategory: [],
   byRegion: [],
+  byExperience: [],
+  vacancyCount: 0,
+  market: { count: 0, median: 0, average: 0 },
 };
 
-export function fetchSalaryStats(params: { categorySlug?: string; area?: string } = {}) {
+export interface SalaryStatsParams {
+  role?: string;
+  q?: string;
+  categorySlug?: string;
+  area?: string;
+  /** `ExperienceLevel` qiymati (none, one_to_three, ...). */
+  experience?: string;
+}
+
+/**
+ * Maosh statistikasi. "Ma'lumot yo'q" (bo'sh natija) va "yuklab bo'lmadi"
+ * farqlanadi: xatoda `ApiError` (tarmoq uzilsa status 0), bekor qilinsa AbortError.
+ */
+export async function fetchSalaryStats(params: SalaryStatsParams = {}, signal?: AbortSignal): Promise<SalaryStats> {
   const qs = new URLSearchParams();
-  if (params.categorySlug) qs.set("categorySlug", params.categorySlug);
-  if (params.area) qs.set("area", params.area);
+  for (const [key, value] of Object.entries(params)) {
+    if (value) qs.set(key, value);
+  }
   const suffix = qs.toString() ? `?${qs}` : "";
-  return get<SalaryStats>(`/api/stats/salary${suffix}`, null, EMPTY_SALARY);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/stats/salary${suffix}`, { signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    throw new ApiError(0, "Serverga ulanib bo'lmadi");
+  }
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new ApiError(res.status, json?.message ?? "Kutilmagan xatolik", json?.error);
+  return { ...EMPTY_SALARY, ...json } as SalaryStats;
 }
 
 // ---------------------------------------------------------

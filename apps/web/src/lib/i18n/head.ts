@@ -2,7 +2,8 @@
 // til to'g'ridan-to'g'ri pageContext'dan olinadi (onBeforeRoute to'ldirgan).
 import { usePageContext } from "vike-react/usePageContext";
 import { getMessages, type Messages } from "./messages.js";
-import { DEFAULT_LOCALE, LOCALES, SITE_ORIGIN, isLocale, localizeHref, type Locale } from "./config.js";
+import { DEFAULT_LOCALE, LOCALES, SITE_ORIGIN, localizeHref, type Locale } from "./config.js";
+import { pageLocale } from "./pageLocale.js";
 
 export interface HrefAlternate {
   locale: Locale;
@@ -17,8 +18,7 @@ export function useHead(): {
   xDefault: string;
 } {
   const pc = usePageContext();
-  const locale = isLocale(pc.locale) ? pc.locale : DEFAULT_LOCALE;
-  const logical = (pc.localePathname as string) || "/";
+  const { locale, pathname: logical } = pageLocale(pc);
   return {
     t: getMessages(locale),
     locale,

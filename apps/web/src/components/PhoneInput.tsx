@@ -5,10 +5,17 @@ export function PhoneInput({
   value,
   onChange,
   invalid = false,
+  id,
+  describedBy,
+  className = "mt-1.5",
 }: {
   value: string;
   onChange: (value: string) => void;
   invalid?: boolean;
+  id?: string;
+  describedBy?: string;
+  /** Tashqi o'lcham/oraliq (standart — yorliq ostidagi `mt-1.5`). */
+  className?: string;
 }) {
   const national = (value ?? "").replace(/^\+?998/, "").replace(/\D/g, "").slice(0, 9);
 
@@ -19,7 +26,7 @@ export function PhoneInput({
 
   return (
     <div
-      className={`mt-1.5 flex items-stretch overflow-hidden rounded-xl border bg-surface-2 transition-colors focus-within:bg-surface ${
+      className={`${className} flex items-stretch overflow-hidden rounded-xl border bg-surface-2 transition-colors focus-within:bg-surface ${
         invalid ? "border-signal" : "border-line focus-within:border-signal"
       }`}
     >
@@ -27,6 +34,9 @@ export function PhoneInput({
         +998
       </span>
       <input
+        id={id}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         type="tel"
         inputMode="numeric"
         value={formatNational(national)}

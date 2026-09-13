@@ -31,6 +31,7 @@ const PRIVATE_PATHS = [
   "/account",
   "/profile",
   "/messages",
+  "/applications",
   "/login",
   "/signup",
   "/favorites",
@@ -71,7 +72,7 @@ export async function seoRoutes(app: FastifyInstance) {
     reply.header("Content-Type", "application/xml");
     const staticPaths = [
       "/",
-      "/search/vacancy",
+      "/vacancies",
       "/companies",
       "/salaries",
       "/article",
@@ -88,8 +89,8 @@ export async function seoRoutes(app: FastifyInstance) {
       prisma.region.findMany({ where: { parentId: { not: null } }, select: { slug: true } }),
     ]);
     const salaryPaths = [
-      ...categories.map((c: { slug: string }) => `/salaries?categorySlug=${c.slug}`),
-      ...regions.map((r: { slug: string }) => `/salaries?area=${r.slug}`),
+      ...categories.map((c: { slug: string }) => `/salaries?category=${c.slug}`),
+      ...regions.map((r: { slug: string }) => `/salaries?region=${r.slug}`),
     ];
 
     return buildUrlSet([...staticPaths, ...salaryPaths]);
@@ -103,7 +104,7 @@ export async function seoRoutes(app: FastifyInstance) {
       take: 50000,
     });
     return buildUrlSet(
-      vacancies.map((v: { slug: string }) => `/vacancy/${v.slug}`),
+      vacancies.map((v: { slug: string }) => `/vacancies/${v.slug}`),
       vacancies.map((v: { updatedAt: Date }) => v.updatedAt)
     );
   });
@@ -115,7 +116,8 @@ export async function seoRoutes(app: FastifyInstance) {
       take: 50000,
     });
     return buildUrlSet(
-      companies.map((c: { slug: string }) => `/employer/${c.slug}`),
+      // Ochiq kompaniya profili — /companies/:slug (/employer/:slug endi faqat redirect)
+      companies.map((c: { slug: string }) => `/companies/${c.slug}`),
       companies.map((c: { updatedAt: Date }) => c.updatedAt)
     );
   });

@@ -19,6 +19,7 @@
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx src/prisma/seed.ts",
+    "seed:demo": "tsx src/prisma/demo-seed.ts",
     "push:keys": "node scripts/generate-vapid.mjs",
     "alerts:run": "tsx src/scripts/run-alerts.ts"
   },

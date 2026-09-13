@@ -5,7 +5,7 @@ os.makedirs("screenshots", exist_ok=True)
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page(viewport={"width": 1440, "height": 900})
-    page.goto("http://localhost:5173/vakansiyalar")
+    page.goto("http://localhost:5173/search/vacancy")
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(800)
 

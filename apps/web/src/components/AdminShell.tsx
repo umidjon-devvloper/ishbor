@@ -37,7 +37,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   if (status !== "authed" || user?.role !== "admin") {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center sm:px-6">
-        <h1 className="font-display text-xl font-700 text-ink">{t.admin.common.accessDenied}</h1>
+        <h1 className="font-display text-xl font-bold text-ink">{t.admin.common.accessDenied}</h1>
         <a
           href={l("/")}
           className="mt-5 inline-block rounded-xl bg-signal px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-signal-dark"
@@ -50,7 +50,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.admin.title}</h1>
+      <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">{t.admin.title}</h1>
 
       <nav className="mt-5 flex flex-wrap gap-1.5 border-b border-line pb-3">
         {links.map((link) => {

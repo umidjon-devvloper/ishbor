@@ -81,16 +81,16 @@ export default function Page() {
         </a>{" "}
         / {t.pricing.breadcrumb}
       </div>
-      <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.pricing.title}</h1>
+      <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">{t.pricing.title}</h1>
       <p className="mt-1 text-sm text-dusk">{t.pricing.subtitle}</p>
 
       {subscription && (
         <div className="mt-6 rounded-2xl border border-signal/40 bg-signal/[0.05] p-5">
-          <p className="text-xs font-600 uppercase tracking-wide text-dusk">
+          <p className="text-xs font-semibold uppercase tracking-wide text-dusk">
             {t.pricingExtra.currentPlan}
           </p>
           <div className="mt-1.5 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <span className="font-display text-lg font-700 text-ink">{subscription.name}</span>
+            <span className="font-display text-lg font-bold text-ink">{subscription.name}</span>
             <span className="font-mono text-sm text-dusk">
               {t.pricingExtra.usage(subscription.activeVacancies, subscription.maxActiveVacancies)}
             </span>
@@ -146,19 +146,19 @@ export default function Page() {
               }`}
             >
               {popular && !isCurrent && (
-                <span className="absolute -top-3 left-6 rounded-full bg-signal px-3 py-1 text-[11px] font-700 uppercase tracking-wide text-white">
+                <span className="absolute -top-3 left-6 rounded-full bg-signal px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
                   {t.pricing.popular}
                 </span>
               )}
               {isCurrent && (
-                <span className="absolute -top-3 left-6 rounded-full bg-growth px-3 py-1 text-[11px] font-700 uppercase tracking-wide text-white">
+                <span className="absolute -top-3 left-6 rounded-full bg-growth px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
                   {t.pricingExtra.current}
                 </span>
               )}
 
-              <h2 className="font-display text-lg font-700 text-ink">{plan.name}</h2>
+              <h2 className="font-display text-lg font-bold text-ink">{plan.name}</h2>
               <div className="mt-2 flex items-baseline gap-1">
-                <span className="font-display text-2xl font-700 text-ink">
+                <span className="font-display text-2xl font-bold text-ink">
                   {plan.price === 0 ? t.pricingExtra.free : formatNumber(plan.price)}
                 </span>
                 {plan.price > 0 && (
@@ -227,7 +227,7 @@ export default function Page() {
 
       {isEmployer && (
         <section className="mt-10">
-          <h2 className="font-display text-lg font-700 text-ink">{t.pricingExtra.paymentsTitle}</h2>
+          <h2 className="font-display text-lg font-bold text-ink">{t.pricingExtra.paymentsTitle}</h2>
           {payments.length === 0 ? (
             <p className="mt-3 rounded-xl border border-line bg-surface p-6 text-center text-sm text-dusk">
               {t.pricingExtra.noPayments}
@@ -237,11 +237,11 @@ export default function Page() {
               <table className="w-full min-w-[520px] text-sm">
                 <thead>
                   <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-dusk">
-                    <th className="px-4 py-2.5 font-600">{t.admin.payments.plan}</th>
-                    <th className="px-4 py-2.5 font-600">{t.admin.payments.amount}</th>
-                    <th className="px-4 py-2.5 font-600">{t.admin.payments.provider}</th>
-                    <th className="px-4 py-2.5 font-600">{t.admin.payments.status}</th>
-                    <th className="px-4 py-2.5 font-600">{t.admin.users.registered}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t.admin.payments.plan}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t.admin.payments.amount}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t.admin.payments.provider}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t.admin.payments.status}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t.admin.users.registered}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -254,7 +254,7 @@ export default function Page() {
                       <td className="px-4 py-2.5 text-dusk">{p.provider}</td>
                       <td className="px-4 py-2.5">
                         <span
-                          className={`rounded-md px-2 py-0.5 text-xs font-600 ${
+                          className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
                             p.status === "paid"
                               ? "bg-growth/10 text-growth"
                               : "bg-surface-2 text-dusk"

@@ -81,10 +81,10 @@ function ReviewsTable() {
         <AdminTable
           head={
             <>
-              <th className="px-4 py-2.5 font-600">{t.admin.reviews.company}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.reviews.author}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.reviews.status}</th>
-              <th className="px-4 py-2.5 font-600">&nbsp;</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.reviews.company}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.reviews.author}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.reviews.status}</th>
+              <th className="px-4 py-2.5 font-semibold">&nbsp;</th>
             </>
           }
         >
@@ -92,8 +92,8 @@ function ReviewsTable() {
             <tr key={row.id} className="border-b border-line/60 last:border-0">
               <td className="px-4 py-3">
                 <a
-                  href={l(`/employer/${row.companySlug}`)}
-                  className="block font-600 text-ink transition-colors hover:text-signal"
+                  href={l(`/companies/${row.companySlug}`)}
+                  className="block font-semibold text-ink transition-colors hover:text-signal"
                 >
                   {row.companyName}
                 </a>

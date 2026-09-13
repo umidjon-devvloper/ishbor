@@ -70,7 +70,7 @@ export default function Page() {
               {/* CSS animatsiya — SSR paint bilanoq boshlanadi (LCP hidratsiyani kutmaydi) */}
               <h1
                 style={{ animationDelay: "40ms" }}
-                className="mt-4 animate-fade-up font-display text-[2.7rem] font-800 leading-[1.06] tracking-tight text-ink sm:text-6xl xl:text-[4.5rem]"
+                className="mt-4 animate-fade-up font-display text-[2.7rem] font-extrabold leading-[1.06] tracking-tight text-ink sm:text-6xl xl:text-[4.5rem]"
               >
                 {t.home.heroTitle1} <span className="block text-shine">{t.home.heroTitle2}</span>
               </h1>
@@ -98,7 +98,7 @@ export default function Page() {
                   return (
                     <a
                       key={c.slug}
-                      href={l(`/search/vacancy?categorySlug=${c.slug}`)}
+                      href={l(`/vacancies?category=${c.slug}`)}
                       className="flex items-center gap-2.5 rounded-xl border border-line bg-surface py-2 pl-2 pr-3.5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-signal/40 hover:shadow-card-hover"
                     >
                       <span
@@ -173,8 +173,8 @@ export default function Page() {
                   {companies.slice(0, 6).map((c) => (
                     <a
                       key={c.slug}
-                      href={l(`/employer/${c.slug}`)}
-                      className="flex min-w-[120px] flex-1 items-center justify-center rounded-xl border border-line bg-surface px-4 py-3.5 font-display text-[15px] font-700 text-ink/80 transition-colors hover:border-signal/40 hover:text-signal"
+                      href={l(`/companies/${c.slug}`)}
+                      className="flex min-w-[120px] flex-1 items-center justify-center rounded-xl border border-line bg-surface px-4 py-3.5 font-display text-[15px] font-bold text-ink/80 transition-colors hover:border-signal/40 hover:text-signal"
                     >
                       <span className="truncate">{c.name}</span>
                     </a>
@@ -193,7 +193,7 @@ export default function Page() {
       </section>
 
       {/* KATEGORIYALAR */}
-      <Section title={t.home.categoriesTitle} href="/search/vacancy" linkLabel={t.home.viewAll}>
+      <Section title={t.home.categoriesTitle} href="/vacancies" linkLabel={t.home.viewAll}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {CATEGORIES.map((cat, i) => (
             <CategoryCard key={cat.slug} name={names[cat.slug]} slug={cat.slug} count={cat.count} index={i} />
@@ -202,7 +202,7 @@ export default function Page() {
       </Section>
 
       {/* SO'NGGI VAKANSIYALAR */}
-      <Section title={t.home.latestTitle} href="/search/vacancy" linkLabel={t.home.viewAll}>
+      <Section title={t.home.latestTitle} href="/vacancies" linkLabel={t.home.viewAll}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {vacancies.map((v, i) => (
             <VacancyCard
@@ -234,7 +234,7 @@ export default function Page() {
           />
           <div className="relative flex flex-col items-start justify-between gap-8 md:flex-row md:items-center">
             <div className="max-w-xl">
-              <h2 className="font-display text-2xl font-700 leading-tight text-white sm:text-3xl">
+              <h2 className="font-display text-2xl font-bold leading-tight text-white sm:text-3xl">
                 {t.home.employerCtaTitle}
               </h2>
               <p className="mt-3 text-[15px] leading-relaxed text-white/75">{t.home.employerCtaDesc}</p>
@@ -278,8 +278,8 @@ function Section({
   const ref = useReveal<HTMLElement>();
   return (
     <section ref={ref} className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
-      <div className="mb-7 flex items-center gap-5">
-        <h2 className="shrink-0 font-display text-xl font-700 tracking-tight text-ink sm:text-2xl">
+      <div className="mb-7 flex items-center gap-3 sm:gap-5">
+        <h2 className="min-w-0 font-display text-xl font-bold tracking-tight text-ink sm:shrink-0 sm:text-2xl">
           {title}
         </h2>
         <span className="h-px flex-1 bg-line" aria-hidden />
@@ -319,7 +319,7 @@ function Stat({
         {icon}
       </span>
       <div className="min-w-0">
-        <div className="font-display text-[26px] font-800 leading-none tracking-tight text-ink">
+        <div className="font-display text-[26px] font-extrabold leading-none tracking-tight text-ink">
           <CountUp value={value} suffix="+" />
         </div>
         <span style={{ background: bar }} className="my-1.5 block h-[3px] w-11 rounded-full" aria-hidden />

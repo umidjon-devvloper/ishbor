@@ -93,18 +93,18 @@ function UsersTable() {
         <AdminTable
           head={
             <>
-              <th className="px-4 py-2.5 font-600">Email</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.users.role}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.users.applications}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.users.registered}</th>
-              <th className="px-4 py-2.5 font-600">&nbsp;</th>
+              <th className="px-4 py-2.5 font-semibold">Email</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.users.role}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.users.applications}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.users.registered}</th>
+              <th className="px-4 py-2.5 font-semibold">&nbsp;</th>
             </>
           }
         >
           {(data?.items ?? []).map((row) => (
             <tr key={row.id} className="border-b border-line/60 last:border-0">
               <td className="px-4 py-3">
-                <span className="block font-600 text-ink">{row.name ?? row.email}</span>
+                <span className="block font-semibold text-ink">{row.name ?? row.email}</span>
                 <span className="block text-xs text-dusk">{row.email}</span>
                 <span className="mt-1 flex flex-wrap gap-1.5">
                   {row.isBlocked && (
@@ -157,7 +157,7 @@ function UsersTable() {
 function Tag({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "warn" }) {
   return (
     <span
-      className={`rounded-md px-1.5 py-0.5 text-[10px] font-600 ${
+      className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
         tone === "warn" ? "bg-gold/20 text-gold-deep" : "bg-surface-2 text-dusk"
       }`}
     >

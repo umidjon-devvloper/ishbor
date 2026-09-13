@@ -2,9 +2,17 @@ import React, { useState } from "react";
 import { usePageContext } from "vike-react/usePageContext";
 import { registerUser, ApiError } from "../../lib/api.js";
 import { useAuth } from "../../components/AuthContext.js";
-import { HeroBackdrop } from "../../components/HeroBackdrop.js";
+import { AuthShell } from "../../components/AuthShell.js";
+import {
+  AuthTabs,
+  AuthField,
+  PasswordField,
+  AuthSubmit,
+  MailIcon,
+  UserIcon,
+  BuildingIcon,
+} from "../../components/AuthForm.js";
 import { SocialLogin } from "../../components/SocialLogin.js";
-import { BrandPanel } from "../login/+Page.js";
 import { useT, useHref } from "../../lib/i18n/index.js";
 
 export default function Page() {
@@ -23,6 +31,8 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const done = () => window.location.assign(l(role === "employer" ? "/employer" : "/profile"));
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -37,7 +47,7 @@ export default function Page() {
         companyName: role === "employer" ? companyName : undefined,
       });
       await login(accessToken);
-      window.location.assign(l(role === "employer" ? "/employer" : "/profile"));
+      done();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t.signup.connError);
     } finally {
@@ -46,113 +56,133 @@ export default function Page() {
   }
 
   return (
-    <div className="mx-auto grid min-h-[82vh] max-w-7xl lg:grid-cols-2">
-      <div className="relative flex items-center justify-center overflow-hidden px-4 py-12 sm:px-6">
-        <HeroBackdrop variant="soft" />
-        <div className="relative w-full max-w-sm animate-card-in">
-        <h1 className="font-display text-3xl font-700 tracking-tight text-ink">{t.signup.title}</h1>
-        <p className="mt-2 text-sm text-dusk">{t.signup.subtitle}</p>
+    <AuthShell active="signup">
+      <h1 className="font-display text-[1.85rem] font-extrabold leading-tight tracking-tight text-ink sm:text-[2rem]">
+        {t.signup.title} <span className="text-shine">{t.signup.titleAccent}</span>
+      </h1>
+      <p className="mt-2 text-[14px] leading-relaxed text-dusk">{t.signup.subtitle}</p>
 
-        <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-surface-2 p-1">
-          <RoleTab active={role === "job_seeker"} onClick={() => setRole("job_seeker")} label={t.signup.roleSeeker} />
-          <RoleTab active={role === "employer"} onClick={() => setRole("employer")} label={t.signup.roleEmployer} />
-        </div>
-
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          {role === "job_seeker" ? (
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t.signup.firstName} value={firstName} onChange={setFirstName} placeholder="Aziz" />
-              <Field label={t.signup.lastName} value={lastName} onChange={setLastName} placeholder="Aliyev" />
-            </div>
-          ) : (
-            <Field
-              label={t.signup.companyName}
-              value={companyName}
-              onChange={setCompanyName}
-              placeholder={t.signup.companyNamePlaceholder}
-              required
-            />
-          )}
-          <Field label={t.signup.email} type="email" value={email} onChange={setEmail} placeholder="ism@email.com" required />
-          <Field label={t.signup.password} type="password" value={password} onChange={setPassword} placeholder={t.signup.passwordHint} required />
-
-          {error && (
-            <p className="animate-fade-in rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="glow-signal w-full rounded-xl bg-signal py-3 text-sm font-semibold text-white hover:bg-signal-dark active:scale-[0.99] disabled:opacity-60"
-          >
-            {loading ? t.signup.submitting : t.signup.submit}
-          </button>
-        </form>
-
-        {/* Google — tanlangan rol bilan hisob yaratadi. Telegram kirish faqat
-            mavjud (bog'langan) hisoblar uchun, shuning uchun bu yerda ko'rsatilmaydi. */}
-        <SocialLogin
-          role={role}
-          showTelegram={false}
-          onDone={() => window.location.assign(l(role === "employer" ? "/employer" : "/profile"))}
-        />
-
-        <p className="mt-6 text-sm text-dusk">
-          {t.signup.haveAccount}{" "}
-          <a href={l("/login")} className="font-medium text-ink underline underline-offset-4 hover:text-gold-deep">
-            {t.signup.loginLink}
-          </a>
-        </p>
-        </div>
+      <div className="mt-5">
+        <AuthTabs active="signup" />
       </div>
 
-      <BrandPanel />
-    </div>
+      {/* Kim sifatida ro'yxatdan o'tish — formaning qolgan qismini belgilaydi */}
+      <div className="mt-3 grid grid-cols-2 gap-2.5">
+        <RoleCard
+          active={role === "job_seeker"}
+          onClick={() => setRole("job_seeker")}
+          label={t.signup.roleSeeker}
+          icon={<UserIcon />}
+        />
+        <RoleCard
+          active={role === "employer"}
+          onClick={() => setRole("employer")}
+          label={t.signup.roleEmployer}
+          icon={<BuildingIcon />}
+        />
+      </div>
+
+      <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
+        {role === "job_seeker" ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <AuthField
+              label={t.signup.firstName}
+              value={firstName}
+              onChange={setFirstName}
+              placeholder="Aziz"
+              autoComplete="given-name"
+              icon={<UserIcon />}
+            />
+            <AuthField
+              label={t.signup.lastName}
+              value={lastName}
+              onChange={setLastName}
+              placeholder="Aliyev"
+              autoComplete="family-name"
+              icon={<UserIcon />}
+            />
+          </div>
+        ) : (
+          <AuthField
+            label={t.signup.companyName}
+            value={companyName}
+            onChange={setCompanyName}
+            placeholder={t.signup.companyNamePlaceholder}
+            autoComplete="organization"
+            required
+            icon={<BuildingIcon />}
+          />
+        )}
+
+        <AuthField
+          label={t.signup.email}
+          type="email"
+          value={email}
+          onChange={setEmail}
+          placeholder="ism@email.com"
+          autoComplete="email"
+          required
+          icon={<MailIcon />}
+        />
+        <PasswordField
+          label={t.signup.password}
+          value={password}
+          onChange={setPassword}
+          placeholder={t.signup.passwordHint}
+          autoComplete="new-password"
+        />
+
+        {error && (
+          <p className="animate-fade-in rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
+        )}
+
+        <AuthSubmit loading={loading} label={t.signup.submit} loadingLabel={t.signup.submitting} />
+      </form>
+
+      {/* Telegram kirish faqat bog'langan hisoblar uchun — bu yerda o'rinsiz */}
+      <SocialLogin role={role} showTelegram={false} onDone={done} />
+
+      <p className="mt-4 text-center text-[13.5px] text-dusk">
+        {t.signup.haveAccount}{" "}
+        <a
+          href={l("/login")}
+          className="group inline-flex items-center gap-1 font-bold text-signal transition-colors hover:text-signal-dark"
+        >
+          {t.signup.loginLink}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden>
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+        </a>
+      </p>
+    </AuthShell>
   );
 }
 
-function RoleTab({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+/** Rol tanlash kartasi — ikonka + nom, tanlanganida indigo ramka. */
+function RoleCard({
+  active,
+  onClick,
+  label,
+  icon,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  icon: React.ReactNode;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg py-2 text-sm font-medium transition-all duration-200 ${
-        active ? "bg-surface text-ink shadow-xs" : "text-dusk hover:text-ink"
+      aria-pressed={active}
+      className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left text-[13.5px] font-semibold transition-all ${
+        active
+          ? "border-signal bg-signal-soft text-signal"
+          : "border-line bg-surface text-dusk hover:border-signal/40 hover:text-ink"
       }`}
     >
-      {label}
+      <span className={`shrink-0 ${active ? "text-signal" : "text-dusk"}`}>{icon}</span>
+      <span className="whitespace-nowrap leading-tight">{label}</span>
     </button>
-  );
-}
-
-function Field({
-  label,
-  type = "text",
-  value,
-  onChange,
-  placeholder,
-  required,
-}: {
-  label: string;
-  type?: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  required?: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="text-sm font-medium text-ink">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        required={required}
-        className="mt-1.5 w-full rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm text-ink placeholder:text-dusk focus:border-signal focus:bg-surface focus:outline-none"
-      />
-    </label>
   );
 }

@@ -3,7 +3,9 @@ import { z } from "zod";
 import { objectId } from "../../common/validation.js";
 import {
   listVacancies,
+  vacancyFacets,
   getVacancyBySlug,
+  similarVacancies,
   createVacancy,
   syncVacancyIndex,
 } from "./vacancies.service.js";
@@ -12,15 +14,22 @@ import { prisma } from "../../common/prisma.js";
 import { Errors } from "../../common/errors.js";
 import { assertCanPostVacancy, getSubscriptionState } from "../billing/billing.service.js";
 
+/** "1" / "true" → true; boshqa har qanday qiymat → false; berilmasa — undefined. */
+const flag = z.preprocess((v) => (v === undefined || v === "" ? undefined : v === "1" || v === "true" || v === true), z.boolean().optional());
+
+// area / experience / employment / company — bitta qiymat yoki vergul bilan bir nechta
 const listQuerySchema = z.object({
   text: z.string().optional(),
   categorySlug: z.string().optional(),
-  area: z.string().optional(),
-  experience: z.string().optional(),
-  employment: z.string().optional(),
+  area: z.string().max(500).optional(),
+  experience: z.string().max(200).optional(),
+  employment: z.string().max(200).optional(),
   salary: z.coerce.number().optional(),
   salaryTo: z.coerce.number().optional(),
-  sort: z.enum(["relevance", "date", "salary_desc", "salary_asc"]).optional(),
+  company: z.string().max(2000).optional(),
+  verified: flag,
+  premium: flag,
+  sort: z.enum(["relevance", "date", "salary_desc", "salary_asc", "popular"]).optional(),
   page: z.coerce.number().optional(),
   pageSize: z.coerce.number().optional(),
 });
@@ -68,6 +77,12 @@ export async function vacancyRoutes(app: FastifyInstance) {
     return listVacancies(query);
   });
 
+  // Filtr paneli sonlari — ro'yxat bilan bir xil parametrlar (sahifa/saralashsiz)
+  app.get("/api/vacancies/facets", async (req) => {
+    const query = listQuerySchema.parse(req.query);
+    return vacancyFacets(query);
+  });
+
   // Ish beruvchining o'z vakansiyalari (ariza soni + tarif limiti bilan)
   app.get(
     "/api/employer/vacancies",
@@ -96,6 +111,13 @@ export async function vacancyRoutes(app: FastifyInstance) {
   app.get("/api/vacancies/:slug", async (req) => {
     const { slug } = req.params as { slug: string };
     return getVacancyBySlug(slug);
+  });
+
+  // Detail sahifasidagi "O'xshash vakansiyalar" (ko'rishlar soniga ta'sir qilmaydi)
+  app.get("/api/vacancies/:slug/similar", async (req) => {
+    const { slug } = req.params as { slug: string };
+    const { limit } = z.object({ limit: z.coerce.number().int().min(1).max(10).optional() }).parse(req.query);
+    return similarVacancies(slug, limit);
   });
 
   // Vakansiya joylash — ish beruvchining o'z kompaniyasiga (tarif limiti bilan)

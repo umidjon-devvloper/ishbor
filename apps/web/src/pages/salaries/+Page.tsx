@@ -1,208 +1,127 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { useData } from "vike-react/useData";
 import type { data } from "./+data.js";
-import { useT, useHref } from "../../lib/i18n/index.js";
-import { formatNumber } from "../../lib/format.js";
-import type { SalaryGroup } from "../../lib/types.js";
+import { useT } from "../../lib/i18n/index.js";
+import { useUrlQuery } from "../../lib/useUrlQuery.js";
+import {
+  EMPTY_SALARY_QUERY,
+  SALARY_ROLES,
+  hasFilters,
+  parseSalaryQuery,
+  toSearchParams,
+  type ExperienceKey,
+  type SalaryRole,
+} from "../../lib/salaries/query.js";
+import { useDelayedFlag, useSalaryCatalogs, useSalaryStats } from "../../lib/salaries/useSalaryStats.js";
+import { SalaryHero } from "../../components/salaries/SalaryHero.js";
+import { SalarySearch } from "../../components/salaries/SalarySearch.js";
+import { PopularRoles } from "../../components/salaries/PopularRoles.js";
+import { SelectedProfession } from "../../components/salaries/SelectedProfession.js";
+import { SalaryInsightCards } from "../../components/salaries/SalaryInsightCards.js";
+import { SalaryDistributionChart } from "../../components/salaries/SalaryDistributionChart.js";
+import { SalaryExperienceChart } from "../../components/salaries/SalaryExperienceChart.js";
+import { RegionSalaryTable, SalaryTable } from "../../components/salaries/SalaryTables.js";
+import { SalaryInsights } from "../../components/salaries/SalaryInsights.js";
+import { RelatedVacanciesCTA } from "../../components/salaries/RelatedVacanciesCTA.js";
+import { SalarySkeleton } from "../../components/salaries/SalarySkeleton.js";
+import { SalaryEmptyState, SalaryErrorState } from "../../components/salaries/SalaryStates.js";
+
+type Data = Awaited<ReturnType<typeof data>>;
 
 /**
  * Maosh statistikasi — saytdagi real vakansiyalar asosida.
- * Filtrlar URL query'da saqlanadi, shuning uchun har bir kesim alohida
- * indekslanadigan sahifa bo'ladi (masalan /salaries?categorySlug=it).
+ * Holat URL'da (?role=&q=&category=&region=&experience=): yangilash, orqaga
+ * tugmasi va ulashilgan havola bir xil ko'rinishni ochadi. Kasb → hudud →
+ * tajriba tanlanadi, barcha karta/grafik/jadvallar birga yangilanadi,
+ * oxirida — shu tanlovdagi vakansiyalarga o'tish.
  */
 export default function Page() {
-  const { stats, categories, regions, params } = useData<Awaited<ReturnType<typeof data>>>();
+  const initial = useData<Data>();
   const t = useT();
-  const l = useHref();
+  const s = t.salaries;
+  const { query, urlQuery, urlKey, pending, update } = useUrlQuery(parseSalaryQuery, toSearchParams);
+  const { categories, regions } = useSalaryCatalogs(initial.categories, initial.regions);
+  const { stats, retrying, retry } = useSalaryStats(initial, urlKey, urlQuery);
+  // Tez javoblarda skelet ko'rinmaydi — eski raqamlar bir lahza xiralashadi xolos
+  const showSkeleton = useDelayedFlag(pending, 180);
+  const roles = s.roles;
 
-  const { summary, distribution, byCategory, byRegion } = stats;
-  const hasData = summary.count > 0;
-  const maxBucket = Math.max(1, ...distribution.map((b) => b.count));
+  /** Yozilgan matn ommabop kasb nomiga to'liq mos kelsa — o'sha kasb, aks holda erkin qidiruv. */
+  const onText = useCallback(
+    (text: string) => {
+      const needle = text.toLocaleLowerCase();
+      const role = SALARY_ROLES.find((r) => r === needle || roles[r].label.toLocaleLowerCase() === needle) ?? "";
+      update((current) => ({ ...current, role, q: role ? "" : text, category: text ? "" : current.category }), { replace: true });
+    },
+    [roles, update]
+  );
+  const onRole = useCallback((role: SalaryRole | "") => update({ role, q: "", category: "" }), [update]);
+  const onRegion = useCallback((region: string) => update({ region }), [update]);
+  const onExperience = useCallback((experience: ExperienceKey | "") => update({ experience }), [update]);
+  const onCategory = useCallback((category: string) => update({ category, role: "", q: "" }), [update]);
+  const onReset = useCallback(() => update(() => EMPTY_SALARY_QUERY), [update]);
 
-  /** Filtrni URL orqali almashtiradi (SSR qayta yuklanadi). */
-  function applyFilter(key: "categorySlug" | "area", value: string) {
-    const next = new URLSearchParams();
-    const merged = { ...params, [key]: value } as Record<string, string | undefined>;
-    for (const [k, v] of Object.entries(merged)) {
-      if (v) next.set(k, v);
-    }
-    const qs = next.toString();
-    window.location.assign(l(`/salaries${qs ? `?${qs}` : ""}`));
-  }
+  const filtered = hasFilters(urlQuery);
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-      <div className="mb-2 text-sm text-dusk">
-        <a href={l("/")} className="hover:text-signal">
-          {t.search.breadcrumbHome}
-        </a>{" "}
-        / {t.salaries.breadcrumb}
-      </div>
-      <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.salaries.title}</h1>
-      <p className="mt-1 max-w-2xl text-sm text-dusk">{t.salaries.subtitle}</p>
-
-      <div className="mt-5 flex flex-wrap gap-3">
-        <FilterSelect
-          label={t.salaries.allCategories}
-          value={params.categorySlug ?? ""}
-          options={categories.map((c) => ({ value: c.slug, label: c.name }))}
-          onChange={(v) => applyFilter("categorySlug", v)}
+    <div className="mx-auto max-w-7xl px-4 pb-16 sm:px-6">
+      <SalaryHero marketCount={stats?.market.count ?? null}>
+        <SalarySearch
+          text={query.role ? roles[query.role].label : query.q}
+          region={query.region}
+          experience={query.experience}
+          regions={regions}
+          pending={pending}
+          onText={onText}
+          onRegion={onRegion}
+          onExperience={onExperience}
         />
-        <FilterSelect
-          label={t.salaries.allRegions}
-          value={params.area ?? ""}
-          options={regions.map((r) => ({ value: r.slug, label: r.name }))}
-          onChange={(v) => applyFilter("area", v)}
-        />
+      </SalaryHero>
+
+      <PopularRoles active={query.role} onSelect={onRole} />
+
+      <p role="status" className="sr-only">
+        {pending ? s.states.loading : stats ? s.cards.basedOn(stats.summary.count) : ""}
+      </p>
+
+      <div
+        aria-busy={pending}
+        className={`mt-6 space-y-5 transition-opacity duration-200 ${pending && !showSkeleton ? "opacity-60" : ""}`}
+      >
+        {showSkeleton ? (
+          <SalarySkeleton />
+        ) : stats === null ? (
+          <SalaryErrorState onRetry={retry} retrying={retrying} />
+        ) : (
+          <>
+            <SelectedProfession query={urlQuery} stats={stats} categories={categories} regions={regions} onClear={onReset} />
+
+            {stats.summary.count === 0 ? (
+              <SalaryEmptyState onReset={onReset} canReset={filtered} />
+            ) : (
+              <>
+                <SalaryInsightCards summary={stats.summary} market={stats.market} filtered={filtered} />
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                  <SalaryDistributionChart buckets={stats.distribution} median={stats.summary.median} />
+                  <SalaryExperienceChart levels={stats.byExperience} selected={urlQuery.experience} />
+                </div>
+              </>
+            )}
+
+            {/* Jadvallar o'z filtrini chetlab hisoblanadi — bo'sh natijada ham boshqa hudud/sohani tanlashga yordam beradi */}
+            {(stats.byCategory.length > 0 || stats.byRegion.length > 0) && (
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                <SalaryTable rows={stats.byCategory} selected={urlQuery.category} onSelect={onCategory} />
+                <RegionSalaryTable rows={stats.byRegion} selected={urlQuery.region} onSelect={onRegion} />
+              </div>
+            )}
+
+            {stats.summary.count > 0 && <SalaryInsights stats={stats} />}
+
+            <RelatedVacanciesCTA query={urlQuery} summary={stats.summary} />
+          </>
+        )}
       </div>
-
-      {!hasData ? (
-        <div className="mt-8 rounded-2xl border border-line bg-surface p-10 text-center">
-          <p className="font-display text-base font-600 text-ink">{t.salaries.noData}</p>
-          <p className="mt-1.5 text-sm text-dusk">{t.salaries.noDataHint}</p>
-        </div>
-      ) : (
-        <>
-          <p className="mt-6 text-xs uppercase tracking-wide text-dusk">
-            {t.salaries.basedOn(summary.count)}
-          </p>
-
-          <div className="mt-3 grid gap-4 sm:grid-cols-3">
-            <StatCard
-              label={t.salaries.median}
-              value={`${formatNumber(summary.median)} ${t.fmt.currency}`}
-              hint={t.salaries.medianHint}
-              accent
-            />
-            <StatCard
-              label={t.salaries.average}
-              value={`${formatNumber(summary.average)} ${t.fmt.currency}`}
-              hint={t.salaries.averageHint}
-            />
-            <StatCard
-              label={t.salaries.middleRange}
-              value={`${formatNumber(summary.p25)} – ${formatNumber(summary.p75)}`}
-              hint={t.salaries.middleRangeHint}
-            />
-          </div>
-
-          <section className="mt-8 rounded-2xl border border-line bg-surface p-5">
-            <h2 className="font-display text-base font-700 text-ink">{t.salaries.distribution}</h2>
-            <p className="mt-1 text-sm text-dusk">{t.salaries.distributionHint}</p>
-
-            <ul className="mt-5 space-y-3">
-              {distribution.map((bucket) => (
-                <li key={bucket.label} className="flex items-center gap-3">
-                  <span className="w-20 shrink-0 text-right font-mono text-xs text-dusk">
-                    {bucket.label}
-                  </span>
-                  <span className="h-6 flex-1 overflow-hidden rounded-md bg-surface-2">
-                    <span
-                      className="block h-full rounded-md bg-signal/70 transition-all duration-500"
-                      style={{ width: `${Math.round((bucket.count / maxBucket) * 100)}%` }}
-                    />
-                  </span>
-                  <span className="w-10 shrink-0 font-mono text-xs text-ink">{bucket.count}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <div className="mt-6 grid gap-5 lg:grid-cols-2">
-            <GroupTable title={t.salaries.byCategory} rows={byCategory} />
-            <GroupTable title={t.salaries.byRegion} rows={byRegion} />
-          </div>
-        </>
-      )}
     </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  hint,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-2xl border p-5 ${
-        accent ? "border-signal/40 bg-signal/[0.05]" : "border-line bg-surface"
-      }`}
-    >
-      <p className="text-xs font-600 uppercase tracking-wide text-dusk">{label}</p>
-      <p className="mt-1.5 font-display text-xl font-700 text-ink">{value}</p>
-      <p className="mt-2 text-xs leading-relaxed text-dusk">{hint}</p>
-    </div>
-  );
-}
-
-function GroupTable({ title, rows }: { title: string; rows: SalaryGroup[] }) {
-  const t = useT();
-  if (rows.length === 0) return null;
-
-  return (
-    <section className="rounded-2xl border border-line bg-surface p-5">
-      <h2 className="font-display text-base font-700 text-ink">{title}</h2>
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[320px] text-sm">
-          <thead>
-            <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-dusk">
-              <th className="py-2 pr-3 font-600">{t.salaries.columnName}</th>
-              <th className="px-2 py-2 text-right font-600">{t.salaries.columnMedian}</th>
-              <th className="px-2 py-2 text-right font-600">{t.salaries.columnAverage}</th>
-              <th className="pl-2 py-2 text-right font-600">{t.salaries.columnCount}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.slice(0, 12).map((row) => (
-              <tr key={row.slug} className="border-b border-line/60 last:border-0">
-                <td className="py-2.5 pr-3 text-ink">{row.name}</td>
-                <td className="px-2 py-2.5 text-right font-mono text-[13px] text-growth">
-                  {formatNumber(row.median)}
-                </td>
-                <td className="px-2 py-2.5 text-right font-mono text-[13px] text-dusk">
-                  {formatNumber(row.average)}
-                </td>
-                <td className="py-2.5 pl-2 text-right text-dusk">{row.count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      aria-label={label}
-      className="rounded-xl border border-line bg-surface px-3.5 py-2.5 text-sm text-ink focus:border-signal focus:outline-none"
-    >
-      <option value="">{label}</option>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
   );
 }

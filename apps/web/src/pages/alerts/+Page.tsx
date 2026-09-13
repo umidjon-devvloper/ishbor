@@ -64,7 +64,7 @@ export default function Page() {
         </a>{" "}
         / {t.alerts.title}
       </div>
-      <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.alerts.title}</h1>
+      <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">{t.alerts.title}</h1>
       <p className="mt-1 text-sm text-dusk">{t.alerts.subtitle}</p>
 
       <div className="mt-7">
@@ -76,10 +76,10 @@ export default function Page() {
           </div>
         ) : items.length === 0 ? (
           <div className="rounded-2xl border border-line bg-surface p-10 text-center">
-            <p className="font-display text-base font-600 text-ink">{t.alerts.empty}</p>
+            <p className="font-display text-base font-semibold text-ink">{t.alerts.empty}</p>
             <p className="mx-auto mt-1.5 max-w-sm text-sm text-dusk">{t.alerts.emptyHint}</p>
             <a
-              href={l("/search/vacancy")}
+              href={l("/vacancies")}
               className="mt-5 inline-block rounded-xl bg-signal px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-signal-dark"
             >
               {t.favorites.browse}
@@ -97,13 +97,13 @@ export default function Page() {
                   <div className="min-w-0">
                     <a
                       href={l(item.url)}
-                      className="font-display text-[15px] font-600 text-ink transition-colors hover:text-signal"
+                      className="font-display text-[15px] font-semibold text-ink transition-colors hover:text-signal"
                     >
                       {item.name}
                     </a>
                     <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-dusk">
                       <span
-                        className={`rounded-md px-1.5 py-0.5 font-600 ${
+                        className={`rounded-md px-1.5 py-0.5 font-semibold ${
                           item.emailAlertsEnabled
                             ? "bg-growth/10 text-growth"
                             : "bg-surface-2 text-dusk"

@@ -26,6 +26,31 @@ import type {
   SubscriptionState,
 } from "../../../lib/types.js";
 
+const STATUS_TONE: Record<string, string> = {
+  active: "bg-growth/10 text-growth",
+  moderation: "bg-gold/15 text-gold-deep",
+  rejected: "bg-danger/10 text-danger",
+  draft: "bg-surface-2 text-dusk",
+  archived: "bg-line text-dusk",
+};
+
+/** Vakansiyaning haqiqiy holati (qoralama, moderatsiya, rad etilgan ham "arxiv" deb ko'rinmasin). */
+function VacancyStatusBadge({ status }: { status: string }) {
+  const e = useT().empVacancies;
+  const label: Record<string, string> = {
+    active: e.statusActive,
+    moderation: e.statusModeration,
+    rejected: e.statusRejected,
+    draft: e.statusDraft,
+    archived: e.statusArchived,
+  };
+  return (
+    <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${STATUS_TONE[status] ?? STATUS_TONE.archived}`}>
+      {label[status] ?? e.statusArchived}
+    </span>
+  );
+}
+
 export default function Page() {
   const t = useT();
   const l = useHref();
@@ -90,8 +115,8 @@ export default function Page() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.empVacancies.title}</h1>
+        <div className="min-w-0">
+          <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">{t.empVacancies.title}</h1>
           <p className="mt-1 text-sm text-dusk">{t.empVacancies.subtitle}</p>
         </div>
         {hasCompany && (
@@ -136,7 +161,7 @@ export default function Page() {
 
       {!hasCompany && (
         <div className="mt-7 rounded-2xl border border-gold/40 bg-gold/5 p-8 text-center">
-          <h2 className="font-display text-lg font-600 text-ink">{t.empVacancies.needCompanyTitle}</h2>
+          <h2 className="font-display text-lg font-semibold text-ink">{t.empVacancies.needCompanyTitle}</h2>
           <p className="mx-auto mt-1.5 max-w-md text-sm text-dusk">{t.empVacancies.needCompanyDesc}</p>
           <a
             href={l("/profile")}
@@ -177,19 +202,16 @@ export default function Page() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <a
-                      href={l(`/vacancy/${v.slug}`)}
-                      className="font-display text-base font-600 text-ink hover:text-signal"
+                      href={l(`/vacancies/${v.slug}`)}
+                      className="font-display text-base font-semibold text-ink hover:text-signal"
                     >
                       {v.title}
                     </a>
-                    <span
-                      className={`rounded-md px-2 py-0.5 text-[11px] font-700 uppercase tracking-wide ${
-                        v.status === "active" ? "bg-growth/10 text-growth" : "bg-line text-dusk"
-                      }`}
-                    >
-                      {v.status === "active" ? t.empVacancies.statusActive : t.empVacancies.statusArchived}
-                    </span>
+                    <VacancyStatusBadge status={v.status} />
                   </div>
+                  {v.status === "rejected" && v.rejectionReason && (
+                    <p className="mt-1 text-[13px] text-danger">{t.empVacancies.rejectionReason(v.rejectionReason)}</p>
+                  )}
                   <p className="mt-1 text-sm text-dusk">
                     {[v.region?.name, t.enums.employment[v.employmentType]].filter(Boolean).join(" · ")}
                   </p>
@@ -198,10 +220,10 @@ export default function Page() {
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
-                  <span className="text-sm font-600 text-ink">
+                  <span className="text-sm font-semibold text-ink">
                     {t.empVacancies.applicationsCount(v._count.applications)}
                   </span>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     <a
                       href={l("/employer/applications")}
                       className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-signal hover:text-signal"
@@ -218,12 +240,15 @@ export default function Page() {
                     >
                       {t.empVacanciesExtra.edit}
                     </button>
-                    <button
-                      onClick={() => toggleStatus(v)}
-                      className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-dusk transition-colors hover:border-signal hover:text-signal"
-                    >
-                      {v.status === "active" ? t.empVacancies.close : t.empVacancies.reopen}
-                    </button>
+                    {/* Qoralama, moderatsiya va rad etilgan e'lon bu tugma bilan faollashmaydi — moderatsiyadan o'tadi */}
+                    {(v.status === "active" || v.status === "archived") && (
+                      <button
+                        onClick={() => toggleStatus(v)}
+                        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-dusk transition-colors hover:border-signal hover:text-signal"
+                      >
+                        {v.status === "active" ? t.empVacancies.close : t.empVacancies.reopen}
+                      </button>
+                    )}
                     <button
                       onClick={() => removeVacancy(v)}
                       aria-label={t.empVacancies.delete}
@@ -332,7 +357,7 @@ function VacancyForm({
 
   return (
     <form onSubmit={submit} className="mt-6 rounded-2xl border border-line bg-surface p-6">
-      <h2 className="font-display text-lg font-600 text-ink">
+      <h2 className="font-display text-lg font-semibold text-ink">
         {isEdit ? t.empVacanciesExtra.editTitle : t.empVacancies.formTitle}
       </h2>
       <div className="mt-4 space-y-4">

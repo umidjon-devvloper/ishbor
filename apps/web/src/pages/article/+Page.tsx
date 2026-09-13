@@ -18,7 +18,7 @@ export default function Page() {
         </a>{" "}
         / {t.articles.breadcrumb}
       </div>
-      <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.articles.title}</h1>
+      <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">{t.articles.title}</h1>
       <p className="mt-1 text-sm text-dusk">{t.articles.subtitle}</p>
 
       <div className="mt-7 space-y-4">
@@ -28,7 +28,7 @@ export default function Page() {
             style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
             className="group animate-fade-up cursor-pointer rounded-2xl border border-line bg-surface p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-signal/40 hover:shadow-card-hover"
           >
-            <h2 className="font-display text-lg font-600 text-ink transition-colors group-hover:text-signal">
+            <h2 className="font-display text-lg font-semibold text-ink transition-colors group-hover:text-signal">
               {a.title}
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-dusk">{a.excerpt}</p>

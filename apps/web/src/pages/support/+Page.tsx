@@ -14,10 +14,10 @@ export default function Page() {
         </a>{" "}
         / {t.support.breadcrumb}
       </div>
-      <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.support.title}</h1>
+      <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">{t.support.title}</h1>
       <p className="mt-1 text-sm text-dusk">{t.support.subtitle}</p>
 
-      <h2 className="mt-8 font-display text-lg font-700 text-ink">{t.support.faqTitle}</h2>
+      <h2 className="mt-8 font-display text-lg font-bold text-ink">{t.support.faqTitle}</h2>
       <div className="mt-4 space-y-3">
         {t.support.faq.map((item, i) => {
           const isOpen = open === i;
@@ -29,7 +29,7 @@ export default function Page() {
                 aria-expanded={isOpen}
                 className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-surface-2"
               >
-                <span className="font-display text-sm font-600 text-ink">{item.q}</span>
+                <span className="font-display text-sm font-semibold text-ink">{item.q}</span>
                 <span className={`shrink-0 text-dusk transition-transform duration-200 ${isOpen ? "rotate-45 text-signal" : ""}`}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
                     <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -47,7 +47,7 @@ export default function Page() {
       </div>
 
       <div className="mt-8 rounded-2xl border border-line bg-surface-2 px-6 py-7 text-center">
-        <h3 className="font-display text-lg font-700 text-ink">{t.support.stillTitle}</h3>
+        <h3 className="font-display text-lg font-bold text-ink">{t.support.stillTitle}</h3>
         <p className="mx-auto mt-1 max-w-sm text-sm text-dusk">{t.support.stillDesc}</p>
         <a
           href={l("/contact")}

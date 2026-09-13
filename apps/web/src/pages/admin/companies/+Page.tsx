@@ -64,11 +64,11 @@ function CompaniesTable() {
         <AdminTable
           head={
             <>
-              <th className="px-4 py-2.5 font-600">{t.admin.nav.companies}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.companies.owner}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.companies.plan}</th>
-              <th className="px-4 py-2.5 font-600">{t.admin.companies.vacancies}</th>
-              <th className="px-4 py-2.5 font-600">&nbsp;</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.nav.companies}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.companies.owner}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.companies.plan}</th>
+              <th className="px-4 py-2.5 font-semibold">{t.admin.companies.vacancies}</th>
+              <th className="px-4 py-2.5 font-semibold">&nbsp;</th>
             </>
           }
         >
@@ -76,13 +76,13 @@ function CompaniesTable() {
             <tr key={row.id} className="border-b border-line/60 last:border-0">
               <td className="px-4 py-3">
                 <a
-                  href={l(`/employer/${row.slug}`)}
-                  className="block font-600 text-ink transition-colors hover:text-signal"
+                  href={l(`/companies/${row.slug}`)}
+                  className="block font-semibold text-ink transition-colors hover:text-signal"
                 >
                   {row.name}
                 </a>
                 {row.isVerified && (
-                  <span className="mt-1 inline-block rounded-md bg-growth/10 px-1.5 py-0.5 text-[10px] font-700 uppercase text-growth">
+                  <span className="mt-1 inline-block rounded-md bg-growth/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-growth">
                     {t.admin.companies.verified}
                   </span>
                 )}

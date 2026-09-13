@@ -148,6 +148,7 @@ model User {
   companyMembers        CompanyMember[]
   applications          Application[]
   favorites             Favorite[]
+  savedCompanies        SavedCompany[]
   savedSearches         SavedSearch[]
   notifications         Notification[]
   notificationPrefs     NotificationPreference[]
@@ -276,6 +277,9 @@ model Company {
   industry              String?
   employeeCount         String?   @map("employee_count")
   foundedYear           Int?      @map("founded_year")
+  // Ofis/jamoa rasmlari (to'liq URL yoki /uploads/...). Bo'sh bo'lsa vakansiya
+  // sahifasidagi "Kompaniya rasmlari" bloki umuman chiqmaydi.
+  images                String[]  @default([])
   regionId              String?   @map("region_id") @db.ObjectId
   isVerified            Boolean   @default(false) @map("is_verified")
   subscriptionPlanId    String?   @map("subscription_plan_id") @db.ObjectId
@@ -291,6 +295,7 @@ model Company {
   reviews          CompanyReview[]
   payments         Payment[]
   conversations    Conversation[]
+  savedBy          SavedCompany[]
 
   @@index([ownerUserId])
   @@index([regionId])
@@ -362,6 +367,8 @@ model Vacancy {
   address            String?
   latitude           Float?
   longitude          Float?
+  // Ish joyi rasmlari (to'liq URL yoki /uploads/...). Bo'sh bo'lsa galereya chiqmaydi.
+  images             String[]           @default([])
   employmentType     EmploymentType     @map("employment_type")
   scheduleType       ScheduleType?      @map("schedule_type")
   experienceRequired ExperienceRequired @default(none) @map("experience_required")
@@ -520,6 +527,21 @@ model Favorite {
   @@unique([userId, vacancyId])
   @@index([vacancyId])
   @@map("favorites")
+}
+
+// Saqlangan (kuzatilayotgan) kompaniyalar — /companies sahifasidagi yurakcha
+model SavedCompany {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @map("user_id") @db.ObjectId
+  companyId String   @map("company_id") @db.ObjectId
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+  @@map("saved_companies")
 }
 
 model SavedSearch {

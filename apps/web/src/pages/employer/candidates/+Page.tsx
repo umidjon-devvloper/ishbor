@@ -58,7 +58,7 @@ export default function Page() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <div className="mb-5">
-        <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.candidatesPage.title}</h1>
+        <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">{t.candidatesPage.title}</h1>
         <p className="mt-1 text-sm text-dusk">{t.candidatesPage.subtitle}</p>
       </div>
 
@@ -99,12 +99,12 @@ export default function Page() {
         </div>
       ) : items.length === 0 ? (
         <div className="animate-fade-up rounded-2xl border border-line bg-surface p-12 text-center">
-          <p className="font-display text-lg font-600 text-ink">{t.candidatesPage.empty}</p>
+          <p className="font-display text-lg font-semibold text-ink">{t.candidatesPage.empty}</p>
           <p className="mt-1 text-sm text-dusk">{t.candidatesPage.emptyHint}</p>
         </div>
       ) : (
         <>
-          <p className="mb-3 text-xs font-600 uppercase tracking-wide text-dusk">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-dusk">
             {t.candidatesPage.resultsCount(items.length)}
           </p>
           <div className="grid min-h-[60vh] grid-cols-1 overflow-hidden rounded-2xl border border-line bg-surface md:grid-cols-[minmax(300px,360px)_1fr]">
@@ -121,14 +121,14 @@ export default function Page() {
                         c.userId === activeId ? "bg-surface-2" : ""
                       }`}
                     >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-sm font-700 text-ink">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-sm font-bold text-ink">
                         {name.charAt(0).toUpperCase()}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5">
-                          <span className="truncate text-sm font-600 text-ink">{name}</span>
+                          <span className="truncate text-sm font-semibold text-ink">{name}</span>
                           {c.ratingAvg !== null && c.ratingCount > 0 && (
-                            <span className="flex shrink-0 items-center gap-0.5 text-[11px] font-600 text-gold-deep">
+                            <span className="flex shrink-0 items-center gap-0.5 text-[11px] font-semibold text-gold-deep">
                               <span aria-hidden className="text-gold">★</span>
                               {c.ratingAvg.toFixed(1)}
                             </span>
@@ -175,12 +175,12 @@ function CandidateDetail({ c, onBack, onChat }: { c: Candidate; onBack: () => vo
             <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-signal font-display text-base font-700 text-white">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-signal font-display text-base font-bold text-white">
           {name.charAt(0).toUpperCase()}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-display text-base font-700 text-ink">{name}</span>
+            <span className="truncate font-display text-base font-bold text-ink">{name}</span>
             {c.ratingAvg !== null && c.ratingCount > 0 && (
               <span className="flex shrink-0 items-center gap-1 text-xs text-dusk">
                 <StarRating value={c.ratingAvg} className="text-xs" />
@@ -203,20 +203,20 @@ function CandidateDetail({ c, onBack, onChat }: { c: Candidate; onBack: () => vo
 
       <div className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
         <section className="rounded-xl border border-line bg-surface-2/40 p-4">
-          <h2 className="mb-3 font-display text-xs font-700 uppercase tracking-wide text-dusk">
+          <h2 className="mb-3 font-display text-xs font-bold uppercase tracking-wide text-dusk">
             {t.empApplications.contactInfo}
           </h2>
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="min-w-0">
               <div className="text-[11px] uppercase tracking-wide text-dusk">Email</div>
-              <a href={`mailto:${c.email}`} className="block truncate text-sm font-500 text-ink hover:text-signal">
+              <a href={`mailto:${c.email}`} className="block truncate text-sm font-medium text-ink hover:text-signal">
                 {c.email}
               </a>
             </div>
             {c.phone && (
               <div className="min-w-0">
                 <div className="text-[11px] uppercase tracking-wide text-dusk">{t.profile.phone}</div>
-                <a href={`tel:${c.phone}`} className="block truncate text-sm font-500 text-ink hover:text-signal">
+                <a href={`tel:${c.phone}`} className="block truncate text-sm font-medium text-ink hover:text-signal">
                   {c.phone}
                 </a>
               </div>
@@ -224,12 +224,12 @@ function CandidateDetail({ c, onBack, onChat }: { c: Candidate; onBack: () => vo
             {c.regionName && (
               <div className="min-w-0">
                 <div className="text-[11px] uppercase tracking-wide text-dusk">{t.empApplications.regionLabel}</div>
-                <div className="truncate text-sm font-500 text-ink">{c.regionName}</div>
+                <div className="truncate text-sm font-medium text-ink">{c.regionName}</div>
               </div>
             )}
           </div>
           {c.isOpenToWork && (
-            <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-growth/10 px-2.5 py-1 text-xs font-600 text-growth">
+            <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-growth/10 px-2.5 py-1 text-xs font-semibold text-growth">
               <span className="h-1.5 w-1.5 rounded-full bg-growth" />
               {t.empApplications.openToWork}
             </span>
@@ -254,21 +254,21 @@ function ResumeView({ resume }: { resume: ApplicantResume }) {
     <div className="space-y-4 rounded-xl border border-line bg-surface-2/40 p-4 text-sm">
       {resume.summary && (
         <div>
-          <h3 className="font-600 text-ink">{t.empApplications.resumeSummary}</h3>
+          <h3 className="font-semibold text-ink">{t.empApplications.resumeSummary}</h3>
           <p className="mt-1 whitespace-pre-wrap text-dusk">{resume.summary}</p>
         </div>
       )}
       {resume.desiredSalary ? (
         <p className="text-dusk">
           {t.empApplications.desiredSalary}:{" "}
-          <span className="font-mono font-600 text-growth">
+          <span className="font-mono font-semibold text-growth">
             {new Intl.NumberFormat("ru-RU").format(resume.desiredSalary)}
           </span>
         </p>
       ) : null}
       {resume.skills.length > 0 && (
         <div>
-          <h3 className="font-600 text-ink">{t.empApplications.resumeSkills}</h3>
+          <h3 className="font-semibold text-ink">{t.empApplications.resumeSkills}</h3>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {resume.skills.map((s) => (
               <span key={s.skillName} className="rounded-lg bg-surface px-2.5 py-1 text-xs font-medium text-ink">
@@ -280,11 +280,11 @@ function ResumeView({ resume }: { resume: ApplicantResume }) {
       )}
       {resume.experience.length > 0 && (
         <div>
-          <h3 className="font-600 text-ink">{t.empApplications.resumeExperience}</h3>
+          <h3 className="font-semibold text-ink">{t.empApplications.resumeExperience}</h3>
           <ul className="mt-1.5 space-y-2">
             {resume.experience.map((e, i) => (
               <li key={i} className="text-dusk">
-                <span className="font-500 text-ink">{e.position}</span> · {e.companyName}
+                <span className="font-medium text-ink">{e.position}</span> · {e.companyName}
                 <span className="ml-1 text-xs">
                   ({fmtYm(e.startDate)} – {e.endDate ? fmtYm(e.endDate) : "..."})
                 </span>
@@ -296,11 +296,11 @@ function ResumeView({ resume }: { resume: ApplicantResume }) {
       )}
       {resume.education.length > 0 && (
         <div>
-          <h3 className="font-600 text-ink">{t.empApplications.resumeEducation}</h3>
+          <h3 className="font-semibold text-ink">{t.empApplications.resumeEducation}</h3>
           <ul className="mt-1.5 space-y-1.5">
             {resume.education.map((e, i) => (
               <li key={i} className="text-dusk">
-                <span className="font-500 text-ink">{e.institution}</span>
+                <span className="font-medium text-ink">{e.institution}</span>
                 {e.field ? ` · ${e.field}` : ""}
                 <span className="ml-1 text-xs">
                   ({e.startYear}–{e.endYear ?? "..."})

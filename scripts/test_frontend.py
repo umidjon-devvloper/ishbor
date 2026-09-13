@@ -5,8 +5,8 @@ from playwright.sync_api import sync_playwright
 
 PAGES = [
     ("home", "http://localhost:5173/"),
-    ("vacancies", "http://localhost:5173/vakansiyalar"),
-    ("vacancy_detail", "http://localhost:5173/vakansiya/demo-frontend-dasturchi-react"),
+    ("vacancies", "http://localhost:5173/search/vacancy"),
+    ("vacancy_detail", "http://localhost:5173/vacancy/demo-frontend-dasturchi-react"),
 ]
 
 with sync_playwright() as p:

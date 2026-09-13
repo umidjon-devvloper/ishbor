@@ -114,7 +114,7 @@ function Overview() {
 
       <section className="rounded-2xl border border-line bg-surface p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="font-display text-base font-700 text-ink">
+          <h2 className="font-display text-base font-bold text-ink">
             {t.admin.overview.chartTitle}
           </h2>
           <div className="flex items-center gap-4 text-xs text-dusk">
@@ -150,7 +150,7 @@ function Overview() {
       </section>
 
       <section className="rounded-2xl border border-line bg-surface p-5">
-        <h2 className="font-display text-base font-700 text-ink">{t.admin.overview.actions}</h2>
+        <h2 className="font-display text-base font-bold text-ink">{t.admin.overview.actions}</h2>
         <p className="mt-1 text-sm text-dusk">
           {t.admin.overview.searchEngine}: <span className="font-mono">{data.search.engine}</span>
         </p>
@@ -198,8 +198,8 @@ function MetricCard({
         accent ? "border-signal/40 bg-signal/[0.05]" : "border-line bg-surface"
       }`}
     >
-      <p className="text-xs font-600 uppercase tracking-wide text-dusk">{label}</p>
-      <p className="mt-1.5 font-display text-2xl font-700 text-ink">{value}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-dusk">{label}</p>
+      <p className="mt-1.5 font-display text-2xl font-bold text-ink">{value}</p>
       {details.length > 0 && (
         <p className="mt-1.5 text-xs text-dusk">{details.join(" · ")}</p>
       )}
@@ -237,7 +237,7 @@ function BroadcastForm() {
 
   return (
     <section className="rounded-2xl border border-line bg-surface p-5">
-      <h2 className="font-display text-base font-700 text-ink">{t.admin.overview.broadcast}</h2>
+      <h2 className="font-display text-base font-bold text-ink">{t.admin.overview.broadcast}</h2>
 
       <form onSubmit={submit} className="mt-4 space-y-3">
         <div>

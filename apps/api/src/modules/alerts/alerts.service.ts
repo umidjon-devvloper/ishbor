@@ -25,12 +25,20 @@ const PREVIEW_COUNT = 5;
 export interface SavedSearchParams {
   text?: string;
   categorySlug?: string;
+  /** Vergul bilan bir nechta bo'lishi mumkin (area, experience, employment, company). */
   area?: string;
   experience?: string;
   employment?: string;
   salary?: number;
   salaryTo?: number;
+  company?: string;
+  verified?: boolean;
+  premium?: boolean;
 }
+
+/** API enum → sayt URL'idagi o'qiladigan qiymat (apps/web/src/lib/vacancies/query.ts bilan bir xil). */
+const EXPERIENCE_URL: Record<string, string> = { none: "junior", one_to_three: "middle", three_to_six: "senior", six_plus: "lead" };
+const EMPLOYMENT_URL: Record<string, string> = { full_time: "full-time", part_time: "part-time", remote: "remote", shift: "shift" };
 
 /** Json ustunidan qidiruv parametrlarini xavfsiz o'qiydi. */
 export function parseQueryParams(value: unknown): SavedSearchParams {
@@ -49,17 +57,34 @@ export function parseQueryParams(value: unknown): SavedSearchParams {
     employment: str("employment"),
     salary: num("salary"),
     salaryTo: num("salaryTo"),
+    company: str("company"),
+    verified: raw.verified === true ? true : undefined,
+    premium: raw.premium === true ? true : undefined,
   };
 }
 
-/** Saqlangan qidiruvni sayt URL'iga aylantiradi (xabarnomadagi havola uchun). */
+/** Saqlangan qidiruvni sayt URL'iga aylantiradi (xabarnomadagi havola uchun): `/vacancies?q=&region=…`. */
 export function paramsToUrl(params: SavedSearchParams): string {
   const qs = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== "") qs.set(key, String(value));
-  }
+  const list = (value: string | undefined, map?: Record<string, string>) =>
+    (value ?? "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .map((v) => map?.[v] ?? v)
+      .join(",");
+  if (params.text) qs.set("q", params.text);
+  if (params.categorySlug) qs.set("category", params.categorySlug);
+  if (params.area) qs.set("region", list(params.area));
+  if (params.employment) qs.set("workType", list(params.employment, EMPLOYMENT_URL));
+  if (params.experience) qs.set("experience", list(params.experience, EXPERIENCE_URL));
+  if (params.salary) qs.set("salaryFrom", String(params.salary));
+  if (params.salaryTo) qs.set("salaryTo", String(params.salaryTo));
+  if (params.company) qs.set("company", list(params.company));
+  if (params.verified) qs.set("verified", "1");
+  if (params.premium) qs.set("premium", "1");
   const str = qs.toString();
-  return str ? `/search/vacancy?${str}` : "/search/vacancy";
+  return str ? `/vacancies?${str}` : "/vacancies";
 }
 
 interface SweepResult {
@@ -125,7 +150,7 @@ export async function runAlertSweep(): Promise<SweepResult> {
     const listHtml = preview
       .map(
         (v) =>
-          `<li style="margin:0 0 6px"><a href="${env.WEB_ORIGIN}/vacancy/${encodeURIComponent(
+          `<li style="margin:0 0 6px"><a href="${env.WEB_ORIGIN}/vacancies/${encodeURIComponent(
             v.slug
           )}" style="color:#1f6feb;text-decoration:none">${escapeHtml(v.title)}</a></li>`
       )

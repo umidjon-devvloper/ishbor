@@ -5,6 +5,7 @@ import { Skeleton } from "../../../components/Skeleton.js";
 import { fetchEmployerApplications, setApplicationStatus, startConversation } from "../../../lib/api.js";
 import { PhoneGateNotice, isPhoneGateError } from "../../../components/PhoneGateNotice.js";
 import { useRequireRole } from "../../../lib/useRoleGuard.js";
+import { formatDate } from "../../../lib/format.js";
 import type { EmployerApplication, ApplicantResume, ApplicationStatus } from "../../../lib/types.js";
 
 const fmtYm = (iso: string) => iso.slice(0, 7).replace("-", ".");
@@ -87,8 +88,7 @@ export default function Page() {
     }
   }
 
-  const fmtDate = (iso: string) =>
-    new Date(iso).toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
+  const fmtDate = (iso: string) => formatDate(iso, locale);
 
   if (status === "loading" || loading) {
     return (
@@ -102,9 +102,9 @@ export default function Page() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <h1 className="font-display text-2xl font-700 text-ink sm:text-3xl">{t.empApplications.title}</h1>
+        <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">{t.empApplications.title}</h1>
         {newTotal > 0 && (
-          <span className="rounded-full bg-signal/10 px-3 py-1 text-xs font-700 text-signal">
+          <span className="rounded-full bg-signal/10 px-3 py-1 text-xs font-bold text-signal">
             {t.empApplications.newCount(newTotal)}
           </span>
         )}
@@ -114,7 +114,7 @@ export default function Page() {
 
       {apps.length === 0 ? (
         <div className="rounded-2xl border border-line bg-surface p-12 text-center">
-          <p className="font-display text-lg font-600 text-ink">{t.empApplications.empty}</p>
+          <p className="font-display text-lg font-semibold text-ink">{t.empApplications.empty}</p>
         </div>
       ) : (
         <div className="grid min-h-[70vh] grid-cols-1 overflow-hidden rounded-2xl border border-line bg-surface md:grid-cols-[minmax(300px,360px)_1fr]">
@@ -126,10 +126,10 @@ export default function Page() {
                 return (
                   <div key={g.title}>
                     <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-line bg-surface-2/80 px-4 py-2 backdrop-blur">
-                      <span className="truncate font-display text-xs font-700 uppercase tracking-wide text-dusk">
+                      <span className="truncate font-display text-xs font-bold uppercase tracking-wide text-dusk">
                         {g.title}
                       </span>
-                      <span className="shrink-0 text-[11px] font-600 text-dusk">
+                      <span className="shrink-0 text-[11px] font-semibold text-dusk">
                         {g.items.length}
                         {gNew > 0 && (
                           <span className="ml-1 text-signal">
@@ -149,7 +149,7 @@ export default function Page() {
                             a.id === activeId ? "bg-surface-2" : ""
                           }`}
                         >
-                          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-sm font-700 text-ink">
+                          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-sm font-bold text-ink">
                             {name.charAt(0).toUpperCase()}
                             {a.status === "sent" && (
                               <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-signal ring-2 ring-surface" />
@@ -157,7 +157,7 @@ export default function Page() {
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="flex items-center gap-2">
-                              <span className="truncate text-sm font-600 text-ink">{name}</span>
+                              <span className="truncate text-sm font-semibold text-ink">{name}</span>
                               <StatusDot status={a.status} />
                             </span>
                             {p?.headline && <span className="block truncate text-xs text-dusk">{p.headline}</span>}
@@ -242,12 +242,12 @@ function ApplicantDetail({
             <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-signal font-display text-base font-700 text-white">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-signal font-display text-base font-bold text-white">
           {name.charAt(0).toUpperCase()}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-display text-base font-700 text-ink">{name}</span>
+            <span className="truncate font-display text-base font-bold text-ink">{name}</span>
             <StatusBadge status={a.status} />
           </div>
           {p?.headline && <p className="truncate text-sm text-dusk">{p.headline}</p>}
@@ -266,7 +266,7 @@ function ApplicantDetail({
       <div className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
         {/* Profil / aloqa */}
         <section className="rounded-xl border border-line bg-surface-2/40 p-4">
-          <h2 className="mb-3 font-display text-xs font-700 uppercase tracking-wide text-dusk">
+          <h2 className="mb-3 font-display text-xs font-bold uppercase tracking-wide text-dusk">
             {t.empApplications.contactInfo}
           </h2>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -278,7 +278,7 @@ function ApplicantDetail({
             <InfoRow label={t.empApplications.appliedAt} value={fmtDate(a.createdAt)} />
           </div>
           {p?.isOpenToWork && (
-            <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-growth/10 px-2.5 py-1 text-xs font-600 text-growth">
+            <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-growth/10 px-2.5 py-1 text-xs font-semibold text-growth">
               <span className="h-1.5 w-1.5 rounded-full bg-growth" />
               {t.empApplications.openToWork}
             </span>
@@ -307,7 +307,7 @@ function ApplicantDetail({
       <div className="border-t border-line bg-surface p-4 sm:px-6">
         {pending ? (
           <div className="animate-slide-down space-y-2">
-            <label className="block text-xs font-600 text-ink">{t.empApplications.reasonOptional}</label>
+            <label className="block text-xs font-semibold text-ink">{t.empApplications.reasonOptional}</label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -352,11 +352,11 @@ function InfoRow({ label, value, href }: { label: string; value: string; href?: 
     <div className="min-w-0">
       <div className="text-[11px] uppercase tracking-wide text-dusk">{label}</div>
       {href ? (
-        <a href={href} className="block truncate text-sm font-500 text-ink hover:text-signal">
+        <a href={href} className="block truncate text-sm font-medium text-ink hover:text-signal">
           {value}
         </a>
       ) : (
-        <div className="truncate text-sm font-500 text-ink">{value}</div>
+        <div className="truncate text-sm font-medium text-ink">{value}</div>
       )}
     </div>
   );
@@ -401,21 +401,21 @@ function ResumeView({ resume }: { resume: ApplicantResume }) {
     <div className="space-y-4 rounded-xl border border-line bg-surface-2/40 p-4 text-sm">
       {resume.summary && (
         <div>
-          <h3 className="font-600 text-ink">{t.empApplications.resumeSummary}</h3>
+          <h3 className="font-semibold text-ink">{t.empApplications.resumeSummary}</h3>
           <p className="mt-1 whitespace-pre-wrap text-dusk">{resume.summary}</p>
         </div>
       )}
       {resume.desiredSalary ? (
         <p className="text-dusk">
           {t.empApplications.desiredSalary}:{" "}
-          <span className="font-mono font-600 text-growth">
+          <span className="font-mono font-semibold text-growth">
             {new Intl.NumberFormat("ru-RU").format(resume.desiredSalary)}
           </span>
         </p>
       ) : null}
       {resume.skills.length > 0 && (
         <div>
-          <h3 className="font-600 text-ink">{t.empApplications.resumeSkills}</h3>
+          <h3 className="font-semibold text-ink">{t.empApplications.resumeSkills}</h3>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {resume.skills.map((s) => (
               <span key={s.skillName} className="rounded-lg bg-surface px-2.5 py-1 text-xs font-medium text-ink">
@@ -427,11 +427,11 @@ function ResumeView({ resume }: { resume: ApplicantResume }) {
       )}
       {resume.experience.length > 0 && (
         <div>
-          <h3 className="font-600 text-ink">{t.empApplications.resumeExperience}</h3>
+          <h3 className="font-semibold text-ink">{t.empApplications.resumeExperience}</h3>
           <ul className="mt-1.5 space-y-2">
             {resume.experience.map((e, i) => (
               <li key={i} className="text-dusk">
-                <span className="font-500 text-ink">{e.position}</span> · {e.companyName}
+                <span className="font-medium text-ink">{e.position}</span> · {e.companyName}
                 <span className="ml-1 text-xs">
                   ({fmtYm(e.startDate)} – {e.endDate ? fmtYm(e.endDate) : "..."})
                 </span>
@@ -443,11 +443,11 @@ function ResumeView({ resume }: { resume: ApplicantResume }) {
       )}
       {resume.education.length > 0 && (
         <div>
-          <h3 className="font-600 text-ink">{t.empApplications.resumeEducation}</h3>
+          <h3 className="font-semibold text-ink">{t.empApplications.resumeEducation}</h3>
           <ul className="mt-1.5 space-y-1.5">
             {resume.education.map((e, i) => (
               <li key={i} className="text-dusk">
-                <span className="font-500 text-ink">{e.institution}</span>
+                <span className="font-medium text-ink">{e.institution}</span>
                 {e.field ? ` · ${e.field}` : ""}
                 <span className="ml-1 text-xs">
                   ({e.startYear}–{e.endYear ?? "..."})
@@ -474,7 +474,7 @@ function StatusBadge({ status }: { status: ApplicationStatus }) {
             ? "bg-signal/10 text-signal"
             : "bg-surface-2 text-dusk";
   return (
-    <span className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-700 uppercase tracking-wide ${color}`}>
+    <span className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${color}`}>
       {t.empApplications.statusLabel[status] ?? status}
     </span>
   );

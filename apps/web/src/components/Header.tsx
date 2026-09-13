@@ -15,12 +15,22 @@ interface NavLink {
   badge?: number;
 }
 
+interface AccountLink {
+  key: string;
+  label: string;
+  href: string;
+  icon: React.ReactNode;
+  active: boolean;
+  badge?: number;
+}
+
 export default function Header() {
   const t = useT();
   const l = useHref();
   const { status, user, accessToken, logout } = useAuth();
   const pageContext = usePageContext();
   const pathname = (pageContext.localePathname as string) ?? "/";
+  const search = (pageContext.urlParsed?.search ?? {}) as Record<string, string | undefined>;
   const { summary } = useInboxSummary(status === "authed" ? accessToken : null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
@@ -30,6 +40,8 @@ export default function Header() {
   const isEmployer = status === "authed" && user?.role === "employer";
   const isSeeker = status === "authed" && user?.role === "job_seeker";
   const isAdmin = status === "authed" && user?.role === "admin";
+  // Asosiy navigatsiya — ochiq bo'limlar. Akkaunt sahifalari (arizalar,
+  // saqlanganlar, sozlamalar) bu yerda emas, avatar menyusida.
   const navLinks: NavLink[] = isEmployer
     ? [
         { label: t.nav.myVacancies, href: "/employer/vacancies" },
@@ -38,7 +50,7 @@ export default function Header() {
         { label: t.nav.messages, href: "/messages", badge: summary.unreadMessages },
       ]
     : [
-        { label: t.nav.vacancies, href: "/search/vacancy" },
+        { label: t.nav.vacancies, href: "/vacancies" },
         { label: t.nav.companies, href: "/companies" },
         { label: t.navExtra.salaries, href: "/salaries" },
         { label: t.nav.articles, href: "/article" },
@@ -51,32 +63,76 @@ export default function Header() {
   // Ish beruvchining "bosh sahifasi" — xodim qidirish (ish izlovchiniki — ish qidirish)
   const homeHref = isEmployer ? "/employer/candidates" : "/";
   const displayName = user?.firstName || user?.email?.split("@")[0] || "";
+  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || displayName;
   const initial = displayName.charAt(0).toUpperCase();
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
+  const onSettings = pathname === "/profile" && search.tab === "settings";
 
+  // Nomzod akkaunt menyusi — qat'iy tartib: Profil, Arizalarim, Saqlanganlar,
+  // Bildirishnomalar, Xabarlar, Sozlamalar | Chiqish.
+  const messagesLink: AccountLink = {
+    key: "messages",
+    label: t.nav.messages,
+    href: "/messages",
+    icon: <ChatIcon />,
+    active: isActive("/messages"),
+    badge: summary.unreadMessages,
+  };
+  const accountLinks: AccountLink[] = isSeeker
+    ? [
+        { key: "profile", label: t.nav.profile, href: "/profile", icon: <UserIcon />, active: pathname === "/profile" && !onSettings },
+        { key: "applications", label: t.navExtra.applications, href: "/applications", icon: <FileIcon />, active: isActive("/applications") },
+        { key: "favorites", label: t.navExtra.favorites, href: "/favorites", icon: <HeartIcon />, active: isActive("/favorites") },
+        { key: "notifications", label: t.navExtra.notifications, href: "/notifications", icon: <BellIcon />, active: isActive("/notifications") },
+        messagesLink,
+        { key: "settings", label: t.navExtra.settings, href: "/profile?tab=settings", icon: <GearIcon />, active: onSettings },
+      ]
+    : [
+        { key: "profile", label: isEmployer ? t.nav.companyProfile : t.nav.profile, href: "/profile", icon: <UserIcon />, active: isActive("/profile") },
+        messagesLink,
+        ...(isEmployer
+          ? [{ key: "pricing", label: t.pricing.breadcrumb, href: "/pricing", icon: <PlanIcon />, active: isActive("/pricing") }]
+          : []),
+        ...(isAdmin ? [{ key: "admin", label: t.navExtra.admin, href: "/admin", icon: <ShieldIcon />, active: isActive("/admin") }] : []),
+      ];
+  // Mobil menyuda asosiy navigatsiyadagi bandlar takrorlanmaydi (nomzoddan tashqari)
+  const mobileAccountLinks: AccountLink[] = isSeeker
+    ? accountLinks
+    : [
+        accountLinks[0],
+        ...(!isEmployer ? [messagesLink] : []),
+        { key: "notifications", label: t.navExtra.notifications, href: "/notifications", icon: <BellIcon />, active: isActive("/notifications") },
+        ...(isEmployer ? accountLinks.filter((link) => link.key === "pricing") : []),
+      ];
+  // Avatar tugmasi akkaunt sahifalarida (xabarlar asosiy navigatsiyada) belgilanadi
+  const accountActive = accountLinks.some((link) => link.active && link.key !== "messages" && link.key !== "admin");
+
+  // Breakpointlar: mobil < 768, planshet 768–1023, desktop >= 1024.
+  // To'liq navigatsiya faqat `lg` dan: 768–1023 oralig'ida bir qatorga
+  // sig'maydi (header viewportdan toshardi) — planshet ixcham menyuni oladi.
   return (
     <header className="sticky top-0 z-50 px-3 pt-3 sm:px-4">
       <div className="mx-auto max-w-7xl rounded-2xl border border-line bg-surface/92 shadow-card backdrop-blur-xl">
       <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-5">
-        <div className="flex items-center gap-8">
-          <a href={l(homeHref)} className="group flex items-center gap-2.5 text-ink">
+        <div className="flex min-w-0 items-center gap-8 lg:gap-4 xl:gap-8">
+          <a href={l(homeHref)} className="group flex shrink-0 items-center gap-2.5 text-ink">
             <BrandLogo variant="nav" />
-            <span className="font-display text-lg font-700 tracking-tight">
+            <span className="whitespace-nowrap font-display text-lg font-bold tracking-tight">
               ISH <span className="text-signal">BOR</span>
               {/* Dekorativ "!" — kontrast auditidan chiqadi, ma'no yo'qolmaydi */}
               <span className="text-gold" aria-hidden>!</span>
             </span>
           </a>
 
-          <nav className="hidden items-center gap-1 md:flex">
+          <nav className="hidden items-center gap-1 lg:flex">
             {navLinks.map((link) => (
               <a
                 key={link.href}
                 href={l(link.href)}
                 aria-current={isActive(link.href) ? "page" : undefined}
-                className={`nav-underline relative flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                className={`nav-underline relative flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors lg:px-2.5 xl:px-3 ${
                   isActive(link.href)
                     ? "nav-underline-active text-ink"
                     : "text-dusk hover:text-ink"
@@ -97,17 +153,26 @@ export default function Header() {
           <div className="mx-1 hidden h-6 w-px bg-line sm:block" />
 
           {status === "authed" ? (
-            <div ref={userRef} className="relative hidden md:block">
+            <div ref={userRef} className="relative hidden lg:block">
               <button
                 type="button"
                 onClick={() => setUserOpen((v) => !v)}
                 aria-expanded={userOpen}
-                className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2.5 transition-colors hover:bg-surface-2"
+                aria-controls="account-menu"
+                aria-label={`${t.navExtra.accountMenu}: ${displayName}`}
+                className={`flex items-center gap-2 rounded-full py-1 pl-1 pr-2.5 transition-colors hover:bg-surface-2 ${
+                  accountActive ? "bg-signal-soft" : ""
+                }`}
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-signal font-display text-sm font-700 text-white">
+                <span
+                  className={`flex h-8 w-8 items-center justify-center rounded-full bg-signal font-display text-sm font-bold text-white ${
+                    accountActive ? "ring-2 ring-signal/30 ring-offset-2 ring-offset-surface" : ""
+                  }`}
+                >
                   {initial}
                 </span>
-                <span className="max-w-[120px] truncate text-sm font-medium text-ink">
+                {/* 1024–1279: nav + o'ng tugmalar sig'ishi uchun faqat avatar */}
+                <span className="hidden max-w-[120px] truncate text-sm font-medium text-ink xl:block">
                   {displayName}
                 </span>
                 <svg
@@ -122,80 +187,65 @@ export default function Header() {
                 </svg>
               </button>
               {userOpen && (
-                <div className="absolute right-0 z-50 mt-2 w-52 origin-top-right animate-pop overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-pop">
-                  <a
-                    href={l("/profile")}
-                    className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink transition-colors hover:bg-surface-2"
-                  >
-                    <UserIcon /> {isEmployer ? t.nav.companyProfile : t.nav.profile}
-                  </a>
-                  <a
-                    href={l("/messages")}
-                    className="flex items-center justify-between gap-2.5 px-4 py-2.5 text-sm text-ink transition-colors hover:bg-surface-2"
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <ChatIcon /> {t.nav.messages}
-                    </span>
-                    {summary.unreadMessages > 0 && <NavBadge count={summary.unreadMessages} />}
-                  </a>
-                  {isSeeker && (
-                    <>
-                      <a
-                        href={l("/favorites")}
-                        className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink transition-colors hover:bg-surface-2"
-                      >
-                        <HeartIcon /> {t.navExtra.favorites}
-                      </a>
-                      <a
-                        href={l("/alerts")}
-                        className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink transition-colors hover:bg-surface-2"
-                      >
-                        <BellIcon /> {t.navExtra.alerts}
-                      </a>
-                    </>
-                  )}
-                  {isEmployer && (
-                    <a
-                      href={l("/pricing")}
-                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink transition-colors hover:bg-surface-2"
+                <div
+                  id="account-menu"
+                  className="absolute right-0 z-50 mt-2 w-64 origin-top-right animate-pop overflow-hidden rounded-xl border border-line bg-surface shadow-pop"
+                >
+                  <div className="border-b border-line px-4 py-3">
+                    <p className="truncate text-sm font-semibold text-ink">{fullName}</p>
+                    {user?.email && <p className="mt-0.5 truncate text-xs text-dusk">{user.email}</p>}
+                  </div>
+                  <nav aria-label={t.navExtra.accountMenu}>
+                    <ul className="py-1">
+                      {accountLinks.map((link) => (
+                        <li key={link.key}>
+                          <a
+                            href={l(link.href)}
+                            aria-current={link.active ? "page" : undefined}
+                            onClick={() => setUserOpen(false)}
+                            className={`flex items-center justify-between gap-2.5 px-4 py-2.5 text-sm transition-colors hover:bg-surface-2 ${
+                              link.active ? "bg-signal-soft font-semibold text-signal" : "text-ink"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2.5">
+                              {link.icon} {link.label}
+                            </span>
+                            {link.badge ? <NavBadge count={link.badge} /> : null}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </nav>
+                  <div className="border-t border-line py-1">
+                    <button
+                      type="button"
+                      onClick={() => logout()}
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-ink transition-colors hover:bg-surface-2"
                     >
-                      <PlanIcon /> {t.pricing.breadcrumb}
-                    </a>
-                  )}
-                  {isAdmin && (
-                    <a
-                      href={l("/admin")}
-                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink transition-colors hover:bg-surface-2"
-                    >
-                      <ShieldIcon /> {t.navExtra.admin}
-                    </a>
-                  )}
-                  <button
-                    onClick={() => logout()}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-ink transition-colors hover:bg-surface-2"
-                  >
-                    <LogoutIcon /> {t.nav.logout}
-                  </button>
+                      <LogoutIcon /> {t.nav.logout}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
           ) : (
-            <div className="hidden items-center gap-2 md:flex">
+            <div className="hidden items-center gap-1 lg:flex xl:gap-2">
+              {/* 1024–1279 da nav bilan ustma-ust tushardi — bu oraliqda footer va ro'yxatdan o'tish orqali */}
               <a
                 href={l("/employer")}
-                className="rounded-lg px-3 py-2 text-sm font-medium text-dusk transition-colors hover:text-ink"
+                className="hidden whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium text-dusk transition-colors hover:text-ink xl:block xl:px-3"
               >
                 {t.nav.forEmployers}
               </a>
               <a
                 href={l("/login")}
-                className="rounded-lg px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
+                className="whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 xl:px-3"
               >
                 {t.nav.login}
               </a>
               <a
                 href={l("/signup")}
-                className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white shadow-xs transition-all duration-200 hover:bg-signal-dark hover:shadow-sm active:scale-[0.98]"
+                className="whitespace-nowrap rounded-lg bg-signal px-3.5 py-2 xl:px-4 text-sm font-semibold text-white shadow-xs transition-all duration-200 hover:bg-signal-dark hover:shadow-sm active:scale-[0.98]"
               >
                 {t.nav.signup}
               </a>
@@ -207,7 +257,7 @@ export default function Header() {
             onClick={() => setMenuOpen((v) => !v)}
             aria-label={menuOpen ? t.ui.closeMenu : t.ui.openMenu}
             aria-expanded={menuOpen}
-            className="relative flex h-9 w-9 items-center justify-center rounded-lg text-ink transition-colors hover:bg-surface-2 md:hidden"
+            className="relative flex h-9 w-9 items-center justify-center rounded-lg text-ink transition-colors hover:bg-surface-2 lg:hidden"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
               {menuOpen ? (
@@ -224,7 +274,7 @@ export default function Header() {
       </div>
 
       {menuOpen && (
-        <div className="animate-slide-down border-t border-line px-4 py-4 md:hidden">
+        <div className="animate-slide-down border-t border-line px-4 py-4 lg:hidden">
           <nav className="flex flex-col gap-1">
             {navLinks.map((link) => (
               <a
@@ -249,52 +299,24 @@ export default function Header() {
           <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
             {status === "authed" ? (
               <>
-                <a
-                  href={l("/profile")}
-                  className="rounded-lg px-3 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
-                >
-                  {isEmployer ? t.nav.companyProfile : t.nav.profile}
-                </a>
-                {!isEmployer && (
-                  <a
-                    href={l("/messages")}
-                    className="flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
-                  >
-                    {t.nav.messages}
-                    {summary.unreadMessages > 0 && <NavBadge count={summary.unreadMessages} />}
-                  </a>
-                )}
-                <a
-                  href={l("/notifications")}
-                  className="rounded-lg px-3 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
-                >
-                  {t.navExtra.notifications}
-                </a>
-                {isSeeker && (
-                  <>
+                <nav aria-label={t.navExtra.accountMenu} className="flex flex-col gap-1">
+                  {mobileAccountLinks.map((link) => (
                     <a
-                      href={l("/favorites")}
-                      className="rounded-lg px-3 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
+                      key={link.key}
+                      href={l(link.href)}
+                      aria-current={link.active ? "page" : undefined}
+                      className={`flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-surface-2 ${
+                        link.active ? "bg-signal-soft font-semibold text-signal" : "font-medium text-ink"
+                      }`}
                     >
-                      {t.navExtra.favorites}
+                      {link.label}
+                      {link.badge ? <NavBadge count={link.badge} /> : null}
                     </a>
-                    <a
-                      href={l("/alerts")}
-                      className="rounded-lg px-3 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
-                    >
-                      {t.navExtra.alerts}
-                    </a>
-                  </>
-                )}
-                {isEmployer && (
-                  <a
-                    href={l("/pricing")}
-                    className="rounded-lg px-3 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
-                  >
-                    {t.pricing.breadcrumb}
-                  </a>
-                )}
+                  ))}
+                </nav>
+                <div className="h-px bg-line" aria-hidden />
                 <button
+                  type="button"
                   onClick={() => logout()}
                   className="rounded-lg px-3 py-2.5 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2"
                 >
@@ -327,7 +349,7 @@ export default function Header() {
 
 function NavBadge({ count }: { count: number }) {
   return (
-    <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-signal px-1 text-[10px] font-700 leading-none text-white">
+    <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-signal px-1 text-[10px] font-bold leading-none text-white">
       {count > 99 ? "99+" : count}
     </span>
   );
@@ -338,6 +360,30 @@ function UserIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-dusk" aria-hidden>
       <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.8" />
       <path d="M5 20a7 7 0 0114 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-dusk" aria-hidden>
+      <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M14 3v5h5M9 13h6M9 17h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-dusk" aria-hidden>
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

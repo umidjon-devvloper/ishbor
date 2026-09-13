@@ -83,14 +83,38 @@ export async function applicationRoutes(app: FastifyInstance) {
     }
   );
 
-  // Nomzodning o'z arizalari
+  // Nomzodning o'z arizalari (`/applications` sahifasi, profil, vakansiya sahifasi).
+  // Faqat sahifaga kerakli maydonlar: kompaniyaning ichki ma'lumotlari (STIR,
+  // egasining ID'si) nomzodga yuborilmaydi. Holat tarixi — haqiqiy o'zgarishlar.
   app.get(
     "/api/applications",
     { preHandler: [requireAuth, requireRole("job_seeker")] },
     async (req) => {
       return prisma.application.findMany({
         where: { jobSeekerId: req.user!.sub },
-        include: { vacancy: { include: { company: true } } },
+        include: {
+          vacancy: {
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              status: true,
+              salaryMin: true,
+              salaryMax: true,
+              currency: true,
+              isSalaryHidden: true,
+              employmentType: true,
+              experienceRequired: true,
+              region: { select: { name: true, slug: true } },
+              company: { select: { name: true, slug: true, logoUrl: true, isVerified: true } },
+            },
+          },
+          resume: { select: { id: true, title: true } },
+          statusHistory: {
+            select: { oldStatus: true, newStatus: true, createdAt: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
         orderBy: { createdAt: "desc" },
       });
     }

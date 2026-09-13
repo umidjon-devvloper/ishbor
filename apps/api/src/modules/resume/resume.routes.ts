@@ -103,6 +103,32 @@ export async function resumeRoutes(app: FastifyInstance) {
       }
       const resumeId = resume.id;
 
+      const experienceRows = body.experience.map((e) => ({
+        resumeId,
+        companyName: e.companyName,
+        position: e.position,
+        startDate: new Date(`${e.startDate}-01T00:00:00Z`),
+        endDate: e.endDate ? new Date(`${e.endDate}-01T00:00:00Z`) : null,
+        isCurrent: e.isCurrent ?? false,
+        description: e.description ?? null,
+      }));
+      const educationRows = body.education.map((ed) => ({
+        resumeId,
+        institution: ed.institution,
+        degree: ed.degree ?? null,
+        field: ed.field ?? null,
+        startYear: ed.startYear,
+        endYear: ed.endYear ?? null,
+      }));
+      const skillRows = body.skills
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((skillName) => ({ resumeId, skillName }));
+
+      // MongoDB bo'sh massiv bilan `createMany` ni rad etadi ("No documents
+      // provided to insert_many") va butun tranzaksiya yiqiladi. Shuning uchun
+      // bo'sh bo'limlar uchun yaratish so'rovi umuman qo'shilmaydi — aks holda
+      // masalan ta'limi yo'q nomzod rezyumesini saqlay olmasdi.
       await prisma.$transaction([
         prisma.resume.update({
           where: { id: resumeId },
@@ -116,33 +142,9 @@ export async function resumeRoutes(app: FastifyInstance) {
         prisma.resumeExperience.deleteMany({ where: { resumeId } }),
         prisma.resumeEducation.deleteMany({ where: { resumeId } }),
         prisma.resumeSkill.deleteMany({ where: { resumeId } }),
-        prisma.resumeExperience.createMany({
-          data: body.experience.map((e) => ({
-            resumeId,
-            companyName: e.companyName,
-            position: e.position,
-            startDate: new Date(`${e.startDate}-01T00:00:00Z`),
-            endDate: e.endDate ? new Date(`${e.endDate}-01T00:00:00Z`) : null,
-            isCurrent: e.isCurrent ?? false,
-            description: e.description ?? null,
-          })),
-        }),
-        prisma.resumeEducation.createMany({
-          data: body.education.map((ed) => ({
-            resumeId,
-            institution: ed.institution,
-            degree: ed.degree ?? null,
-            field: ed.field ?? null,
-            startYear: ed.startYear,
-            endYear: ed.endYear ?? null,
-          })),
-        }),
-        prisma.resumeSkill.createMany({
-          data: body.skills
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .map((skillName) => ({ resumeId, skillName })),
-        }),
+        ...(experienceRows.length ? [prisma.resumeExperience.createMany({ data: experienceRows })] : []),
+        ...(educationRows.length ? [prisma.resumeEducation.createMany({ data: educationRows })] : []),
+        ...(skillRows.length ? [prisma.resumeSkill.createMany({ data: skillRows })] : []),
       ]);
 
       return loadResume(userId);
