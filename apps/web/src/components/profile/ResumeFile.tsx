@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { useT } from "../../lib/i18n/index.js";
-import { absoluteUploadUrl, deleteResumeFile, uploadResumeFile } from "../../lib/api.js";
+import { deleteResumeFile, uploadResumeFile } from "../../lib/api.js";
+import { openProtectedFile, ownResumeFileUrl } from "../../lib/files/resume.js";
 import { Button, Spinner } from "./ui.js";
 import { IconEye, IconFile, IconRefresh, IconTrash, IconUpload } from "./icons.js";
 
@@ -18,7 +19,7 @@ export function ResumeFile({
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<"upload" | "remove" | null>(null);
+  const [busy, setBusy] = useState<"upload" | "remove" | "open" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -41,6 +42,22 @@ export function ResumeFile({
     } finally {
       setBusy(null);
       if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  /**
+   * Fayl endi ochiq `/uploads/...` manzilida emas — Bearer token bilan olinadi
+   * va yangi oynada ochiladi (audit R3, D-058).
+   */
+  async function openFile() {
+    setError(null);
+    setBusy("open");
+    try {
+      await openProtectedFile(ownResumeFileUrl(), token);
+    } catch {
+      setError(t.profileHub.states.loadError);
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -80,14 +97,15 @@ export function ResumeFile({
             <p className="text-xs text-dusk">{t.profile.resumeHint}</p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <a
-              href={absoluteUploadUrl(resumeUrl)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold text-signal transition-colors hover:bg-signal-soft"
+            <button
+              type="button"
+              onClick={() => void openFile()}
+              disabled={busy !== null}
+              aria-busy={busy === "open" || undefined}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold text-signal transition-colors hover:bg-signal-soft disabled:opacity-60"
             >
-              <IconEye size={15} /> {t.profile.view}
-            </a>
+              {busy === "open" ? <Spinner className="h-[15px] w-[15px]" /> : <IconEye size={15} />} {t.profile.view}
+            </button>
             <Button variant="ghost" size="sm" onClick={() => inputRef.current?.click()} loading={busy === "upload"}>
               {busy !== "upload" && <IconRefresh size={15} />} {t.profile.replace}
             </Button>

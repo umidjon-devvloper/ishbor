@@ -5,10 +5,18 @@ import { SIMILAR_LIMIT, type VacancyDetailData } from "../../../lib/vacancies/us
 
 /**
  * Vakansiya + o'xshashlar parallel. Topilmasa — haqiqiy 404 (`_error` sahifasi
- * vakansiyaga xos holatni chizadi). API xatosi sahifani yiqitmaydi:
- * `vacancy: null` qaytadi va sahifa "Qayta urinish" holatini ko'rsatadi.
+ * vakansiyaga xos holatni chizadi).
+ *
+ * API javob bermasa (5xx, tarmoq, 8 s timeout) SSR endi 200 + `noindex` emas,
+ * 503 qaytaradi (audit R3, seo-2 / api-errors-1): vaqtinchalik uzilishda
+ * qidiruv tizimi keyin qayta uradi, tirik e'lon indeksdan chiqmaydi.
+ * Brauzer ichidagi navigatsiyada eski xatti-harakat saqlanadi — `vacancy: null`
+ * va sahifadagi "Qayta urinish" holati.
  */
-export async function data(pageContext: { routeParams: { slug: string } }): Promise<VacancyDetailData> {
+export async function data(pageContext: {
+  routeParams: { slug: string };
+  isClientSideNavigation?: boolean;
+}): Promise<VacancyDetailData> {
   const { slug } = pageContext.routeParams;
   const [detail, similar] = await Promise.all([
     fetchVacancyDetail(slug).then(
@@ -21,5 +29,6 @@ export async function data(pageContext: { routeParams: { slug: string } }): Prom
     fetchSimilarVacancies(slug, SIMILAR_LIMIT),
   ]);
   if (!detail.failed && !detail.vacancy) throw render(404, VACANCY_NOT_FOUND);
+  if (detail.failed && !pageContext.isClientSideNavigation) throw render(503);
   return { slug, vacancy: detail.vacancy, similar: detail.vacancy ? similar : [] };
 }

@@ -51,8 +51,8 @@ export function useApplication(vacancyId: string, loginHref: string) {
         // Yuborilgandan keyin token yangilansa ham holat yo'qolmasin
         applied: mine ? { status: mine.status, appliedAt: mine.createdAt } : prev?.applied ?? null,
         resume: resume.status === "fulfilled" && resume.value?.title ? { title: resume.value.title } : null,
-        // fetchResume xatoda ham null qaytaradi — aloqa bor-yo'qligini arizalar so'rovidan bilamiz
-        resumeKnown: apps.status === "fulfilled",
+        // fetchResume xatoda uloqtiradi — rezyume holati faqat so'rov muvaffaqiyatli bo'lganda ma'lum
+        resumeKnown: resume.status === "fulfilled",
       }));
     });
     return () => {

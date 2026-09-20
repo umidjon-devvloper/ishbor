@@ -1,18 +1,23 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../lib/i18n/index.js";
 import { useAuth } from "./AuthContext.js";
-import { fetchTelegramStatus, requestTelegramLink } from "../lib/api.js";
+import { ApiError, fetchTelegramStatus, requestTelegramLink } from "../lib/api.js";
+import { safeReturnTo } from "../lib/auth/returnTo.js";
 import type { TelegramStatus } from "../lib/types.js";
 import { Skeleton } from "./Skeleton.js";
+import { PhoneSecurity } from "./profile/PhoneSecurity.js";
 import { Button, Card } from "./profile/ui.js";
 import { IconArrowRight, IconCheck, IconRefresh, IconTelegram } from "./profile/icons.js";
 
 /**
- * Telegram bog'lash + telefon tasdiqlash.
+ * Telegram bog'lash + telefon tasdiqlash + telefon xavfsizligi.
  *
  * - `card` (standart): ish beruvchi profili uchun umumiy karta.
  * - `panel`: nomzod profilidagi alohida integratsiya bo'limi (afzalliklar bilan).
  * - `compact`: dashboard'dagi qisqa karta, `onOpen` bilan to'liq bo'limga o'tadi.
+ *
+ * Rule K (audit R3, D-051): bot ishlamayotgan bo'lsa tugma o'chiriladi va
+ * "hozircha mavjud emas" matni ko'rsatiladi — xom server matni emas.
  *
  * Foydalanuvchi Telegramdan qaytib kelganda (sahifa yana ko'rinsa) holat
  * o'zi yangilanadi — «Yangilash» tugmasi zaxira sifatida qoladi.
@@ -35,7 +40,10 @@ export function TelegramConnect({
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showHint, setShowHint] = useState(false);
+  /** Ulash (havola so'rovi) xatosi. */
   const [error, setError] = useState<string | null>(null);
+  // Holat so'rovi yiqildi — skelet abadiy qolmaydi, ulash bloklanmaydi (audit PHASE 6, U3)
+  const [statusError, setStatusError] = useState(false);
   const onChangeRef = useRef(onStatusChange);
   onChangeRef.current = onStatusChange;
 
@@ -45,7 +53,12 @@ export function TelegramConnect({
     try {
       const next = await fetchTelegramStatus(accessToken);
       setStatus(next);
+      setStatusError(false);
+      setError(null);
       onChangeRef.current?.(next);
+    } catch {
+      // Holat noma'lum — "bog'lanmagan" deb ko'rsatilmaydi
+      setStatusError(true);
     } finally {
       setRefreshing(false);
     }
@@ -69,19 +82,47 @@ export function TelegramConnect({
     setBusy(true);
     setError(null);
     try {
-      const link = await requestTelegramLink(accessToken);
+      const { link } = await requestTelegramLink(accessToken);
       window.open(link, "_blank", "noopener");
       setShowHint(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.profileHub.states.saveError);
+      setError(messageFor(err));
     } finally {
       setBusy(false);
     }
   }
 
-  const allDone = Boolean(status?.linked && status?.phoneVerified);
+  /** Server kodini joriy tildagi matnga aylantiradi (audit R3, api-errors-3). */
+  function messageFor(err: unknown): string {
+    if (!(err instanceof ApiError)) return t.profileHub.states.saveError;
+    if (err.code === "TELEGRAM_UNAVAILABLE" || err.code === "BOT_OFFLINE" || err.status === 503) {
+      return t.telegram.unavailable;
+    }
+    if (err.code === "USE_PHONE_CHANGE") return t.telegram.security.usePhoneChange;
+    if (err.status === 429) return t.recovery.tooMany;
+    // Holat yiqilganda ham ulash yoqiq — tarmoq uzilsa brauzerning xom "Failed to fetch" matni emas (audit PHASE 6, U3)
+    return t.profileHub.states.saveError;
+  }
 
-  const statusRows = (
+  const allDone = Boolean(status?.linked && status?.phoneVerified);
+  /** Maydon kelmasa "mavjud" deb hisoblanadi — eski API javobi UI'ni bloklamaydi. */
+  const available = status?.available !== false;
+  /** Faqat eng birinchi so'rov davomida (na natija, na xato kelgan) kutiladi. */
+  const initialLoading = !status && !statusError;
+  /** Holat hech qachon olinmadi — skelet o'rniga xato va qayta urinish. */
+  const statusFailed = !status && statusError;
+  /** Ulash xatosi yoki (holat avval olingan bo'lsa) yangilash xatosi. */
+  const actionError = error ?? (statusError && status ? t.profileHub.states.loadError : null);
+
+  const statusRows = statusFailed ? (
+    <div role="alert" className="flex flex-col items-start gap-2.5">
+      <p className="text-[13.5px] text-danger">{t.profileHub.states.loadError}</p>
+      <Button variant="secondary" size="sm" onClick={() => void refresh()} loading={refreshing}>
+        {!refreshing && <IconRefresh size={15} />}
+        {t.telegram.refresh}
+      </Button>
+    </div>
+  ) : (
     <ul className="flex flex-col gap-2">
       <StatusRow
         ok={Boolean(status?.phoneVerified)}
@@ -110,7 +151,13 @@ export function TelegramConnect({
           </div>
         </div>
         <div className="mt-4">{statusRows}</div>
-        {!allDone && status && openHref && (
+        {!allDone && !initialLoading && !available && (
+          <p role="status" className="mt-3 rounded-xl border border-gold/40 bg-gold/10 px-3.5 py-2.5 text-[13px] text-ink">
+            {t.telegram.unavailable}
+          </p>
+        )}
+        {/* Holat olinmasa ham to'liq bo'limga o'tish mumkin (audit PHASE 6, U3) */}
+        {!allDone && !initialLoading && openHref && (
           <a
             href={openHref}
             onClick={(e) => {
@@ -168,12 +215,17 @@ export function TelegramConnect({
 
           {!allDone && (
             <div className="mt-5">
+              {!available && !initialLoading && (
+                <p role="status" className="mb-3 rounded-xl border border-gold/40 bg-gold/10 px-3.5 py-2.5 text-[13.5px] leading-relaxed text-ink">
+                  {t.telegram.unavailable}
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-2.5">
-                <Button onClick={connect} loading={busy} disabled={!status}>
+                <Button onClick={connect} loading={busy} disabled={initialLoading || !available}>
                   {!busy && <IconTelegram size={17} />}
                   {busy ? t.telegram.connecting : t.telegram.connect}
                 </Button>
-                {showHint && (
+                {showHint && !statusFailed && (
                   <Button variant="secondary" onClick={() => void refresh()} loading={refreshing}>
                     {!refreshing && <IconRefresh size={16} />}
                     {t.telegram.refresh}
@@ -185,16 +237,55 @@ export function TelegramConnect({
                   {t.telegram.hint}
                 </p>
               )}
-              {error && (
+              {actionError && (
                 <p className="mt-3 text-sm text-danger" role="alert">
-                  {error}
+                  {actionError}
                 </p>
               )}
             </div>
           )}
+
+          {/* Tasdiqlagandan so'ng amal boshlangan sahifaga qaytish (audit R3, candidate-flows-14) */}
+          {allDone && <ReturnBackLink />}
+
+          {/* Telefon xavfsizligi: asosiy raqam, raqamni almashtirish, zaxira raqam, Telegramni uzish.
+              Hali hech narsa bog'lanmagan hisobda blok ko'rsatilmaydi — u yerda faqat ulash kerak. */}
+          {status && !statusFailed && accessToken && (status.linked || status.phoneVerified) && (
+            <PhoneSecurity
+              status={status}
+              token={accessToken}
+              available={available}
+              onChanged={() => void refresh()}
+              // Deep-link ochilgach, foydalanuvchi Telegramdan qaytganda holat o'zi
+              // yangilanadi — eski raqam ekranda qolib ketmaydi (audit R3, telegram-5)
+              onDeepLink={() => setShowHint(true)}
+            />
+          )}
         </div>
       </div>
     </Card>
+  );
+}
+
+/** URL'dagi `returnTo` (faqat sayt ichidagi yo'l) bo'lsa qaytish havolasi. */
+function ReturnBackLink() {
+  const t = useT();
+  const [href, setHref] = useState<string | null>(null);
+
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("returnTo");
+    setHref(safeReturnTo(raw));
+  }, []);
+
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      className="group mt-4 inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-signal transition-colors hover:text-signal-dark"
+    >
+      {t.telegram.returnBack}
+      <IconArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
+    </a>
   );
 }
 

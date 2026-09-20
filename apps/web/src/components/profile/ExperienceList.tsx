@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { useT, useLocale } from "../../lib/i18n/index.js";
 import type { ResumeData, ResumeExperienceItem } from "../../lib/types.js";
 import { formatYearMonth } from "../../lib/profile/format.js";
@@ -10,10 +10,14 @@ import {
   SectionHeader,
   TextArea,
   TextInput,
+  focusFirstInvalid,
   inputClass,
   useSaveState,
 } from "./ui.js";
 import { IconBriefcase, IconPencil, IconPlus, IconTrash } from "./icons.js";
+
+/** Audit R3, a11y-ui-11: brauzerning oy tanlash oynasi tungi rejimda ham to'g'ri ko'rinsin. */
+const MONTH_STYLE: React.CSSProperties = { colorScheme: "light dark" };
 
 const EMPTY: ResumeExperienceItem = {
   companyName: "",
@@ -45,13 +49,35 @@ export function ExperienceList({
   const [confirmIndex, setConfirmIndex] = useState<number | null>(null);
   const saver = useSaveState();
 
+  /**
+   * Audit R3, gap5-3: tahrirlovchi yopilganda yoki yozuv o'chirilganda fokus
+   * `<body>` ga tushib ketmasin — chaqirgan tugmaga (yoki yangi kartaga) qaytadi.
+   */
+  const uid = useId();
+  const btnId = (key: string) => `${uid}-${key}`;
+  const [focusKey, setFocusKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusKey) return;
+    document.getElementById(btnId(focusKey))?.focus();
+    setFocusKey(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey]);
+
+  function closeEditor(key: string) {
+    setEditor(null);
+    setFocusKey(key);
+  }
+
   async function commit(next: ResumeExperienceItem[]) {
     const ok = await saver.run(() => saveResume({ experience: next }));
     return Boolean(ok);
   }
 
   async function remove(index: number) {
-    if (await commit(items.filter((_, i) => i !== index))) setConfirmIndex(null);
+    if (!(await commit(items.filter((_, i) => i !== index)))) return;
+    setConfirmIndex(null);
+    const left = items.length - 1;
+    setFocusKey(left > 0 ? `edit-${Math.min(index, left - 1)}` : "add");
   }
 
   return (
@@ -65,6 +91,7 @@ export function ExperienceList({
           <>
           <SaveStatus state={saver.state} errorMessage={saver.error} />
           <Button
+            id={btnId("add")}
             variant="secondary"
             size="sm"
             onClick={() => {
@@ -85,9 +112,9 @@ export function ExperienceList({
             title={e.newTitle}
             initial={editor.item}
             saving={saver.state === "saving"}
-            onCancel={() => setEditor(null)}
+            onCancel={() => closeEditor("add")}
             onSubmit={async (item) => {
-              if (await commit([item, ...items])) setEditor(null);
+              if (await commit([item, ...items])) closeEditor("edit-0");
             }}
           />
         )}
@@ -111,14 +138,15 @@ export function ExperienceList({
                 title={e.editTitle}
                 initial={editor.item}
                 saving={saver.state === "saving"}
-                onCancel={() => setEditor(null)}
+                onCancel={() => closeEditor(`edit-${index}`)}
                 onSubmit={async (next) => {
-                  if (await commit(items.map((x, i) => (i === index ? next : x)))) setEditor(null);
+                  if (await commit(items.map((x, i) => (i === index ? next : x)))) closeEditor(`edit-${index}`);
                 }}
               />
             ) : (
               <ExperienceCard
                 key={`${item.companyName}-${item.startDate}-${index}`}
+                editId={btnId(`edit-${index}`)}
                 item={item}
                 confirming={confirmIndex === index}
                 busy={saver.state === "saving"}
@@ -140,6 +168,7 @@ export function ExperienceList({
 
 function ExperienceCard({
   item,
+  editId,
   confirming,
   busy,
   onEdit,
@@ -148,6 +177,7 @@ function ExperienceCard({
   onDelete,
 }: {
   item: ResumeExperienceItem;
+  editId: string;
   confirming: boolean;
   busy: boolean;
   onEdit: () => void;
@@ -184,7 +214,7 @@ function ExperienceCard({
             </div>
             {!confirming && (
               <div className="flex shrink-0 items-center gap-1">
-                <Button variant="ghost" size="sm" onClick={onEdit} aria-label={`${e.edit}: ${item.position}`}>
+                <Button id={editId} variant="ghost" size="sm" onClick={onEdit} aria-label={`${e.edit}: ${item.position}`}>
                   <IconPencil size={15} />
                   <span className="hidden sm:inline">{e.edit}</span>
                 </Button>
@@ -257,7 +287,12 @@ function ExperienceEditor({
       noValidate
       onSubmit={(ev) => {
         ev.preventDefault();
-        if (!validate()) return;
+        const form = ev.currentTarget;
+        // Audit R3, gap5-2: bo'sh majburiy maydonda fokus shu maydonga qaytadi
+        if (!validate()) {
+          focusFirstInvalid(form);
+          return;
+        }
         void onSubmit({
           ...item,
           position: item.position.trim(),
@@ -277,6 +312,7 @@ function ExperienceEditor({
               id={p.id}
               describedBy={p.describedBy}
               invalid={p.invalid}
+              required={p.required}
               value={item.position}
               maxLength={120}
               autoFocus
@@ -291,6 +327,7 @@ function ExperienceEditor({
               id={p.id}
               describedBy={p.describedBy}
               invalid={p.invalid}
+              required={p.required}
               value={item.companyName}
               maxLength={120}
               onChange={(v) => setItem({ ...item, companyName: v })}
@@ -303,9 +340,11 @@ function ExperienceEditor({
               id={p.id}
               type="month"
               aria-invalid={p.invalid || undefined}
+              aria-required={p.required || undefined}
               aria-describedby={p.describedBy}
               value={item.startDate}
               onChange={(ev) => setItem({ ...item, startDate: ev.target.value })}
+              style={MONTH_STYLE}
               className={`h-11 px-3.5 ${inputClass(p.invalid)}`}
             />
           )}
@@ -320,6 +359,7 @@ function ExperienceEditor({
               value={item.isCurrent ? "" : item.endDate ?? ""}
               disabled={item.isCurrent}
               onChange={(ev) => setItem({ ...item, endDate: ev.target.value || null })}
+              style={MONTH_STYLE}
               className={`h-11 px-3.5 ${inputClass(p.invalid)}`}
             />
           )}

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useId, useRef, useState } from "react";
 import { usePageContext } from "vike-react/usePageContext";
 import { registerUser, ApiError } from "../../lib/api.js";
 import { useAuth } from "../../components/AuthContext.js";
@@ -6,6 +6,7 @@ import { AuthShell } from "../../components/AuthShell.js";
 import {
   AuthTabs,
   AuthField,
+  AuthError,
   PasswordField,
   AuthSubmit,
   MailIcon,
@@ -13,6 +14,7 @@ import {
   BuildingIcon,
 } from "../../components/AuthForm.js";
 import { SocialLogin } from "../../components/SocialLogin.js";
+import { returnTargetOr } from "../../lib/auth/returnTo.js";
 import { useT, useHref } from "../../lib/i18n/index.js";
 
 export default function Page() {
@@ -30,8 +32,11 @@ export default function Page() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const errorId = useId();
+  const emailRef = useRef<HTMLInputElement>(null);
 
-  const done = () => window.location.assign(l(role === "employer" ? "/employer" : "/profile"));
+  // Ro'yxatdan o'tgach avvalgi sahifaga qaytiladi (audit R3, auth-core-17)
+  const done = () => window.location.assign(returnTargetOr(l(role === "employer" ? "/employer" : "/profile")));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -50,6 +55,8 @@ export default function Page() {
       done();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t.signup.connError);
+      // Xato e'lon qilinadi va fokus email maydoniga qaytadi (audit R3, a11y-ui-3)
+      emailRef.current?.focus();
     } finally {
       setLoading(false);
     }
@@ -89,7 +96,6 @@ export default function Page() {
               label={t.signup.firstName}
               value={firstName}
               onChange={setFirstName}
-              placeholder="Aziz"
               autoComplete="given-name"
               icon={<UserIcon />}
             />
@@ -97,7 +103,6 @@ export default function Page() {
               label={t.signup.lastName}
               value={lastName}
               onChange={setLastName}
-              placeholder="Aliyev"
               autoComplete="family-name"
               icon={<UserIcon />}
             />
@@ -123,6 +128,9 @@ export default function Page() {
           autoComplete="email"
           required
           icon={<MailIcon />}
+          invalid={Boolean(error)}
+          describedBy={error ? errorId : undefined}
+          inputRef={emailRef}
         />
         <PasswordField
           label={t.signup.password}
@@ -130,17 +138,16 @@ export default function Page() {
           onChange={setPassword}
           placeholder={t.signup.passwordHint}
           autoComplete="new-password"
+          invalid={Boolean(error)}
+          describedBy={error ? errorId : undefined}
         />
 
-        {error && (
-          <p className="animate-fade-in rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
-        )}
+        {error && <AuthError id={errorId}>{error}</AuthError>}
 
         <AuthSubmit loading={loading} label={t.signup.submit} loadingLabel={t.signup.submitting} />
       </form>
 
-      {/* Telegram kirish faqat bog'langan hisoblar uchun — bu yerda o'rinsiz */}
-      <SocialLogin role={role} showTelegram={false} onDone={done} />
+      <SocialLogin role={role} onDone={done} />
 
       <p className="mt-4 text-center text-[13.5px] text-dusk">
         {t.signup.haveAccount}{" "}

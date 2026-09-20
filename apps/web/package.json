@@ -8,6 +8,7 @@
     "build": "vike build",
     "preview": "vike preview",
     "typecheck": "tsc --noEmit",
+    "test:unit": "node scripts/unit-check.mjs",
     "start": "node server/index.mjs",
     "fonts:sync": "node scripts/sync-fonts.mjs"
   },

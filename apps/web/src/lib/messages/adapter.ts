@@ -33,8 +33,11 @@ export interface ConversationVacancy {
 
 export interface ConversationView {
   id: string;
-  /** Backend fallback zanjiri: kompaniya nomi / nomzod ismi / email. */
-  title: string;
+  /**
+   * Nomzod ismi yoki kompaniya nomi; `null` — nom yo'q (server email bermaydi, audit PHASE 6, V1).
+   * Ekranda to'g'ridan-to'g'ri emas, `displayName()` orqali chiziladi (lokallashtirilgan fallback).
+   */
+  title: string | null;
   otherRole: ParticipantRole | null;
   otherUserId: string | null;
   /** Ish beruvchi ko'rinishida nomzodning sarlavhasi (lavozimi). */
@@ -134,21 +137,26 @@ function mapVacancy(raw: unknown): ConversationVacancy | null {
   };
 }
 
-/** `GET /api/conversations` qatori. id yoki ko'rsatiladigan nom bo'lmasa — tashlab yuboriladi. */
+/**
+ * `GET /api/conversations` qatori. Faqat id bo'lmasa tashlab yuboriladi: nomsiz suhbat (ismi bo'sh nomzod,
+ * kompaniyasiz ish beruvchi) ham ro'yxatda qoladi — ilgari ko'rinmay qolardi (audit PHASE 6, V1).
+ */
 export function mapConversationToViewModel(raw: unknown): ConversationView | null {
   const r = asRow(raw);
   if (!r) return null;
   const id = text(r.id);
+  if (!id) return null;
   const company = mapCompanyToConversationViewModel(r.company);
-  const title = text(r.title) ?? company?.name ?? null;
-  if (!id || !title) return null;
+  const otherRole = pick(r.otherRole, ROLES);
+  // Ish beruvchi ko'rinishida `company` — uning o'z kompaniyasi: nomzod nomi o'rniga qo'yilmaydi
+  const title = text(r.title) ?? (otherRole === "job_seeker" ? null : company?.name ?? null);
   const lastMessage = text(r.lastMessage);
   const avatar = text(r.avatarUrl);
   const unread = typeof r.unread === "number" && Number.isFinite(r.unread) ? Math.max(0, Math.floor(r.unread)) : 0;
   return {
     id,
     title,
-    otherRole: pick(r.otherRole, ROLES),
+    otherRole,
     otherUserId: text(r.otherUserId),
     headline: text(r.otherHeadline),
     avatarUrl: avatar ? absoluteUploadUrl(avatar) : null,

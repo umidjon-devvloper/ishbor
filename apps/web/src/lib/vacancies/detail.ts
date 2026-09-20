@@ -6,7 +6,7 @@
  * blokni chiqarmaydi. Hech narsa to'qib qo'shilmaydi (masalan, "Ofisda" yoki
  * standart imtiyozlar) — bazada bo'lmasa, sahifada ham yo'q.
  */
-import type { EmploymentType, ExperienceLevel, ScheduleType } from "../types.js";
+import type { EmploymentType, ExperienceLevel, ScheduleType, WorkplaceType } from "../types.js";
 import { extractSkills } from "./skills.js";
 
 /** `render(404, …)` sababi — `_error` sahifasi vakansiyaga xos "topilmadi" holatini chizadi. */
@@ -36,6 +36,8 @@ export interface VacancySalaryVM {
   min: number | null;
   max: number | null;
   type: "gross" | "net" | null;
+  /** ISO valyuta kodi (JSON-LD `baseSalary.currency`). */
+  currency: string;
 }
 
 export interface VacancyDetailVM {
@@ -52,6 +54,8 @@ export interface VacancyDetailVM {
   experience: ExperienceLevel | null;
   employment: EmploymentType | null;
   schedule: ScheduleType | null;
+  /** Ish joylashuvi. Eski e'londa maydon yo'q — bandlik turi "remote" bo'lsa masofaviy, aks holda `null`. */
+  workplace: WorkplaceType | null;
   regionSlug: string | null;
   regionName: string | null;
   address: string | null;
@@ -73,6 +77,7 @@ export interface VacancyDetailVM {
 const EXPERIENCE: readonly ExperienceLevel[] = ["none", "one_to_three", "three_to_six", "six_plus"];
 const EMPLOYMENT: readonly EmploymentType[] = ["full_time", "part_time", "remote", "shift"];
 const SCHEDULE: readonly ScheduleType[] = ["five_two", "two_two", "vahta", "gibkiy", "smenniy"];
+const WORKPLACE: readonly WorkplaceType[] = ["office", "hybrid", "remote"];
 const MAX_IMAGES = 24;
 
 function str(value: unknown): string | null {
@@ -154,7 +159,18 @@ export function websiteUrl(value: unknown): string | null {
   }
 }
 
-function ratingOf(reviews: unknown): { rating: number | null; count: number } {
+/**
+ * Reyting va sharhlar soni. API `company.reviewSummary` beradi (bazada agregatsiya — ro'yxat endi yuborilmaydi,
+ * audit PHASE 6, U17); eski javob shaklida sharhlar ro'yxatidan hisoblanadi (moslik uchun).
+ */
+function ratingOf(company: { reviewSummary?: unknown; reviews?: unknown }): { rating: number | null; count: number } {
+  const summary = company.reviewSummary as { count?: unknown; rating?: unknown } | null | undefined;
+  if (summary && typeof summary.count === "number" && Number.isFinite(summary.count)) {
+    const count = Math.max(0, Math.trunc(summary.count));
+    const rating = count > 0 && typeof summary.rating === "number" && Number.isFinite(summary.rating) ? summary.rating : null;
+    return { rating, count };
+  }
+  const reviews = company.reviews;
   const list = Array.isArray(reviews) ? reviews.filter((r) => typeof r?.rating === "number") : [];
   if (list.length === 0) return { rating: null, count: 0 };
   const sum = list.reduce((s: number, r: { rating: number }) => s + r.rating, 0);
@@ -168,7 +184,7 @@ function ratingOf(reviews: unknown): { rating: number | null; count: number } {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function mapVacancyToViewModel(raw: any, resolveUrl: (path: string) => string): VacancyDetailVM {
   const company = raw?.company ?? {};
-  const { rating, count } = ratingOf(company.reviews);
+  const { rating, count } = ratingOf(company);
   const min = positive(raw?.salaryMin);
   const max = positive(raw?.salaryMax);
   const salaryVisible = !raw?.isSalaryHidden && Boolean(min || max);
@@ -184,10 +200,11 @@ export function mapVacancyToViewModel(raw: any, resolveUrl: (path: string) => st
     publishedAt: str(raw?.publishedAt),
     expiresAt: str(raw?.expiresAt),
     viewsCount: positive(raw?.viewsCount) ?? 0,
-    salary: salaryVisible ? { min, max, type: oneOf(raw?.salaryType, ["gross", "net"] as const) } : null,
+    salary: salaryVisible ? { min, max, type: oneOf(raw?.salaryType, ["gross", "net"] as const), currency: str(raw?.currency) ?? "UZS" } : null,
     experience: oneOf(raw?.experienceRequired, EXPERIENCE),
     employment: oneOf(raw?.employmentType, EMPLOYMENT),
     schedule: oneOf(raw?.scheduleType, SCHEDULE),
+    workplace: oneOf(raw?.workplaceType, WORKPLACE) ?? (raw?.employmentType === "remote" ? "remote" : null),
     regionSlug: str(raw?.region?.slug),
     regionName: str(raw?.region?.name),
     address: str(raw?.address),

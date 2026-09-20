@@ -25,7 +25,11 @@ export default function Head() {
   }
 
   const description = snippet(company.description || t.companyDetail.meta.description(company.name));
-  const summary = ratingSummary(company.reviews);
+  const listed = ratingSummary(company.reviews);
+  const summary =
+    company.reviewTotal !== null && company.reviewTotal > company.reviews.length && company.ratingAverage !== null
+      ? { ...listed, rating: company.ratingAverage, count: company.reviewTotal }
+      : listed;
 
   const breadcrumbLd = {
     "@context": "https://schema.org",

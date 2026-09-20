@@ -1,5 +1,6 @@
 import React from "react";
-import { useT } from "../../lib/i18n/index.js";
+import { useT, useLocale } from "../../lib/i18n/index.js";
+import { regionDisplayName } from "../../lib/format.js";
 import type { Profile } from "../../lib/types.js";
 import { useProfileNav } from "./ProfileNavContext.js";
 import { Card, ProgressBar, TabLink, buttonClass } from "./ui.js";
@@ -23,6 +24,7 @@ export function ProfileHeader({
   completion: { percent: number };
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const nav = useProfileNav();
   const h = t.profileHub.header;
   const fullName = [profile?.firstName, profile?.lastName].filter((x) => x?.trim()).join(" ");
@@ -74,7 +76,7 @@ export function ProfileHeader({
               <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-dusk">
                 <span className="inline-flex items-center gap-1.5">
                   <IconPin size={15} />
-                  {profile?.regionName || h.regionMissing}
+                  {/* Audit R3, i18n-4 */ regionDisplayName(locale, profile?.regionName) || h.regionMissing}
                 </span>
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${

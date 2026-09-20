@@ -121,7 +121,10 @@ export function ActiveFilterChips({
       ? [
           {
             key: "salary",
-            label: v.chips.salary(query.salaryFrom ? formatNumber(query.salaryFrom) : null, query.salaryTo ? formatNumber(query.salaryTo) : null),
+            label: v.chips.salary(
+              query.salaryFrom ? formatNumber(query.salaryFrom, locale) : null,
+              query.salaryTo ? formatNumber(query.salaryTo, locale) : null
+            ),
             next: { ...query, salaryFrom: null, salaryTo: null },
           },
         ]

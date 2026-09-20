@@ -35,6 +35,10 @@
  * qo'shilganda shu seed ham kengaytiriladi. Media (logo, rasmlar, avatar, PDF)
  * `uploads/demo-*` fayllari sifatida yoziladi — qarang `demo-media.ts`.
  */
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import argon2 from "argon2";
 import type {
   ApplicationStatus,
@@ -50,6 +54,8 @@ import { ensureCatalog } from "../common/ensure-catalog.js";
 import { ensurePlans } from "../modules/billing/billing.service.js";
 import { slugifyText } from "../common/slug.js";
 import { SCENES, avatarSvg, logoSvg, removeDemoFiles, resumePdf, sceneSvg, writeDemoFile } from "./demo-media.js";
+import { articleDerived } from "../modules/articles/articles.content.js";
+import { DEMO_ADMIN_PROFILE, DEMO_ARTICLES, DEMO_COVERS, DEMO_INVITES, DEMO_STAFF, coverFileName } from "./demo-articles.js";
 
 const DOMAIN = "@demo.ish.top";
 const PASSWORD = "password123";
@@ -1155,73 +1161,8 @@ const PENDING_REVIEWS: [string, string, number, string][] = [
   ["zarina", "silkroad", 5, "Mehmonxona jamoasi bilan hamkorlik qilish juda yoqimli, hammasi professional."],
 ];
 
-const ARTICLES = [
-  {
-    slug: "rezyume-qanday-yoziladi",
-    title: "Rezyume qanday yoziladi: 2026-yil uchun to'liq qo'llanma",
-    meta: "Ish beruvchini birinchi 10 soniyada qiziqtiradigan rezyume tuzish bo'yicha amaliy qo'llanma.",
-    days: 1,
-    content:
-      "Ish beruvchi bitta rezyumega o'rtacha 7–10 soniya vaqt sarflaydi. Shu vaqt ichida u ikkita savolga javob izlaydi: bu odam vazifani bajara oladimi va u boshqa nomzodlardan nimasi bilan farq qiladi. Yaxshi rezyume ana shu ikki savolga tez va aniq javob beradi.\n\nBirinchi qoida — sarlavha va qisqa tavsif. \"Dasturchi\" emas, \"Frontend dasturchi (React, 4 yil)\" deb yozing. Tavsifda 2–3 gap kifoya: kimsiz, qaysi sohada kuchlisiz va qanday natijaga erishgansiz.\n\nIkkinchi qoida — vazifalar emas, natijalar. \"Saytni qo'llab-quvvatladim\" o'rniga \"sahifa yuklanish vaqtini 40% ga qisqartirdim\" deb yozing. Raqamlar ishonch uyg'otadi va sizni boshqalardan ajratib turadi.\n\nUchinchi qoida — ko'nikmalarni vakansiyaga moslang. Ish beruvchi vakansiyada ko'rsatgan asosiy texnologiya va ko'nikmalar rezyumeingizda ham aynan shu nomlar bilan uchrasin. Ko'plab kompaniyalar arizalarni avval kalit so'zlar bo'yicha saralaydi.\n\nVa nihoyat, rezyumeni bir sahifada saqlashga harakat qiling, kontaktlaringiz dolzarbligini tekshiring va faylni PDF formatida yuklang.",
-  },
-  {
-    slug: "intervyuga-tayyorgarlik",
-    title: "Intervyuga qanday tayyorlanish kerak: 10 ta amaliy maslahat",
-    meta: "Eng ko'p so'raladigan savollar va ularga ishonchli javob berish strategiyasi.",
-    days: 3,
-    content:
-      "Intervyu — bu imtihon emas, ikki tomonlama suhbat. Kompaniya sizni tanlayotgani kabi, siz ham kompaniyani tanlaysiz. Shu yondashuv hayajonni kamaytiradi va suhbatni tabiiyroq qiladi.\n\nKompaniyani oldindan o'rganing: mahsuloti, mijozlari, so'nggi yangiliklari. \"Nega aynan bizda ishlamoqchisiz?\" degan savolga umumiy emas, aniq javob bering.\n\nTajribangiz haqida gapirganda STAR usulidan foydalaning: vaziyat, vazifa, harakat va natija. Har bir asosiy loyihangiz uchun shunday 2–3 ta hikoyani oldindan tayyorlab qo'ying.\n\nSuhbat oxirida albatta savol bering: jamoa qanday ishlaydi, birinchi 3 oyda sizdan nima kutiladi, muvaffaqiyat qanday o'lchanadi. Bu sizning jiddiyligingizni ko'rsatadi.",
-  },
-  {
-    slug: "maosh-muzokarasi",
-    title: "Maosh bo'yicha muzokara: qancha so'rash va qanday asoslash",
-    meta: "Bozor narxini aniqlash, o'z qiymatingizni asoslash va taklifni to'g'ri qabul qilish.",
-    days: 5,
-    content:
-      "Ko'pchilik maosh haqida gapirishdan qo'rqadi va birinchi taklifga rozi bo'ladi. Holbuki, to'g'ri tayyorgarlik bilan o'tkazilgan muzokara daromadingizni 10–20% ga oshirishi mumkin.\n\nAvval bozorni o'rganing. Maoshlar bo'limida kasbingiz va hududingiz bo'yicha o'rtacha, minimal va maksimal ko'rsatkichlarni ko'ring. Shu oraliqqa tayanib, o'zingiz uchun maqbul va minimal chegarani belgilang.\n\nRaqamni aytishda oraliq emas, aniq summa ayting va uni natijalaringiz bilan asoslang. Taklifni darhol qabul qilishga shoshilmang — o'ylab ko'rish uchun bir kun so'rash mutlaqo normal.\n\nMaoshdan tashqari shartlarni ham hisobga oling: bonuslar, tibbiy sug'urta, masofadan ishlash, o'qish budjeti. Ba'zan aynan shular umumiy qiymatni sezilarli oshiradi.",
-  },
-  {
-    slug: "birinchi-ish-tajribasiz",
-    title: "Tajribasiz birinchi ishni qanday topish mumkin",
-    meta: "Talaba va bitiruvchilar uchun birinchi ishni topishning amaliy yo'l xaritasi.",
-    days: 8,
-    content:
-      "\"Tajriba kerak, lekin tajriba olish uchun ish kerak\" — bu doira ko'pchilikka tanish. Yaxshi xabar shuki, tajriba faqat rasmiy ish joyida to'planmaydi.\n\nAmaliyot va stajirovkalarni qidiring: ko'plab kompaniyalar talabalarni yarim kunlik ishga oladi. Filtrlarda \"Tajriba talab qilinmaydi\" bandini tanlang — bunday vakansiyalar siz o'ylagandan ko'p.\n\nO'z loyihangizni qiling. Dasturchi uchun GitHub'dagi ishlaydigan ilova, dizayner uchun Behance portfoliosi, marketolog uchun o'zi yuritgan sahifa — bularning barchasi tajriba sifatida qabul qilinadi.\n\nVa albatta, har bir arizaga qisqa, samimiy xat qo'shing: nima uchun aynan shu kompaniya va nima o'rganishga tayyorligingizni yozing.",
-  },
-  {
-    slug: "masofaviy-ish",
-    title: "Masofaviy ish: afzalliklari, xavflari va o'zini boshqarish",
-    meta: "Uydan samarali ishlash, chegaralarni saqlash va charchoqning oldini olish.",
-    days: 11,
-    content:
-      "Masofaviy ish yo'lga ketadigan vaqtni tejaydi va xalqaro kompaniyalarda ishlash imkonini beradi. Lekin u o'z-o'zini boshqarishni ham talab qiladi.\n\nIsh joyini ajrating: hatto kichik burchak bo'lsa ham, u faqat ish uchun bo'lsin. Ish boshlanishi va tugashi uchun aniq vaqt belgilang — aks holda ish kun bo'yi cho'zilib ketadi.\n\nMuloqotni ortiqcha qiling. Ofisda hamkasbingiz nima bilan bandligini ko'rib turasiz, masofada esa buni yozib bildirish kerak. Kunlik qisqa hisobotlar ishonchni mustahkamlaydi.\n\nVa nihoyat, harakatni unutmang: har soatda qisqa tanaffus, tushlikda sayr qilish ish unumdorligiga to'g'ridan-to'g'ri ta'sir qiladi.",
-  },
-  {
-    slug: "talabgir-it-kasblar",
-    title: "O'zbekistonda eng talabgir IT kasblar",
-    meta: "Qaysi IT yo'nalishlarda vakansiyalar ko'p va qanday ko'nikmalar qadrlanadi.",
-    days: 14,
-    content:
-      "So'nggi yillarda O'zbekistonda IT bozori tez o'smoqda: fintech, e-commerce va davlat raqamli xizmatlari yangi mutaxassislarga talabni oshirmoqda.\n\nFrontend va backend dasturchilar hamon eng ko'p izlanadigan mutaxassislar. React, TypeScript, Node.js va Go bo'yicha tajribaga ega nomzodlar tez ish topadi.\n\nMobil dasturlashda Flutter kichik jamoalar orasida mashhur, yirik mahsulot kompaniyalari esa Kotlin va Swift mutaxassislarini qidiradi.\n\nData analitika, QA avtomatlashtirish va DevOps yo'nalishlarida mutaxassislar kam, shuning uchun maoshlar ham raqobatbardosh. Mahsulot dizaynerlari va product manager'larga talab ham barqaror oshmoqda.",
-  },
-  {
-    slug: "qoshimcha-xat",
-    title: "Qo'shimcha xat ish beruvchini qanday qiziqtiradi",
-    meta: "Qisqa, aniq va shaxsiy qo'shimcha xat yozish bo'yicha maslahatlar va namuna.",
-    days: 18,
-    content:
-      "Ko'pchilik qo'shimcha xatni o'tkazib yuboradi, shuning uchun uni yozganlar darhol ajralib turadi. Yaxshi xat 4–6 gapdan iborat bo'ladi.\n\nBirinchi gapda qaysi vakansiyaga murojaat qilayotganingizni va nega aynan shu kompaniya ekanini yozing. Ikkinchi qismda vakansiya talablariga eng mos keladigan 1–2 ta yutug'ingizni keltiring.\n\nShablon matnlardan qoching. \"Men mas'uliyatli va jamoada ishlay oladigan odamman\" degan gap hech narsa aytmaydi. Uning o'rniga aniq misol keltiring.\n\nXatni suhbatga tayyorligingiz va qisqa minnatdorchilik bilan yakunlang.",
-  },
-  {
-    slug: "kasb-almashtirish",
-    title: "Kasbni almashtirish: 30 yoshdan keyin yangi sohaga o'tish",
-    meta: "Yangi sohaga o'tish rejasi: ko'nikmalarni baholash, o'qish va birinchi qadamlar.",
-    days: 24,
-    content:
-      "Kasbni almashtirish uchun hech qachon kech emas. Muhimi — tartibli reja va real kutishlar.\n\nAvval mavjud ko'nikmalaringizni yozib chiqing: muloqot, loyiha boshqaruvi, soha bilimi. Ularning ko'pi yangi kasbda ham qadrlanadi — masalan, buxgalter data analitikaga o'tganda moliyaviy bilimi katta ustunlik beradi.\n\nO'qishni amaliyot bilan birga olib boring. 3–6 oylik kurs tugagach, kichik loyihalar yoki frilans buyurtmalar orqali portfolio yig'ing.\n\nBirinchi ish joyida maosh avvalgisidan past bo'lishi mumkin — buni sarmoya deb qarang. Tajriba to'plangani sari daromad tez tiklanadi.",
-  },
-];
-const DEMO_ARTICLE_SLUGS = ARTICLES.map((a) => a.slug);
+/** Demo maqolalar (demo-articles.ts): joriy va eski slug'lar — reset ikkalasi bo'yicha tozalaydi. */
+const DEMO_ARTICLE_SLUGS = DEMO_ARTICLES.flatMap((a) => [a.slug, ...(a.previousSlugs ?? [])]);
 
 /** "seeker" kuzatayotgan kompaniyalar (/companies?saved=1). */
 const SAVED_COMPANIES = ["nextbrain", "tafakkur", "payla", "codecraft", "bozor", "orzubank"];
@@ -1251,6 +1192,7 @@ const CONVERSATIONS: ConversationDef[] = [
       ["s", "Va alaykum assalom! Taklif uchun rahmat, bajonidil. Qaysi kun qulay bo'ladi?", 78, true],
       ["e", "Payshanba soat 15:00 da ofisimizda yoki Google Meet orqali — qaysi biri sizga qulay?", 30, true],
       ["s", "Ofisga kela olaman. Qo'shimcha nima olib kelishim kerak?", 29, true],
+      ["e", "Ofisimiz manzili xaritada: https://yandex.uz/maps/-/CDbq4ZzT — 3-qavat, qabulxonaga ismingizni ayting.", 28, true],
       ["e", "Ajoyib! Hech narsa shart emas, faqat so'nggi loyihangizdan bir-ikki misol ko'rsatsangiz yaxshi bo'ladi. Ko'rishguncha!", 2, false],
     ],
     ratings: [["s", 5, "Tez va aniq javob berishdi, suhbat jarayoni qulay."]],
@@ -1278,6 +1220,7 @@ const CONVERSATIONS: ConversationDef[] = [
       ["e", "Assalomu alaykum! Vue.js vakansiyamiz bo'yicha onlayn suhbatga taklif qilamiz. Juma kuni soat 11:00 qulaymi?", 26, true],
       ["s", "Va alaykum assalom! Ha, juma 11:00 menga qulay.", 25, true],
       ["e", "Zo'r, havolani shu yerga yuboramiz. Suhbat taxminan 45 daqiqa davom etadi.", 4, false],
+      ["e", "Suhbat havolasi: https://meet.google.com/ish-bor-codecraft — juma, 11:00. Kamerani yoqib kiring.", 3.5, false],
     ],
     ratings: [["s", 4, "Javob tez keldi."]],
   },
@@ -1337,7 +1280,7 @@ const NOTIFICATIONS: NotificationDef[] = [
   ["seeker", "application_status_changed", "Ariza holati o'zgardi", "«Frontend dasturchi (Vue.js)» bo'yicha: Suhbatga taklif qilindingiz 🎉", "/applications?status=invited", 4, false],
   ["seeker", "application_status_changed", "Ariza holati o'zgardi", "«Frontend dasturchi (React)» bo'yicha: Suhbatga taklif qilindingiz 🎉", "/applications?status=invited", 30, false],
   ["seeker", "new_vacancy_match", "\"React — Toshkent\" bo'yicha 2 ta yangi vakansiya", "Frontend dasturchi (React), Frontend mentor", "/vacancies?q=React&region=tashkent", 20, false],
-  ["seeker", "system", "Suhbatga tayyorlaning", "Intervyuga tayyorgarlik bo'yicha 10 ta amaliy maslahat — maqolani o'qing.", "/article", 16, false],
+  ["seeker", "system", "Suhbatga tayyorlaning", "Intervyuga tayyorgarlik bo'yicha 10 ta amaliy maslahat — maqolani o'qing.", "/articles/intervyuga-tayyorgarlik", 16, false],
   ["seeker", "application_status_changed", "Ariza holati o'zgardi", "«Data analitik (BI)» bo'yicha: Ko'rildi 👀", "/applications?status=viewed", 26, true],
   ["seeker", "application_status_changed", "Ariza holati o'zgardi", "«Product manager (to'lovlar)» bo'yicha: Ko'rildi 👀", "/applications?status=viewed", 40, true],
   ["seeker", "new_vacancy_match", "\"Frontend — masofaviy\" bo'yicha yangi vakansiya", "Frontend dasturchi (Vue.js) — CodeCraft Studio", "/vacancies?q=Frontend&employment=remote", 70, true],
@@ -1424,7 +1367,6 @@ async function createResume(profileId: string, s: SeekerDef, createdAt: Date): P
       currency: "UZS",
       employmentTypes: s.types,
       status: "published",
-      viewsCount: between(8, 140),
       createdAt,
     },
   });
@@ -1654,10 +1596,14 @@ async function resetDemo(): Promise<void> {
       updates: [{ q: { _id: { $oid: doc._id.$oid } }, u: { $unset: Object.fromEntries([...untouched, DEMO_FILLED].map((column) => [column, ""])) } }],
     });
   }
-  await prisma.article.deleteMany({ where: { OR: [{ slug: { in: DEMO_ARTICLE_SLUGS } }, { authorId: { in: userIds } }] } });
+  await prisma.article.deleteMany({
+    where: { OR: [{ slug: { in: DEMO_ARTICLE_SLUGS } }, { previousSlugs: { hasSome: DEMO_ARTICLE_SLUGS } }, { authorId: { in: userIds } }] },
+  });
+  await prisma.staffInvite.deleteMany({ where: { OR: [{ invitedById: { in: userIds } }, { email: { endsWith: DOMAIN } }] } });
+  await prisma.staffProfile.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 
-  const files = removeDemoFiles();
+  const files = await removeDemoFiles();
 
   console.log(
     `Demo ma'lumot o'chirildi: ${userIds.length} foydalanuvchi, ${companyIds.length} kompaniya, ${vacancyIds.length} vakansiya, ${files} fayl.`
@@ -1690,9 +1636,11 @@ async function createDemo(): Promise<SeedIds> {
     // Logo va ofis/jamoa rasmlari — har kompaniyada (asosiylarida 1–6, qo'shimchalarida 1–3)
     const hue = (ci * 47 + 12) % 360;
     const photoCount = ci < MAIN_COMPANY_COUNT ? GALLERY_SIZES[ci % GALLERY_SIZES.length] : 1 + (ci % 3);
-    const logoUrl = writeDemoFile(`logo-${c.key}.svg`, logoSvg(c.name, hue, ci));
-    const images = Array.from({ length: photoCount }, (_, k) =>
-      writeDemoFile(`photo-${c.key}-${k + 1}.svg`, sceneSvg(SCENES[(ci + k) % SCENES.length], hue))
+    const logoUrl = await writeDemoFile(`logo-${c.key}.svg`, logoSvg(c.name, hue, ci));
+    const images = await Promise.all(
+      Array.from({ length: photoCount }, (_, k) =>
+        writeDemoFile(`photo-${c.key}-${k + 1}.svg`, sceneSvg(SCENES[(ci + k) % SCENES.length], hue))
+      )
     );
     companyImages[c.key] = images;
     const owner = await prisma.user.create({
@@ -1783,8 +1731,8 @@ async function createDemo(): Promise<SeedIds> {
   for (const [si, s] of SEEKERS.entries()) {
     const createdAt = ago(s.daysAgo, between(1, 12));
     // Avatar va PDF rezyume — profil, nomzodlar bazasi va arizalarda ko'rinadi
-    const avatarUrl = writeDemoFile(`avatar-${s.key}.svg`, avatarSvg(s.first, s.last, (si * 61 + 200) % 360));
-    const resumeUrl = writeDemoFile(`resume-${s.key}.pdf`, seekerResumePdf(s, `${s.first} ${s.last}`));
+    const avatarUrl = await writeDemoFile(`avatar-${s.key}.svg`, avatarSvg(s.first, s.last, (si * 61 + 200) % 360));
+    const resumeUrl = await writeDemoFile(`resume-${s.key}.pdf`, seekerResumePdf(s, `${s.first} ${s.last}`));
     const user = await prisma.user.create({
       data: {
         email: `${s.key}${DOMAIN}`,
@@ -1815,7 +1763,17 @@ async function createDemo(): Promise<SeedIds> {
 
   // ---- Admin (moderatsiya, foydalanuvchilar, to'lovlar, qo'llab-quvvatlash chati) ----
   const admin = await prisma.user.create({
-    data: { email: `admin${DOMAIN}`, passwordHash, role: "admin", phone: nextPhone(), isEmailVerified: true, isPhoneVerified: true, createdAt: ago(90) },
+    data: {
+      email: `admin${DOMAIN}`,
+      passwordHash,
+      role: "admin",
+      phone: nextPhone(),
+      isEmailVerified: true,
+      isPhoneVerified: true,
+      createdAt: ago(90),
+      // Super admin ham kontent jamoasi rahbari — maqolalarda muallif belgisi shu profildan
+      staffProfile: { create: DEMO_ADMIN_PROFILE },
+    },
   });
   const ids: SeedIds = { ownerId, companyId, regionId, adminId: admin.id, vacancyRef };
 
@@ -1891,10 +1849,73 @@ async function createDemo(): Promise<SeedIds> {
     });
   }
 
-  // ---- Maqolalar ----
-  for (const a of ARTICLES) {
+  // ---- Kontent jamoasi (/admin/articles, /admin/team) ----
+  const staffId: Record<string, string> = { admin: admin.id };
+  for (const s of DEMO_STAFF) {
+    const [first, last = ""] = s.fullName.split(" ");
+    const avatarUrl = s.avatarHue === null ? null : await writeDemoFile(`avatar-staff-${s.key}.svg`, avatarSvg(first, last, s.avatarHue));
+    const user = await prisma.user.create({
+      data: {
+        email: `${s.key}${DOMAIN}`,
+        passwordHash,
+        role: s.role,
+        isEmailVerified: true,
+        isBlocked: s.blocked ?? false,
+        createdAt: ago(s.daysAgo),
+        staffProfile: { create: { fullName: s.fullName, position: s.position, avatarUrl } },
+      },
+    });
+    staffId[s.key] = user.id;
+  }
+  // Takliflar: token tasodifiy va saqlanmaydi — havolasi ishlamaydi, faqat ro'yxatda ko'rinadi
+  for (const invite of DEMO_INVITES) {
+    await prisma.staffInvite.create({
+      data: {
+        email: `${invite.local}${DOMAIN}`,
+        role: invite.role,
+        tokenHash: crypto.randomBytes(32).toString("hex"),
+        invitedById: admin.id,
+        createdAt: ago(invite.daysAgo),
+        expiresAt: new Date(NOW + invite.expiresInDays * DAY),
+      },
+    });
+  }
+
+  // ---- Maqolalar (muqovalar — berilgan referens rasmlar, uploads/demo-article-*) ----
+  const coverDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "assets", "articles");
+  const coverUrl = Object.fromEntries(
+    await Promise.all(
+      DEMO_COVERS.map(async (cover) => [
+        cover,
+        await writeDemoFile(coverFileName(cover), fs.readFileSync(path.join(coverDir, `${cover}.webp`))),
+      ])
+    )
+  );
+  for (const a of DEMO_ARTICLES) {
+    const publishedAt = a.status === "published" || a.status === "archived" ? ago(a.days, 3) : null;
+    const touched = publishedAt ?? ago(0, 6);
     await prisma.article.create({
-      data: { slug: a.slug, title: a.title, content: a.content, metaTitle: a.title, metaDescription: a.meta, publishedAt: ago(a.days, 3) },
+      data: {
+        slug: a.slug,
+        previousSlugs: a.previousSlugs ?? [],
+        title: a.title,
+        excerpt: a.excerpt,
+        content: a.content,
+        coverImageUrl: a.cover ? coverUrl[a.cover] : null,
+        category: a.category,
+        tags: a.tags,
+        authorId: a.author ? staffId[a.author] : null,
+        status: a.status,
+        reviewNote: a.reviewNote ?? null,
+        metaDescription: a.meta ?? null,
+        viewsCount: a.views,
+        helpfulYes: a.helpful[0],
+        helpfulNo: a.helpful[1],
+        publishedAt,
+        createdAt: new Date(touched.getTime() - 2 * DAY),
+        updatedAt: a.status === "archived" ? ago(12) : touched,
+        ...articleDerived({ title: a.title, excerpt: a.excerpt, content: a.content, tags: a.tags, category: a.category }),
+      },
     });
   }
 
@@ -1904,12 +1925,15 @@ async function createDemo(): Promise<SeedIds> {
   const active = VACANCIES.filter((v) => (v.status ?? "active") === "active").length;
   console.log(
     `Demo ma'lumot yaratildi: ${COMPANIES.length} kompaniya, ${VACANCIES.length} vakansiya (${active} faol), ` +
-      `${SEEKERS.length} nomzod, ${APPLICATIONS.length} ariza, ${CONVERSATIONS.length} suhbat, ${ARTICLES.length} maqola.`
+      `${SEEKERS.length} nomzod, ${APPLICATIONS.length} ariza, ${CONVERSATIONS.length} suhbat, ` +
+      `${DEMO_ARTICLES.filter((a) => a.status === "published").length} maqola (+${DEMO_ARTICLES.filter((a) => a.status !== "published").length} admin holatida).`
   );
   console.log(`\nKirish (parol: ${PASSWORD}):`);
   console.log(`  Nomzod        seeker${DOMAIN}`);
   console.log(`  Ish beruvchi  hr${DOMAIN}   (NextBrain, Premium)`);
-  console.log(`  Admin         admin${DOMAIN}`);
+  console.log(`  Admin         admin${DOMAIN}   (super admin: panel, maqolalar, jamoa)`);
+  console.log(`  Muharrir      editor${DOMAIN}   (maqolalarni ko'rib chiqadi va chop etadi)`);
+  console.log(`  Muallif       author${DOMAIN}   (qoralama yozadi, ko'rib chiqishga yuboradi)`);
   return ids;
 }
 
@@ -1983,8 +2007,8 @@ async function attachToAccount(email: string, ids: SeedIds): Promise<void> {
   if (!profile.headline) filled.headline = def.headline;
   if (!profile.regionId) filled.region_id = { $oid: ids.regionId[def.region] };
   if (!profile.birthDate) filled.birth_date = { $date: new Date(Date.UTC(def.born, 4, 14)).toISOString() };
-  if (!profile.avatarUrl) filled.avatar_url = writeDemoFile(`avatar-account-${account.id}.svg`, avatarSvg(firstName, profile.lastName, 250));
-  if (!profile.resumeUrl) filled.resume_url = writeDemoFile(`resume-account-${account.id}.pdf`, seekerResumePdf(def, fullName));
+  if (!profile.avatarUrl) filled.avatar_url = await writeDemoFile(`avatar-account-${account.id}.svg`, avatarSvg(firstName, profile.lastName, 250));
+  if (!profile.resumeUrl) filled.resume_url = await writeDemoFile(`resume-account-${account.id}.pdf`, seekerResumePdf(def, fullName));
   if (Object.keys(filled).length > 0) {
     await prisma.$runCommandRaw({
       update: "job_seeker_profiles",

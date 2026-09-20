@@ -52,6 +52,7 @@ export function CompanyToolbar({
         <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
           <span className="hidden text-sm text-dusk xl:inline">{t.toolbar.sortLabel}:</span>
           <Select
+            ariaLabel={t.toolbar.sortLabel}
             className="min-w-0 flex-1 sm:w-56 sm:flex-none"
             value={query.sort}
             onChange={(value) => onSortChange(value as CompanySort)}

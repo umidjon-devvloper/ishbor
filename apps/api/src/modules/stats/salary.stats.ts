@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../../common/prisma.js";
+import { cached } from "../../common/cache.js";
+import { normalizeApostrophes } from "../../common/search-text.js";
 
 /**
  * Maosh tahlili — hh.uz'dagi "maosh statistikasi" sahifasining analogi:
@@ -93,9 +95,12 @@ function average(values: number[]): number {
   return values.length ? Math.round(values.reduce((s, n) => s + n, 0) / values.length) : 0;
 }
 
-/** Katta-kichik harf va apostrof turlari (ʻ ’ ‘ `) farq qilmasin. */
+/**
+ * Katta-kichik harf va tutuq belgisi turlari farq qilmasin — variantlar ro'yxati qidiruv
+ * bilan bitta manbadan (audit R3, D-080).
+ */
 function normalize(text: string): string {
-  return text.toLocaleLowerCase("ru-RU").replace(/[ʻʼ’‘`´]/g, "'");
+  return normalizeApostrophes(text).toLocaleLowerCase("ru-RU");
 }
 
 function escapeRegex(text: string): string {
@@ -157,36 +162,60 @@ function groupBy(rows: Row[], pick: (row: Row) => { name: string; slug: string }
     .sort((a, b) => b.median - a.median || b.count - a.count);
 }
 
+/**
+ * Faol vakansiyalarning yengil proyeksiyasi — 5 daqiqa kesh (audit ISSUE-051). Filtrlar xotirada
+ * qo'llanadi, shuning uchun bitta umumiy to'plam yetarli; vakansiya yozilganda (`bumpDataVersion`)
+ * kesh darhol yangilanadi. To'plam faqat o'qiladi: pastdagi hisoblar uni o'zgartirmaydi.
+ *
+ * Audit R3 (db-perf-6, scale-10k-5): kesh endi FAQAT `vacancies` bo'limiga bog'liq — sharh yoki
+ * kompaniya profili yozilishi 20 000 qatorli to'plamni qaytadan o'qitmaydi.
+ */
+const loadDataset = cached(
+  5 * 60_000,
+  async () => {
+    const vacancies = await prisma.vacancy.findMany({
+      where: { status: "active" },
+      select: {
+        title: true,
+        salaryMin: true,
+        salaryMax: true,
+        currency: true,
+        isSalaryHidden: true,
+        experienceRequired: true,
+        category: { select: { name: true, slug: true } },
+        region: { select: { name: true, slug: true } },
+      },
+      orderBy: { publishedAt: "desc" },
+      take: MAX_ROWS,
+    });
+
+    // Chegaraga yetildi: statistika eng yangi MAX_ROWS ta e'lon bo'yicha hisoblanadi — buni
+    // javobdagi `truncated` bayrog'i va log ochiq aytadi (audit R3, db-perf-17 / scale-10k-18)
+    const truncated = vacancies.length >= MAX_ROWS;
+    if (truncated) {
+      console.warn(`[stats] maosh to'plami ${MAX_ROWS} ta faol vakansiya bilan chegaralandi`);
+    }
+
+    const rows: Row[] = vacancies.map((v: (typeof vacancies)[number]) => {
+      const value = v.currency === "UZS" && !v.isSalaryHidden ? midpoint(v.salaryMin, v.salaryMax) : null;
+      return {
+        title: normalize(v.title),
+        value: value && value > 0 ? value : null,
+        experience: v.experienceRequired as ExperienceLevel,
+        category: v.category,
+        region: v.region,
+      };
+    });
+
+    // Bozor bazasi — hech qanday filtrsiz (kartalardagi "bozorga nisbatan" farq uchun)
+    const marketValues = rows.flatMap((r) => (r.value === null ? [] : [r.value])).sort((a, b) => a - b);
+    return { rows, marketValues, truncated };
+  },
+  ["vacancies"]
+);
+
 export async function salaryStats(query: SalaryQuery) {
-  const vacancies = await prisma.vacancy.findMany({
-    where: { status: "active" },
-    select: {
-      title: true,
-      salaryMin: true,
-      salaryMax: true,
-      currency: true,
-      isSalaryHidden: true,
-      experienceRequired: true,
-      category: { select: { name: true, slug: true } },
-      region: { select: { name: true, slug: true } },
-    },
-    orderBy: { publishedAt: "desc" },
-    take: MAX_ROWS,
-  });
-
-  const rows: Row[] = vacancies.map((v: (typeof vacancies)[number]) => {
-    const value = v.currency === "UZS" && !v.isSalaryHidden ? midpoint(v.salaryMin, v.salaryMax) : null;
-    return {
-      title: normalize(v.title),
-      value: value && value > 0 ? value : null,
-      experience: v.experienceRequired as ExperienceLevel,
-      category: v.category,
-      region: v.region,
-    };
-  });
-
-  // Bozor bazasi — hech qanday filtrsiz (kartalardagi "bozorga nisbatan" farq uchun)
-  const marketValues = rows.flatMap((r) => (r.value === null ? [] : [r.value])).sort((a, b) => a - b);
+  const { rows, marketValues, truncated } = await loadDataset();
 
   // Kasb yoki erkin matn: har bir so'z sarlavhada yoki kategoriya nomida uchrashi shart
   const role = query.role ? roleMatcher(query.role) : null;
@@ -246,6 +275,8 @@ export async function salaryStats(query: SalaryQuery) {
     byExperience,
     /** Tanlovga mos faol vakansiyalar — maoshi yashirinlari ham. */
     vacancyCount: selected.length,
+    /** To'plam chegaraga yetgan bo'lsa `true`: raqamlar eng yangi e'lonlar bo'yicha (audit R3, db-perf-17). */
+    truncated,
     market: { count: marketValues.length, median: percentile(marketValues, 0.5), average: average(marketValues) },
   };
 }

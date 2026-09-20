@@ -1,16 +1,21 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
+  AdminActionsHeader,
   AdminShell,
   AdminTable,
   AdminFilters,
   AdminSearchInput,
   Pager,
   RowButton,
+  useAdminBilling,
 } from "../../../components/AdminShell.js";
-import { useT, useHref } from "../../../lib/i18n/index.js";
+import { AdminError, AdminNotice } from "../../../components/admin/AdminStates.js";
+import { useT, useHref, useLocale } from "../../../lib/i18n/index.js";
 import { useAuth } from "../../../components/AuthContext.js";
 import { fetchAdminCompanies, verifyCompany } from "../../../lib/apiExtra.js";
-import type { AdminCompany, Paged } from "../../../lib/types.js";
+import { useAdminResource } from "../../../lib/admin/useAdminResource.js";
+import { errorText, useNotice } from "../../../lib/admin/useNotice.js";
+import type { AdminCompany } from "../../../lib/types.js";
 
 export default function Page() {
   return (
@@ -23,24 +28,40 @@ export default function Page() {
 function CompaniesTable() {
   const t = useT();
   const l = useHref();
+  const { locale } = useLocale();
   const { accessToken, status, user } = useAuth();
-  const [data, setData] = useState<Paged<AdminCompany> | null>(null);
   const [text, setText] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const { notice, show } = useNotice();
+  // Tarif ustuni faqat monetizatsiya yoqilganda (audit R3, D-065)
+  const billingEnabled = useAdminBilling();
 
-  const load = useCallback(() => {
-    if (status !== "authed" || user?.role !== "admin" || !accessToken) return;
-    void fetchAdminCompanies(accessToken, { text: query, page }).then(setData);
-  }, [status, user, accessToken, query, page]);
-
-  useEffect(load, [load]);
+  const token = status === "authed" && user?.role === "admin" ? accessToken : null;
+  // Xato bo'sh jadval bo'lib ko'rinmaydi, eski javob yangi filtr ustiga yozilmaydi (audit ISSUE-021)
+  const { state, pending, reload } = useAdminResource(
+    token ? (signal) => fetchAdminCompanies(token, { text: query, page }, signal) : null,
+    JSON.stringify({ query, page })
+  );
 
   async function toggleVerify(row: AdminCompany) {
-    if (!accessToken) return;
-    await verifyCompany(accessToken, row.id, !row.isVerified).catch(() => undefined);
-    load();
+    if (!token || busyId) return;
+    // Tasdiqni olib tashlash — kompaniya sahifasidagi belgini yo'qotadi: nomi bilan tasdiqlatiladi (audit R3, admin-staff-12)
+    if (row.isVerified && !window.confirm(`${t.admin.common.confirmAction}\n\n${row.name}`)) return;
+    setBusyId(row.id);
+    try {
+      await verifyCompany(token, row.id, !row.isVerified);
+      show("success", t.admin.common.done);
+      reload();
+    } catch (err) {
+      show("error", errorText(err, t.admin.common.failed, locale));
+    } finally {
+      setBusyId(null);
+    }
   }
+
+  const data = state.kind === "ready" ? state.data : null;
 
   return (
     <div>
@@ -56,62 +77,77 @@ function CompaniesTable() {
         />
       </AdminFilters>
 
-      {data && data.items.length === 0 ? (
+      {notice && (
+        <div className="mb-3">
+          <AdminNotice notice={notice} />
+        </div>
+      )}
+
+      {state.kind === "error" ? (
+        <AdminError
+          title={t.admin.common.loadErrorTitle}
+          text={t.admin.common.loadErrorText}
+          retry={t.admin.common.retry}
+          onRetry={reload}
+        />
+      ) : state.kind === "loading" ? (
+        <div className="h-48 animate-pulse rounded-xl border border-line bg-surface-2" aria-busy="true" />
+      ) : data && data.items.length === 0 ? (
         <p className="rounded-xl border border-line bg-surface p-8 text-center text-sm text-dusk">
           {t.admin.companies.empty}
         </p>
       ) : (
-        <AdminTable
-          head={
-            <>
-              <th className="px-4 py-2.5 font-semibold">{t.admin.nav.companies}</th>
-              <th className="px-4 py-2.5 font-semibold">{t.admin.companies.owner}</th>
-              <th className="px-4 py-2.5 font-semibold">{t.admin.companies.plan}</th>
-              <th className="px-4 py-2.5 font-semibold">{t.admin.companies.vacancies}</th>
-              <th className="px-4 py-2.5 font-semibold">&nbsp;</th>
-            </>
-          }
-        >
-          {(data?.items ?? []).map((row) => (
-            <tr key={row.id} className="border-b border-line/60 last:border-0">
-              <td className="px-4 py-3">
-                <a
-                  href={l(`/companies/${row.slug}`)}
-                  className="block font-semibold text-ink transition-colors hover:text-signal"
-                >
-                  {row.name}
-                </a>
-                {row.isVerified && (
-                  <span className="mt-1 inline-block rounded-md bg-growth/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-growth">
-                    {t.admin.companies.verified}
-                  </span>
+        <div className={pending ? "opacity-60 transition-opacity" : undefined} aria-busy={pending || undefined}>
+          <AdminTable
+            head={
+              <>
+                <th className="px-4 py-2.5 font-semibold">{t.admin.nav.companies}</th>
+                <th className="px-4 py-2.5 font-semibold">{t.admin.companies.owner}</th>
+                {billingEnabled && <th className="px-4 py-2.5 font-semibold">{t.admin.companies.plan}</th>}
+                <th className="px-4 py-2.5 font-semibold">{t.admin.companies.vacancies}</th>
+                <AdminActionsHeader label={t.contentAdmin.articles.columns.actions} />
+              </>
+            }
+          >
+            {(data?.items ?? []).map((row) => (
+              <tr key={row.id} className="border-b border-line/60 last:border-0">
+                <td className="px-4 py-3">
+                  <a
+                    href={l(`/companies/${row.slug}`)}
+                    className="block font-semibold text-ink transition-colors hover:text-signal"
+                  >
+                    {row.name}
+                  </a>
+                  {row.isVerified && (
+                    <span className="mt-1 inline-block rounded-md bg-growth/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-growth">
+                      {t.admin.companies.verified}
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-dusk">{row.ownerEmail}</td>
+                {billingEnabled && (
+                  <td className="px-4 py-3 text-dusk">
+                    {row.planName ?? "—"}
+                    {row.subscriptionExpiresAt && (
+                      <span className="block text-xs">{new Date(row.subscriptionExpiresAt).toLocaleDateString()}</span>
+                    )}
+                  </td>
                 )}
-              </td>
-              <td className="px-4 py-3 text-dusk">{row.ownerEmail}</td>
-              <td className="px-4 py-3 text-dusk">
-                {row.planName ?? "—"}
-                {row.subscriptionExpiresAt && (
-                  <span className="block text-xs">
-                    {new Date(row.subscriptionExpiresAt).toLocaleDateString()}
-                  </span>
-                )}
-              </td>
-              <td className="px-4 py-3 font-mono text-[13px] text-dusk">
-                {row.vacancyCount} · {row.reviewCount} {t.admin.companies.reviews}
-              </td>
-              <td className="px-4 py-3 text-right">
-                <RowButton tone={row.isVerified ? "neutral" : "primary"} onClick={() => void toggleVerify(row)}>
-                  {row.isVerified ? t.admin.companies.unverify : t.admin.companies.verify}
-                </RowButton>
-              </td>
-            </tr>
-          ))}
-        </AdminTable>
+                <td className="px-4 py-3 font-mono text-[13px] text-dusk">
+                  {row.vacancyCount} · {row.reviewCount} {t.admin.companies.reviews}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <RowButton tone={row.isVerified ? "neutral" : "primary"} disabled={busyId !== null} onClick={() => void toggleVerify(row)}>
+                    {row.isVerified ? t.admin.companies.unverify : t.admin.companies.verify}
+                  </RowButton>
+                </td>
+              </tr>
+            ))}
+          </AdminTable>
+        </div>
       )}
 
-      {data && (
-        <Pager page={data.page} pageCount={data.pageCount} total={data.total} onChange={setPage} />
-      )}
+      {data && <Pager page={data.page} pageCount={data.pageCount} total={data.total} onChange={setPage} />}
     </div>
   );
 }

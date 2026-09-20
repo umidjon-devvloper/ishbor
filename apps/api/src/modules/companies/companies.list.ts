@@ -2,6 +2,8 @@ import { z } from "zod";
 import { prisma } from "../../common/prisma.js";
 import { Errors } from "../../common/errors.js";
 import { isObjectId } from "../../common/validation.js";
+import { keyedCache } from "../../common/cache.js";
+import { tokenize, tokenRegexSource } from "../../common/search-text.js";
 
 /**
  * Kompaniyalar katalogi: filtr + saralash + keyset (cursor) sahifalash.
@@ -150,7 +152,40 @@ function decodeCursor(raw: string, sort: CompanySort): CursorPayload {
 // ---- Pipeline ----
 
 const oid = (id: string) => ({ $oid: id });
-const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Bloklangan hisoblar ID'lari (audit R3, gap1-8 / D-077): bloklangan ish beruvchining
+ * kompaniyasi katalogda, qidiruvda va "o'xshash kompaniyalar"da ko'rinmaydi — sitemap
+ * allaqachon shu qoidada edi.
+ *
+ * Ro'yxat KESHLANMAYDI va kesh kalitiga ham kiradi: admin bloklagan zahoti kompaniya
+ * katalogdan yo'qolishi kerak, bloklash esa har doim ham `bumpDataVersion()` chaqirmaydi
+ * (masalan faol e'loni bo'lmagan ish beruvchi). So'rov `User @@index([isBlocked])` bo'yicha
+ * va odatda bir necha qator qaytaradi. Chegara: 5000 ta bloklangan hisob (undan ortig'ida
+ * ro'yxat to'liq bo'lmaydi — 10K maqsadida bunga yetilmaydi).
+ */
+const BLOCKED_OWNER_LIMIT = 5000;
+
+async function blockedOwnerIds(): Promise<string[]> {
+  const rows = await prisma.user.findMany({
+    where: { isBlocked: true },
+    select: { id: true },
+    take: BLOCKED_OWNER_LIMIT,
+  });
+  return rows.map((row: { id: string }) => row.id);
+}
+
+/** Kesh kaliti uchun qisqa barmoq izi (FNV-1a): ro'yxat o'zgarsa kalit ham o'zgaradi. */
+function fingerprint(ids: string[]): string {
+  let hash = 0x811c9dc5;
+  for (const id of [...ids].sort()) {
+    for (let i = 0; i < id.length; i += 1) {
+      hash ^= id.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+  }
+  return `${ids.length}:${hash.toString(36)}`;
+}
 
 /**
  * Saralash kaliti — bitta son (keyset uchun `_id` bilan juftlikda yetarli).
@@ -179,6 +214,18 @@ function sortKeyExpr(sort: CompanySort) {
       };
   }
 }
+
+/**
+ * Vakansiya masofaviymi: ish joylashuvi (`workplace_type`) yozilgan bo'lsa unga qarab,
+ * eski yozuvlarda (maydon yo'q) bandlik turi `remote` bo'lsa. Gibrid — joyida ishlash ("office").
+ */
+const REMOTE_VACANCY_EXPR = {
+  $cond: [
+    { $in: [{ $ifNull: ["$workplace_type", null] }, ["office", "hybrid", "remote"]] },
+    { $eq: ["$workplace_type", "remote"] },
+    { $eq: ["$employment_type", "remote"] },
+  ],
+};
 
 const OUTPUT_STAGES = [
   {
@@ -223,7 +270,45 @@ function toNumber(value: RawItem["_sort"]): number {
 
 const EMPTY: CompanyListResult = { items: [], nextCursor: null, total: 0 };
 
+/**
+ * Katalog keshi (audit R3, scale-10k-8). Ilgari faqat companies.routes.ts BIRINCHI sahifani
+ * keshlardi: har "yana ko'rsatish" (cursor) va har kompaniya sahifasidagi "o'xshash
+ * kompaniyalar" bloki ikkita `$lookup` quvuridan qaytadan o'tardi. Endi kesh shu yerda —
+ * cursor sahifalari va `/similar` ham foydalanadi. Kompaniya, vakansiya yoki sharh
+ * yozilganda kesh darhol yangilanadi.
+ *
+ * `saved=1` KESHLANMAYDI: u foydalanuvchining o'z ro'yxatiga bog'liq.
+ */
+const listCache = keyedCache<CompanyListResult>(60_000, 200, ["companies", "vacancies", "reviews"]);
+
+function listKey(query: ListCompaniesQuery, blockedOwners: string[]): string {
+  return JSON.stringify([
+    fingerprint(blockedOwners),
+    (query.q || query.text || "").trim().toLowerCase(),
+    query.industry,
+    query.region ?? "",
+    query.size,
+    query.rating ?? 0,
+    query.work,
+    query.verified ? 1 : 0,
+    query.hiring ? 1 : 0,
+    query.sort,
+    query.limit,
+    query.cursor ?? "",
+  ]);
+}
+
 export async function listCompanies(query: ListCompaniesQuery, viewerId?: string): Promise<CompanyListResult> {
+  const blockedOwners = await blockedOwnerIds();
+  if (query.saved) return loadCompanies(query, blockedOwners, viewerId);
+  return listCache(listKey(query, blockedOwners), () => loadCompanies(query, blockedOwners));
+}
+
+async function loadCompanies(
+  query: ListCompaniesQuery,
+  blockedOwners: string[],
+  viewerId?: string
+): Promise<CompanyListResult> {
   const cursor = query.cursor ? decodeCursor(query.cursor, query.sort) : null;
 
   // 1) Company hujjatining o'z maydonlari bo'yicha filtr (indeks va arzon)
@@ -231,9 +316,11 @@ export async function listCompanies(query: ListCompaniesQuery, viewerId?: string
 
   const text = query.q || query.text;
   if (text) {
-    // Har bir so'z nom, soha yoki tavsifning birida uchrashi kerak
-    for (const word of text.split(/\s+/).filter(Boolean).slice(0, 6)) {
-      const regex = { $regex: escapeRegex(word), $options: "i" };
+    // Har bir so'z nom, soha yoki tavsifning birida uchrashi kerak. So'zlar vakansiya va
+    // nomzod qidiruvi bilan bir xil qoidada ajratiladi, tutuq belgisining barcha variantlari
+    // esa bitta belgilar sinfiga aylanadi (audit R3, D-080 / gap1-1, gap1-6).
+    for (const word of tokenize(text)) {
+      const regex = { $regex: tokenRegexSource(word), $options: "i" };
       base.push({ $or: [{ name: regex }, { industry: regex }, { description: regex }] });
     }
   }
@@ -251,6 +338,7 @@ export async function listCompanies(query: ListCompaniesQuery, viewerId?: string
     base.push({ employee_count: { $in: query.size.flatMap((size) => [...COMPANY_SIZES[size]]) } });
   }
   if (query.verified) base.push({ is_verified: true });
+  if (blockedOwners.length) base.push({ owner_user_id: { $nin: blockedOwners.map(oid) } });
   if (query.saved) {
     if (!viewerId) throw Errors.unauthorized();
     const saved = await prisma.savedCompany.findMany({ where: { userId: viewerId }, select: { companyId: true } });
@@ -281,8 +369,9 @@ export async function listCompanies(query: ListCompaniesQuery, viewerId?: string
               _id: null,
               count: { $sum: 1 },
               views: { $sum: { $ifNull: ["$views_count", 0] } },
-              remote: { $max: { $cond: [{ $eq: ["$employment_type", "remote"] }, 1, 0] } },
-              office: { $max: { $cond: [{ $ne: ["$employment_type", "remote"] }, 1, 0] } },
+              // Masofaviylik yangi e'lonlarda `workplace_type`da, eskilarida (maydon yo'q) `employment_type`da (audit ISSUE-050)
+              remote: { $max: { $cond: [REMOTE_VACANCY_EXPR, 1, 0] } },
+              office: { $max: { $cond: [REMOTE_VACANCY_EXPR, 0, 1] } },
             },
           },
         ],

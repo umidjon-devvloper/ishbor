@@ -1,3 +1,4 @@
+import { render } from "vike/abort";
 import { fetchCategories, fetchRegions } from "../../lib/api.js";
 import { fetchSalaryStats } from "../../lib/apiExtra.js";
 import { parseSalaryQuery, queryKey, toApiParams } from "../../lib/salaries/query.js";
@@ -10,7 +11,13 @@ import type { SalaryStats } from "../../lib/types.js";
  * qayta so'ralmaydi (sahifa oldingisini saqlaydi).
  *
  * `stats: null` — server javob bermadi (sahifa xato holatini ko'rsatadi);
- * bo'sh natija esa `summary.count === 0`.
+ * bo'sh natija esa `summary.count === 0`. SSR'da asosiy ma'lumot kelmasa 200
+ * emas, 503 qaytariladi (audit R3, seo-3): uzilish paytida indekslanadigan
+ * "yuklab bo'lmadi" sahifasi bo'lmasin.
+ *
+ * Kategoriya va hudud ro'yxatlari ikkinchi darajali: ular `[]` bilan qaytsa
+ * ("yuklab bo'lmadi" ham shunday ko'rinadi) brauzer bir marta qayta so'rasin —
+ * shuning uchun bo'sh ro'yxat `null` qilinadi (audit R3, api-errors-8).
  */
 export async function data(pageContext: { urlParsed: { search: Record<string, string> }; isClientSideNavigation?: boolean }) {
   const query = parseSalaryQuery(pageContext.urlParsed.search);
@@ -20,5 +27,11 @@ export async function data(pageContext: { urlParsed: { search: Record<string, st
     client ? Promise.resolve(null) : fetchCategories(),
     client ? Promise.resolve(null) : fetchRegions(),
   ]);
-  return { key: queryKey(query), stats, categories, regions };
+  if (!stats && !client) throw render(503);
+  return {
+    key: queryKey(query),
+    stats,
+    categories: categories && categories.length ? categories : null,
+    regions: regions && regions.length ? regions : null,
+  };
 }

@@ -6,12 +6,17 @@ import { env } from "./env.js";
  * Birinchi admin hisobini yaratadi.
  *
  * `.env` da ADMIN_EMAIL va ADMIN_PASSWORD berilgan bo'lsa:
- *  - shunday email bilan foydalanuvchi bo'lmasa — admin sifatida yaratiladi;
- *  - mavjud bo'lsa va roli admin bo'lmasa — roli adminga ko'tariladi.
+ *  - shunday email bilan foydalanuvchi BO'LMASA — admin sifatida yaratiladi;
+ *  - mavjud bo'lsa — HECH NARSA o'zgartirilmaydi (rol ham, parol ham).
+ *
+ * Mavjud hisobni admin roliga ko'tarish OLIB TASHLANDI (audit R3, D-069;
+ * auth-core-5, headers-infra-3, admin-staff-3): aks holda ADMIN_EMAIL bilan
+ * ro'yxatdan o'tgan istalgan odam keyingi restartda admin bo'lardi. Rol faqat
+ * admin panelidan (PATCH /api/admin/users/:id/role) beriladi; startupda
+ * ogohlantirish yoziladi.
  *
  * Paroli hech qachon qayta yozilmaydi (server har ko'tarilganda parolni
- * tiklab yuborishi xavfsiz emas). Parolni unutgan bo'lsangiz —
- * ADMIN_PASSWORD ni o'zgartirib, avval hisobni bazadan o'chiring.
+ * tiklab yuborishi xavfsiz emas).
  */
 export async function ensureAdminUser(log?: {
   info: (o: unknown, m?: string) => void;
@@ -20,11 +25,14 @@ export async function ensureAdminUser(log?: {
   const email = env.ADMIN_EMAIL.trim().toLowerCase();
   if (!email) return;
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true, role: true } });
   if (existing) {
     if (existing.role !== "admin") {
-      await prisma.user.update({ where: { id: existing.id }, data: { role: "admin" } });
-      log?.info({ email }, "Mavjud foydalanuvchi admin roliga ko'tarildi");
+      // Ogohlantirish: promote QILINMAYDI (D-069). Operator rolni admin panelidan beradi.
+      log?.warn(
+        { email, role: existing.role },
+        "ADMIN_EMAIL bilan hisob bor, lekin roli admin emas — avtomatik ko'tarilmadi (D-069). Rolni admin panelidan bering."
+      );
     }
     return;
   }

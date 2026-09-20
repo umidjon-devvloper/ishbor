@@ -5,10 +5,16 @@ import { SIMILAR_COMPANIES_LIMIT, type CompanyDetailData } from "../../../lib/co
 
 /**
  * Kompaniya + o'xshashlar parallel. Topilmasa — haqiqiy 404 (`_error`
- * kompaniyaga xos holatni chizadi). API xatosi sahifani yiqitmaydi:
- * `company: null` qaytadi va sahifa "Qayta urinish" holatini ko'rsatadi.
+ * kompaniyaga xos holatni chizadi).
+ *
+ * API javob bermasa SSR 503 qaytaradi (audit R3, seo-2 / api-errors-1) —
+ * 200 + `noindex` tirik sahifani indeksdan chiqarib yuborardi. Brauzer ichidagi
+ * navigatsiyada esa `company: null` va "Qayta urinish" holati saqlanadi.
  */
-export async function data(pageContext: { routeParams: { slug: string } }): Promise<CompanyDetailData> {
+export async function data(pageContext: {
+  routeParams: { slug: string };
+  isClientSideNavigation?: boolean;
+}): Promise<CompanyDetailData> {
   const { slug } = pageContext.routeParams;
   const [detail, similar] = await Promise.all([
     fetchCompanyDetail(slug).then(
@@ -21,5 +27,6 @@ export async function data(pageContext: { routeParams: { slug: string } }): Prom
     fetchSimilarCompanies(slug, SIMILAR_COMPANIES_LIMIT),
   ]);
   if (!detail.failed && !detail.company) throw render(404, COMPANY_NOT_FOUND);
+  if (detail.failed && !pageContext.isClientSideNavigation) throw render(503);
   return { slug, company: detail.company, similar: detail.company ? similar : [] };
 }

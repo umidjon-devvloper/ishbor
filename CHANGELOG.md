@@ -1,5 +1,86 @@
 # O'zgarishlar tarixi
 
+## Chiqarilmagan
+
+### Ko'rishlar hisoblagichi qayta ishlandi (views-1, views-2)
+
+- **Ko'rish endi sahifa ma'lumoti so'ralganda emas, brauzerdan alohida signal bilan
+  sanaladi** (`POST /api/vacancies/:slug/view`, `POST /api/articles/:slug/view`).
+  Ilgari har bir so'rov bazaga alohida `$inc` yozardi: bir odam sahifani yangilasa ham,
+  bot kirsa ham, SSR so'rovi ham "ko'rish" edi.
+- **Takror filtri**: bitta ko'ruvchi (kirgan bo'lsa hisobi, aks holda IP+User-Agent hash'i)
+  bitta e'lonni 24 soatda bir marta sanaydi (`VIEW_DEDUPE_SEC`).
+- **Botlar sanalmaydi**: User-Agent brauzernikiga o'xshamasa yoki tanilgan bot bo'lsa — yo'q.
+- **Yozuv yig'iladi**: oshirishlar buferda to'planib, `VIEW_FLUSH_MS` (sukut 30 s) oralig'ida
+  BITTA bulk yozuv bilan bazaga tushadi. 1000 ta ko'rish = 1 ta so'rov. `SIGTERM` da bufer
+  bo'shatiladi. Hisoblagich avvalgidek `updatedAt` ga tegmaydi (sitemap `lastmod` buzilmaydi).
+- **Maqolaga "foydali" ovozi** endi bitta ovoz beruvchidan bir marta hisoblanadi. Ilgari
+  buni faqat brauzer eslab qolardi (localStorage), ya'ni bir odam hisoblagichni istagancha
+  shishira olardi.
+
+### Fayl xotirasi platformadan mustaqil bo'ldi (storage-1)
+
+- Yuklangan fayllar endi **S3-mos xotirada** (Cloudflare R2, AWS S3, B2, MinIO) saqlanishi
+  mumkin — `S3_BUCKET` va kalitlar berilsa. Sozlanmasa avvalgidek lokal diskda.
+- Nima berdi: Railway Volume'i shart emas, konteyner diski tozalansa fayllar qolaveradi,
+  bir nechta nusxa bir xil fayllarni ko'radi, xizmatni boshqa platformaga ko'chirish mumkin.
+- **Ochiq fayllar** (logo, muqova) `S3_PUBLIC_BASE_URL` berilganda to'g'ridan-to'g'ri CDN'dan
+  beriladi — API orqali o'tmaydi. Berilmasa API orqali beriladi (ishlaydi, sekinroq).
+- **PDF rezyume** hech qachon ochiq havola olmaydi: avvalgidek faqat vakolat tekshirilgandan
+  keyin API orqali uzatiladi (D-058).
+- `/uploads/` javoblari endi bir yillik `immutable` kesh bilan beriladi — fayl nomlari
+  tasodifiy va hech qachon o'zgarmaydi, shuning uchun logolar har sahifada qayta so'ralmaydi.
+- Sayt CSP'siga `VITE_MEDIA_URL` qo'shildi: rasmlar boshqa domendan kelsa brauzer bloklamaydi.
+
+### Tezlik
+
+- **Foydalanuvchi holati keshi** (`AUTH_CACHE_MS`, sukut 10 s): har bir avtorizatsiyalangan
+  so'rovda bazadan bitta qator o'qilardi — bitta sahifa ochilishi 5-10 marta. Endi jarayon
+  xotirasidan o'qiladi. Xavfsizlik saqlanadi: bloklash, rol o'zgarishi, logout va telefon
+  tasdig'i keshni DARHOL bekor qiladi (Redis bo'lsa — barcha nusxalarda).
+- **Vakansiya sahifasi keshi** (30 s): saytdagi eng ko'p ochiladigan sahifa har safar ikkita
+  so'rov qilardi (e'lon + sharhlar agregatsiyasi). E'lon, kompaniya yoki sharh o'zgarganda
+  kesh darhol eskiradi.
+
+### Olib tashlandi
+
+- `Resume.viewsCount` — hech qachon oshirilmaydigan o'lik maydon edi (rezyume ko'rishlari
+  sanalmaydi).
+
+### Redis (ixtiyoriy) — gorizontal kengayish poydevori
+
+`REDIS_URL` berilsa quyidagilar API nusxalari orasida umumiy bo'ladi: ko'rishlar buferi va
+takror filtri, kvotalar (`quota.ts`), rate-limit, kesh yangilanishi (pub/sub), WebSocket
+xabarlari va "onlayn" holati, Telegram long-polling hamda obuna xabarnomalari uchun yagona
+nusxa qulfi. Redis o'chiq yoki uzilgan bo'lsa hammasi jarayon xotirasidagi zaxira yo'lda
+ishlaydi — sayt yiqilmaydi (Rule K). Holat `/health` da: `"redis": "ready|down|off"`.
+
+Nusxalar sonini oshirishdan oldin yuklangan fayllarni umumiy saqlashga ko'chirish kerak —
+batafsil DEPLOY.md, "Redis va bir nechta nusxa".
+
+## 0.4.0 — 2026-09-18 (Round 3 audit)
+
+### Auth va Telegram
+- Telegram orqali **kirish olib tashlandi** (`/api/auth/telegram/start` va `/poll` yo'q; Rule A). Telegram faqat telefon tasdig'i, parol tiklash, telefon almashtirish va hisob bog'lash uchun.
+- Telegram orqali **parol tiklash**: bir martalik, qisqa muddatli, bazada faqat sha256 saqlanadigan deep-link payload va reset tokeni; tiklashdan keyin barcha seanslar bekor qilinadi.
+- **Zaxira telefon** (ixtiyoriy, tasdiqlangan), telefon almashtirish (parol + Telegram), bitta Telegram identity = bitta hisob.
+- **Qo'lda tiklash** (parol ham, telefon ham yo'qolganda): so'rov, admin tasdig'i, tasdiqlangan telefonni tozalash va seanslarni bekor qilish. Admin parolni ham, xom tokenni ham ko'rmaydi.
+- **Xavfsizlik audit jurnali** (`SecurityEvent`): telefon tasdig'i, Telegram bog'lash/uzish, tiklash, seans bekor qilish, bloklash, rol o'zgarishi.
+- Google orqali kirish endi egaligi tasdiqlanmagan hisobga avtomatik birlashmaydi (409 `GOOGLE_ACCOUNT_EXISTS`).
+
+### Xavfsizlik va infratuzilma
+- Web'da **CSP** (Vike nonce) joriy qilindi; PDF rezyumelar `/uploads/` dan olib tashlanib, avtorizatsiyali endpointlarga o'tkazildi.
+- `prestart` dagi `prisma db push` olib tashlandi (`npm run db:sync`); `TRUST_PROXY` sukuti `1`; SSR so'rovlari uchun alohida rate-limit kaliti.
+- Admin arxivlagan vakansiyani ish beruvchi qayta faollashtira olmaydi; oxirgi admin himoyasi; `ADMIN_EMAIL` mavjud hisobni admin qilmaydi.
+
+### Performance (10 000 foydalanuvchi, sintetik baza)
+- Ish beruvchi arizalari: server tomonida sahifalash — 3119 ms / 2.6 MB → **259 ms / 38 KB**.
+- Nomzodlar bazasi 1803 → **309 ms**, suhbatlar 423 ms / 498 KB → **54 ms / 31 KB**, xabarlar tarixi 252 KB → **13 KB**.
+- Bildirishnomalar, suhbatlar va xabarlar uchun cursor sahifalash; filtr sonlari uchun kesh.
+
+### Eslatma
+- 0.3.0 dagi "tarif limiti" e2e tavsifi eskirgan: platforma bepul, limit yo'q.
+
 ## 0.3.0 — 2026-08-29
 
 Baza PostgreSQL'dan **MongoDB**ga ko'chirildi, loyiha **Vercel (sayt) +

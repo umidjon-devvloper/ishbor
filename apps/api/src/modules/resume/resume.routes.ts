@@ -23,10 +23,11 @@ const eduSchema = z.object({
 const resumeSchema = z.object({
   title: z.string().min(1).max(140),
   summary: z.string().max(3000).nullable().optional(),
-  desiredSalary: z.coerce.number().int().min(0).nullable().optional(),
-  skills: z.array(z.string().max(60)).default([]),
-  experience: z.array(expSchema).default([]),
-  education: z.array(eduSchema).default([]),
+  desiredSalary: z.coerce.number().int().min(0).max(2_147_483_647).nullable().optional(),
+  // Massivlar cheklangan (audit ISSUE-044): ilgari bitta so'rovda minglab yozuv saqlanardi
+  skills: z.array(z.string().max(60)).max(50).default([]),
+  experience: z.array(expSchema).max(30).default([]),
+  education: z.array(eduSchema).max(20).default([]),
 });
 
 function ym(d: Date): string {

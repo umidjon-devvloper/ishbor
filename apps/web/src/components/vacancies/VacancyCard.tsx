@@ -5,6 +5,7 @@ import { useT, useHref, useLocale } from "../../lib/i18n/index.js";
 import { regionName } from "../../lib/i18n/regions.js";
 import { CompanyLogo } from "../companies/CompanyLogo.js";
 import { IconArrowRight, IconBookmark, IconBriefcase, IconCalendar, IconClock, IconVerified } from "./icons.js";
+import { IconBuilding } from "../companies/icons.js";
 
 const MAX_SKILLS = 4;
 
@@ -30,16 +31,21 @@ export const VacancyCard = memo(function VacancyCard({
   const { locale } = useLocale();
   const href = l(`/vacancies/${vacancy.slug}`);
   const hasSalary = !vacancy.isSalaryHidden && Boolean(vacancy.salaryMin || vacancy.salaryMax);
-  const salary = formatSalary(vacancy.salaryMin, vacancy.salaryMax, t.fmt, vacancy.isSalaryHidden);
+  const salary = formatSalary(vacancy.salaryMin, vacancy.salaryMax, t.fmt, vacancy.isSalaryHidden, locale);
   const posted = formatRelativeDays(vacancy.publishedAt, t.fmt);
   const region = vacancy.regionSlug ? regionName(locale, vacancy.regionSlug, vacancy.regionName) : vacancy.regionName;
   const skills = vacancy.skills ?? [];
   const shownSkills = skills.slice(0, MAX_SKILLS);
   const moreSkills = skills.length - shownSkills.length;
 
+  const workplace = vacancy.workplaceType ?? null;
   const meta = [
+    ...(workplace ? [{ key: "workplace", icon: <IconBuilding size={15} />, label: t.enums.workplace[workplace] }] : []),
     { key: "experience", icon: <IconClock size={15} />, label: t.enums.experience[vacancy.experienceRequired] },
-    { key: "employment", icon: <IconBriefcase size={15} />, label: t.enums.employment[vacancy.employmentType] },
+    // Eski masofaviy e'londa bandlik turi ham "Masofaviy" — takrorlanmaydi
+    ...(vacancy.employmentType === "remote" && workplace === "remote"
+      ? []
+      : [{ key: "employment", icon: <IconBriefcase size={15} />, label: t.enums.employment[vacancy.employmentType] }]),
     ...(vacancy.scheduleType ? [{ key: "schedule", icon: <IconCalendar size={15} />, label: v.schedule[vacancy.scheduleType] }] : []),
   ];
 
@@ -69,7 +75,8 @@ export const VacancyCard = memo(function VacancyCard({
                 )}
               </div>
             )}
-            <h3 className="line-clamp-2 font-display text-[16.5px] font-bold leading-snug tracking-tight text-ink sm:text-lg">
+            {/* Audit R3, a11y-ui-11: juda uzun nom kesilmasin, qatorga boʻlinsin */}
+            <h3 className="line-clamp-2 font-display text-[16.5px] font-bold leading-snug tracking-tight text-ink [overflow-wrap:anywhere] sm:text-lg">
               <a
                 href={href}
                 className="rounded-sm transition-colors after:absolute after:inset-0 after:rounded-3xl after:content-[''] group-hover:text-signal focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-signal"

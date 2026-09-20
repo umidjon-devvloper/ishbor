@@ -4,15 +4,20 @@ import { computeCompletion, isResumeReady } from "./completion.js";
 
 export type ProfileCompletionState =
   | { status: "loading" }
-  /** Profil yuklanmadi — foiz noma'lum (0% deb taxmin qilinmaydi). */
+  /** Profil yoki rezyume yuklanmadi — foiz noma'lum (0% deb taxmin qilinmaydi). */
   | { status: "error" }
   | { status: "ready"; percent: number; done: number; total: number; resumeReady: boolean };
 
 async function load(token: string): Promise<ProfileCompletionState> {
-  const [profile, resume] = await Promise.all([fetchProfile(token), fetchResume(token)]);
-  if (!profile) return { status: "error" };
-  const { percent, done, total } = computeCompletion(profile, resume);
-  return { status: "ready", percent, done, total, resumeReady: isResumeReady(resume) };
+  try {
+    const [profile, resume] = await Promise.all([fetchProfile(token), fetchResume(token)]);
+    if (!profile) return { status: "error" };
+    const { percent, done, total } = computeCompletion(profile, resume);
+    return { status: "ready", percent, done, total, resumeReady: isResumeReady(resume) };
+  } catch {
+    // Rezyume so'rovi xato berdi (fetchResume endi uloqtiradi) — "rezyume yo'q" deb hisoblanmaydi
+    return { status: "error" };
+  }
 }
 
 /**
@@ -20,8 +25,7 @@ async function load(token: string): Promise<ProfileCompletionState> {
  * Hisob — `/profile` sahifasidagi `computeCompletion` ning o'zi (parallel formula yo'q),
  * ma'lumot — o'sha `GET /api/profile` va `GET /api/resume`.
  *
- * Sahifa ochilganda bir marta so'raladi: token har 12 daqiqada yangilanadi, lekin
- * qayta so'rov yuborilmaydi; StrictMode'dagi ikkinchi effekt o'sha so'rovni kutadi.
+ * Sahifa ochilganda bir marta so'raladi; StrictMode'dagi ikkinchi effekt o'sha so'rovni kutadi.
  */
 export function useProfileCompletion(token: string): ProfileCompletionState {
   const [state, setState] = useState<ProfileCompletionState>({ status: "loading" });

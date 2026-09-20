@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import type { VacancyDetailVM } from "../../../lib/vacancies/detail.js";
-import { useT } from "../../../lib/i18n/index.js";
+import { useLocale, useT } from "../../../lib/i18n/index.js";
 import { formatSalary } from "../../../lib/format.js";
 import { CompanyLogo } from "../../companies/CompanyLogo.js";
 import { needsResume, type ApplyLinks, type ApplyState } from "./ApplyCard.js";
@@ -77,8 +77,9 @@ export function StickyApplyBar({
   links: ApplyLinks;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const on = visible && apply.phase.kind !== "blocked";
-  const salary = vacancy.salary ? formatSalary(vacancy.salary.min, vacancy.salary.max, t.fmt) : null;
+  const salary = vacancy.salary ? formatSalary(vacancy.salary.min, vacancy.salary.max, t.fmt, false, locale) : null;
 
   useEffect(() => {
     document.body.classList.toggle("has-sticky-cta", on);
@@ -119,8 +120,9 @@ export function StickyApplyMini({
   links: ApplyLinks;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const on = visible && apply.phase.kind !== "blocked";
-  const salary = vacancy.salary ? formatSalary(vacancy.salary.min, vacancy.salary.max, t.fmt) : null;
+  const salary = vacancy.salary ? formatSalary(vacancy.salary.min, vacancy.salary.max, t.fmt, false, locale) : null;
 
   return (
     <div className={`sticky top-24 transition-[opacity,visibility] duration-200 ${on ? "visible opacity-100" : "invisible opacity-0"}`}>

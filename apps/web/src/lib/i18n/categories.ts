@@ -1,13 +1,14 @@
 import type { Locale } from "./config.js";
 
-// Bosh sahifadagi mashhur kategoriyalar (slug + taxminiy son). Nomi tarjima qilinadi.
-export const CATEGORIES: { slug: string; count: number }[] = [
-  { slug: "it", count: 1207 },
-  { slug: "savdo", count: 2759 },
-  { slug: "marketing", count: 2149 },
-  { slug: "moliya", count: 932 },
-  { slug: "qurilish", count: 729 },
-  { slug: "turizm", count: 832 },
+// Bosh sahifadagi mashhur kategoriyalar (faqat slug). Nomi tarjima qilinadi; vakansiyalar soni API'dagi
+// haqiqiy filtr sonlaridan olinadi (audit ISSUE-015: ilgari bu yerda to'qima raqamlar bor edi).
+export const CATEGORIES: { slug: string }[] = [
+  { slug: "it" },
+  { slug: "savdo" },
+  { slug: "marketing" },
+  { slug: "moliya" },
+  { slug: "qurilish" },
+  { slug: "turizm" },
 ];
 
 export const CATEGORY_NAMES: Record<Locale, Record<string, string>> = {

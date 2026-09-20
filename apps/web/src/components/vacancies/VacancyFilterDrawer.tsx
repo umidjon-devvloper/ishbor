@@ -1,11 +1,10 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { useT } from "../../lib/i18n/index.js";
+import { useDialog } from "../../lib/useDialog.js";
 import { clearFilters, countFilters, type VacancyQuery } from "../../lib/vacancies/query.js";
 import type { VacancyFacets } from "../../lib/types.js";
 import { VacancyFilters } from "./VacancyFilters.js";
 import { IconX } from "./icons.js";
-
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /**
  * Mobil va planshet (< 1024px) filtrlari — /companies dagi drawer bilan bir xil
@@ -39,44 +38,15 @@ export function VacancyFilterDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // Audit R3, a11y-ui-12: umumiy modal xatti-harakati (`useDialog`)
+  useDialog(open, panelRef, onClose);
+
   useEffect(() => {
     if (!open) return;
-    const trigger = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    const { overflow } = document.body.style;
-    document.body.style.overflow = "hidden";
-    panel?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeRef.current();
-        return;
-      }
-      if (e.key !== "Tab" || !panel) return;
-      const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
     const desktop = window.matchMedia("(min-width: 1024px)");
     const onResize = () => desktop.matches && closeRef.current();
-
-    document.addEventListener("keydown", onKey);
     desktop.addEventListener("change", onResize);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      desktop.removeEventListener("change", onResize);
-      document.body.style.overflow = overflow;
-      trigger?.focus?.();
-    };
+    return () => desktop.removeEventListener("change", onResize);
   }, [open]);
 
   if (!open) return null;
@@ -90,6 +60,7 @@ export function VacancyFilterDrawer({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-labelledby={titleId}
         className="absolute inset-x-0 bottom-0 flex max-h-[90dvh] animate-sheet-in flex-col rounded-t-3xl bg-surface shadow-pop md:inset-y-0 md:left-auto md:right-0 md:max-h-none md:w-[420px] md:animate-drawer-in md:rounded-l-3xl md:rounded-tr-none"
       >

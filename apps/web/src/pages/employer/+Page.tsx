@@ -1,16 +1,31 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { CountUp } from "../../components/CountUp.js";
 import { HeroBackdrop } from "../../components/HeroBackdrop.js";
 import { useT, useHref } from "../../lib/i18n/index.js";
 import { useRedirectRole } from "../../lib/useRoleGuard.js";
+import { fetchStats } from "../../lib/api.js";
+import type { Stats } from "../../lib/types.js";
 
 export default function Page() {
   const t = useT();
   const l = useHref();
   const benefits = t.employerLanding.benefits;
+  // Raqamlar — bazadagi haqiqiy ko'rsatkichlar (audit ISSUE-015: ilgari "3204+ / 48000+" qattiq yozilgan edi).
+  // So'rov bajarilmasa blok chizilmaydi.
+  const [stats, setStats] = useState<Stats | null>(null);
 
   // Tizimga kirgan ish beruvchi uchun marketing sahifa keraksiz — profilga o'tadi.
   useRedirectRole("employer", "/profile");
+
+  useEffect(() => {
+    let alive = true;
+    void fetchStats().then((next) => {
+      if (alive) setStats(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   return (
     <div>
@@ -42,20 +57,22 @@ export default function Page() {
 
           </div>
 
-          <div className="mt-14 grid grid-cols-2 border-t border-line">
-            <div className="py-6 pr-4">
-              <div className="font-display text-2xl font-bold tabular-nums text-ink sm:text-[2rem]">
-                <CountUp value={3204} suffix="+" />
+          {stats && (
+            <div className="mt-14 grid grid-cols-2 border-t border-line">
+              <div className="py-6 pr-4">
+                <div className="font-display text-2xl font-bold tabular-nums text-ink sm:text-[2rem]">
+                  <CountUp value={stats.companies} />
+                </div>
+                <div className="mt-2 text-xs text-dusk sm:text-[13px]">{t.employerLanding.statCompanies}</div>
               </div>
-              <div className="mt-2 text-xs text-dusk sm:text-[13px]">{t.employerLanding.statCompanies}</div>
-            </div>
-            <div className="border-l border-line py-6 pl-6 sm:pl-10">
-              <div className="font-display text-2xl font-bold tabular-nums text-ink sm:text-[2rem]">
-                <CountUp value={48000} suffix="+" />
+              <div className="border-l border-line py-6 pl-6 sm:pl-10">
+                <div className="font-display text-2xl font-bold tabular-nums text-ink sm:text-[2rem]">
+                  <CountUp value={stats.vacancies} />
+                </div>
+                <div className="mt-2 text-xs text-dusk sm:text-[13px]">{t.employerLanding.statVacancies}</div>
               </div>
-              <div className="mt-2 text-xs text-dusk sm:text-[13px]">{t.employerLanding.statResumes}</div>
             </div>
-          </div>
+          )}
         </div>
       </section>
 

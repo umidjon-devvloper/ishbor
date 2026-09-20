@@ -1,5 +1,8 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useT, useHref } from "../lib/i18n/index.js";
+import { fetchStats } from "../lib/api.js";
+import { formatNumber } from "../lib/format.js";
+import type { Stats } from "../lib/types.js";
 
 /**
  * Kirish va ro'yxatdan o'tish sahifalarining umumiy qobig'i.
@@ -45,10 +48,25 @@ export function AuthShell({
   );
 }
 
-/** Auth sahifalarining o'ng paneli: va'da, uchta ustunlik, foto va raqamlar. */
+/**
+ * Auth sahifalarining o'ng paneli: va'da, uchta ustunlik, foto va raqamlar.
+ * Raqamlar — bazadagi haqiqiy `/api/stats` (audit ISSUE-015: ilgari "12 000+ / 6 000+ / 300 000+"
+ * qattiq yozilgan edi). So'rov bajarilmasa raqamlar bloki umuman chizilmaydi.
+ */
 function BrandPanel({ active }: { active: "login" | "signup" }) {
   const t = useT();
   const p = t.authPanel;
+  const [stats, setStats] = useState<Stats | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void fetchStats().then((next) => {
+      if (alive) setStats(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   return (
     <aside
@@ -102,11 +120,12 @@ function BrandPanel({ active }: { active: "login" | "signup" }) {
           </ul>
         </div>
 
-        <div className="flex flex-wrap gap-x-9 gap-y-4">
-          <Stat value="12 000+" label={p.statVacancies} bar="#3B82F6" />
-          <Stat value="6 000+" label={p.statCompanies} bar="linear-gradient(90deg,#8B5CF6,#EC4899)" />
-          <Stat value="300 000+" label={p.statUsers} bar="#10B981" />
-        </div>
+        {stats && (
+          <div className="flex flex-wrap gap-x-9 gap-y-4">
+            <Stat value={formatNumber(stats.vacancies)} label={p.statVacancies} bar="#3B82F6" />
+            <Stat value={formatNumber(stats.companies)} label={p.statCompanies} bar="linear-gradient(90deg,#8B5CF6,#EC4899)" />
+          </div>
+        )}
       </div>
     </aside>
   );

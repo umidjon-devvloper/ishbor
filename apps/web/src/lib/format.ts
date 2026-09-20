@@ -1,9 +1,27 @@
 import type { Messages } from "./i18n/messages.js";
+import { REGION_NAMES } from "./i18n/regions.js";
 
-const numberFmt = new Intl.NumberFormat("ru-RU");
+/**
+ * Raqam guruhlash tili (audit R3, i18n-6): EN uchun "1,207", uz/ru uchun "1 207".
+ * `ru-RU` va `en-US` ICU'da barqaror — SSR va brauzer bir xil natija beradi
+ * (o'zbekcha teg ataylab ishlatilmaydi: Node va Chrome farqli formatlaydi).
+ */
+const NUMBER_TAG: Record<string, string> = { uz: "ru-RU", ru: "ru-RU", en: "en-US" };
+const numberFmts = new Map<string, Intl.NumberFormat>();
 
-export function formatNumber(n: number): string {
-  return numberFmt.format(n);
+function numberFmt(locale?: string): Intl.NumberFormat {
+  const tag = NUMBER_TAG[locale ?? ""] ?? "ru-RU";
+  let fmt = numberFmts.get(tag);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat(tag);
+    numberFmts.set(tag, fmt);
+  }
+  return fmt;
+}
+
+/** `locale` berilmasa eski xatti-harakat (ru-RU) saqlanadi — chaqiruvchilar bosqichma-bosqich o'tadi. */
+export function formatNumber(n: number, locale?: string): string {
+  return numberFmt(locale).format(n);
 }
 
 /** Maoshni joriy tilga mos formatlaydi. */
@@ -11,13 +29,60 @@ export function formatSalary(
   min: number | null | undefined,
   max: number | null | undefined,
   fmt: Messages["fmt"],
-  isHidden = false
+  isHidden = false,
+  locale?: string
 ): string {
   if (isHidden || (!min && !max)) return fmt.salaryHidden;
-  const f = (n: number) => numberFmt.format(n);
+  const f = (n: number) => numberFmt(locale).format(n);
   if (min && max) return fmt.salaryRange(f(min), f(max));
   if (min) return fmt.salaryFrom(f(min));
   return fmt.salaryTo(f(max!));
+}
+
+/**
+ * Hudud nomini joriy tilda ko'rsatish (audit R3, i18n-4).
+ *
+ * Slug bo'lsa — to'g'ridan-to'g'ri lug'atdan. Ba'zi API javoblarida (profil,
+ * saqlangan e'lonlar, katalog kartasi) faqat o'zbekcha `name` keladi: u holda
+ * nom bo'yicha teskari qidiruv qilinadi (apostrof variantlari bir xil deb
+ * hisoblanadi, D-080 bilan bir uslubda). Topilmasa — kelgan nom o'zgarmaydi.
+ */
+/** Apostrof variantlari: ' (0x27), ` (0x60), 0x2BB, 0x2BC, 0x2018, 0x2019 — bir xil hisoblanadi. */
+function isApostropheCode(code: number): boolean {
+  return code === 0x27 || code === 0x60 || code === 0x2bb || code === 0x2bc || code === 0x2018 || code === 0x2019;
+}
+
+function regionKey(value: string): string {
+  const lower = value.trim().toLocaleLowerCase();
+  let out = "";
+  for (let i = 0; i < lower.length; i += 1) {
+    out += isApostropheCode(lower.charCodeAt(i)) ? "'" : lower.charAt(i);
+  }
+  return out;
+}
+
+let uzSlugByName: Map<string, string> | null = null;
+
+function slugByUzName(name: string): string | null {
+  if (!uzSlugByName) {
+    uzSlugByName = new Map();
+    for (const [slug, label] of Object.entries(REGION_NAMES.uz)) uzSlugByName.set(regionKey(label), slug);
+  }
+  return uzSlugByName.get(regionKey(name)) ?? null;
+}
+
+export function regionDisplayName(
+  locale: string,
+  name: string | null | undefined,
+  slug?: string | null
+): string | null {
+  const fallback = name?.trim() || null;
+  const names = REGION_NAMES[locale as keyof typeof REGION_NAMES];
+  if (!names) return fallback;
+  if (slug && names[slug]) return names[slug];
+  if (!fallback) return null;
+  const found = slugByUzName(fallback);
+  return found && names[found] ? names[found] : fallback;
 }
 
 /**

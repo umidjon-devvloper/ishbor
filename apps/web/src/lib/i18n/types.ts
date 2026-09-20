@@ -3,6 +3,11 @@
 // Matnlarning o'zi til bo'yicha alohida fayllarda: messages.uz.ts / .ru.ts / .en.ts.
 // Sabab: uchala til bitta modulda bo'lganda brauzer har bir tashrifchiga
 // UCHALA tilni yuklab olardi (~88 KB / 26 KB gzip). Endi faqat kerakligi keladi.
+/** Yordam markazi kategoriyalari — faqat savoli bor kategoriya sahifada chiqadi. */
+export type SupportCategoryKey = "account" | "resume" | "applications" | "companies" | "payments" | "security" | "technical" | "other";
+/** Aloqa formasi mavzulari — backend `CONTACT_SUBJECTS` bilan bir xil. */
+export type ContactSubjectKey = "general" | "technical" | "partnership" | "vacancy" | "suggestion" | "other";
+
 export interface BaseMessages {
   // Har sahifa uchun SEO (unikal title/description)
   meta: {
@@ -52,6 +57,18 @@ export interface BaseMessages {
     selectHint: string;
     message: string;
     resultsCount: (n: number) => string;
+    /** Bitta so'rov chegarasiga yetildi — qidiruvni aniqlashtirish taklifi. */
+    refineHint: string;
+    /** Aloqa ma'lumoti faqat ariza yuborgan nomzodda ko'rinadi. */
+    contactHidden: string;
+    chatUnavailable: string;
+    /** Keyingi sahifa (API `hasMore`). */
+    loadMore: string;
+    loadMoreError: string;
+    /** Kompaniya profili yo'q (API 400 COMPANY_REQUIRED) — tarmoq xatosi emas. */
+    needCompanyTitle: string;
+    needCompanyText: string;
+    needCompanyAction: string;
   };
 
   ui: {
@@ -60,6 +77,8 @@ export interface BaseMessages {
     loading: string;
     openMenu: string;
     closeMenu: string;
+    /** Klaviatura foydalanuvchisi uchun asosiy kontentga o'tish havolasi (audit R3, a11y). */
+    skipToContent: string;
   };
 
   home: {
@@ -73,6 +92,8 @@ export interface BaseMessages {
     statVacancies: string;
     statCompanies: string;
     statApplicationsToday: string;
+    /** Blok ma'lumoti yuklanmaganda (bo'sh ro'yxat o'rniga). */
+    loadError: string;
     careerPath: { student: string; intern: string; specialist: string; lead: string };
     categoriesTitle: string;
     viewAll: string;
@@ -106,6 +127,10 @@ export interface BaseMessages {
     scheduleOptions: { full: string; part: string; remote: string; shift: string };
   };
 
+  /**
+   * audit R3, D-065 (monetization-4): `premium` — ommaviy neytral yorliq
+   * ("Tavsiya etiladi" / "Рекомендуем" / "Featured"); API parametri `premium` bo‘lib qoladi.
+   */
   vacancyCard: { premium: string; urgent: string };
 
   vacancy: {
@@ -158,6 +183,38 @@ export interface BaseMessages {
     gateTitle: string;
     gateMessage: string;
     gateAction: string;
+    /** Rule K (audit R3, D-051): bot ishlamayotganda ko'rsatiladigan yagona matn. */
+    unavailable: string;
+    /** Tasdiqlagandan so'ng amal boshlangan sahifaga qaytish (audit R3, candidate-flows-14). */
+    returnBack: string;
+    /** Telefon xavfsizligi bloki — profil Telegram bo'limida (audit R3, D-047, D-048). */
+    security: {
+      title: string;
+      subtitle: string;
+      primaryLabel: string;
+      primaryNone: string;
+      changePhone: string;
+      changeHint: string;
+      backupLabel: string;
+      backupNone: string;
+      backupHint: string;
+      addBackup: string;
+      removeBackup: string;
+      unlink: string;
+      unlinkHint: string;
+      needPrimary: string;
+      usePhoneChange: string;
+      passwordTitle: string;
+      passwordLabel: string;
+      passwordPlaceholder: string;
+      wrongPassword: string;
+      confirm: string;
+      cancel: string;
+      openTelegram: string;
+      linkHint: string;
+      removed: string;
+      unlinked: string;
+    };
   };
 
   reviews: {
@@ -175,6 +232,7 @@ export interface BaseMessages {
     delete: string;
     deleteConfirm: string;
     ratingRequired: string;
+    pendingModeration: string;
   };
 
   employerLanding: {
@@ -185,6 +243,7 @@ export interface BaseMessages {
     heroCta: string;
     statCompanies: string;
     statResumes: string;
+    statVacancies: string;
     benefits: { title: string; desc: string }[];
     bottomTitle: string;
     bottomDesc: string;
@@ -195,8 +254,44 @@ export interface BaseMessages {
     breadcrumb: string;
     title: string;
     subtitle: string;
+    count: (n: number) => string;
+    searchLabel: string;
+    searchPlaceholder: string;
+    clearSearch: string;
+    categoriesLabel: string;
+    all: string;
+    categories: { career: string; resume: string; interview: string; salary: string; job_search: string; tips: string };
+    sortLabel: string;
+    sort: { newest: string; oldest: string; popular: string };
+    results: (n: number) => string;
+    featured: string;
+    readMore: string;
     readMinutes: (n: number) => string;
-    comingSoon: string;
+    pagination: { label: string; prev: string; next: string; page: (n: number) => string };
+    loading: string;
+    empty: { title: string; text: string };
+    noResults: { title: string; text: string; reset: string };
+    error: { title: string; text: string; retry: string };
+    detail: {
+      published: string;
+      updated: (date: string) => string;
+      by: string;
+      share: string;
+      shareLabel: (title: string) => string;
+      copied: string;
+      copyFailed: string;
+      toc: string;
+      related: string;
+      tags: string;
+      tagSearch: (tag: string) => string;
+      tip: string;
+      newTab: string;
+      helpful: { title: string; yes: string; no: string; thanks: string; failed: string };
+      cta: { title: string; text: string; action: string };
+      loading: string;
+      error: { title: string; text: string; retry: string; back: string };
+      notFound: { title: string; text: string; back: string };
+    };
   };
 
   authPanel: {
@@ -219,7 +314,6 @@ export interface BaseMessages {
     identifier: string;
     identifierPlaceholder: string;
     passwordPlaceholder: string;
-    remember: string;
     forgot: string;
     showPassword: string;
     hidePassword: string;
@@ -234,10 +328,93 @@ export interface BaseMessages {
     signupLink: string;
     connError: string;
     orDivider: string;
-    withTelegram: string;
-    tgWaiting: string;
-    tgNotLinked: string;
-    tgExpired: string;
+    /** Forma xatosi ekran o'quvchiga e'lon qilinadi (audit R3, a11y-ui-3). */
+    errorLabel: string;
+  };
+
+  /**
+   * Parolni tiklash — `/login` sahifasining query rejimlari (audit R3, D-045, D-049, D-063).
+   * Yangi sahifa yaratilmaydi: `?recover=1`, `?recover=manual`, `?recover=status`, `?reset=<token>`.
+   */
+  recovery: {
+    back: string;
+    title: string;
+    subtitle: string;
+    /* 1 — telefon raqami orqali */
+    phoneTitle: string;
+    phoneHint: string;
+    phoneLabel: string;
+    phonePlaceholder: string;
+    phoneInvalid: string;
+    submit: string;
+    submitting: string;
+    linkTitle: string;
+    linkHint: string;
+    openTelegram: string;
+    expiresIn: (minutes: number) => string;
+    restart: string;
+    /* umumiy holatlar */
+    unavailable: string;
+    tooMany: string;
+    genericError: string;
+    /* 2 — qo'lda tiklash so'rovi */
+    manualLink: string;
+    manualTitle: string;
+    manualHint: string;
+    manualEmail: string;
+    manualFullName: string;
+    manualFullNamePlaceholder: string;
+    manualDetails: string;
+    manualDetailsHint: string;
+    manualContact: string;
+    manualContactHint: string;
+    manualSubmit: string;
+    manualSubmitting: string;
+    manualDoneTitle: string;
+    manualDoneHint: string;
+    codeLabel: string;
+    copy: string;
+    copied: string;
+    copyFailed: string;
+    toStatus: string;
+    /* 3 — so'rov holati */
+    statusTitle: string;
+    statusHint: string;
+    statusCodeLabel: string;
+    statusCodePlaceholder: string;
+    statusCheck: string;
+    statusChecking: string;
+    statusValue: {
+      pending: string;
+      approved: string;
+      rejected: string;
+      completed: string;
+      expired: string;
+      not_found: string;
+    };
+    continueTelegram: string;
+    notApproved: string;
+    /* 4 — yangi parol */
+    resetTitle: string;
+    resetHint: string;
+    checking: string;
+    /** Havolani tekshirib bo'lmadi (tarmoq yoki server xatosi) — «yaroqsiz» degani emas. */
+    checkError: string;
+    newPassword: string;
+    newPasswordPlaceholder: string;
+    confirmPassword: string;
+    confirmPlaceholder: string;
+    mismatch: string;
+    tooShort: string;
+    /** Server 400 `WEAK_PASSWORD` — parol juda oson yoki emailga o'xshash. */
+    weakPassword: string;
+    resetSubmit: string;
+    resetSubmitting: string;
+    tokenInvalidTitle: string;
+    tokenInvalidText: string;
+    successTitle: string;
+    successText: string;
+    toLogin: string;
   };
 
   signup: {
@@ -265,6 +442,10 @@ export interface BaseMessages {
     title500: string;
     desc404: string;
     desc500: string;
+    /** API vaqtincha javob bermaganda (HTTP 503) — sahifa indeksdan chiqmasin (audit R3, SEO). */
+    title503: string;
+    desc503: string;
+    retry: string;
     backHome: string;
     viewVacancies: string;
   };
@@ -291,8 +472,36 @@ export interface BaseMessages {
     breadcrumb: string;
     title: string;
     subtitle: string;
+    searchLabel: string;
+    searchPlaceholder: string;
+    searchButton: string;
+    clearSearch: string;
+    suggestionsLabel: string;
+    /** Tezkor so'zlar — faqat savollar ichida natija beradiganlari chiqadi. */
+    suggestions: string[];
+    categoriesTitle: string;
+    categoriesSubtitle: string;
+    categoryCount: (n: number) => string;
+    showAll: string;
+    categories: Record<SupportCategoryKey, { title: string; description: string }>;
     faqTitle: string;
-    faq: { q: string; a: string }[];
+    faqInCategory: (category: string) => string;
+    /**
+     * Savollar ro'yxati (mavjud arxitektura: kontent lug'atda). Javobda `[matn](/yo'l)`
+     * — ichki havola. `keywords` — qidiruv uchun qo'shimcha so'zlar.
+     */
+    faq: { id: string; category: SupportCategoryKey; q: string; a: string; keywords: string[] }[];
+    results: (n: number) => string;
+    articlesTitle: string;
+    articlesAll: string;
+    searchingArticles: string;
+    emptyTitle: string;
+    emptyText: string;
+    noFaqTitle: string;
+    noFaqText: string;
+    errorTitle: string;
+    errorText: string;
+    retry: string;
     stillTitle: string;
     stillDesc: string;
     contactButton: string;
@@ -302,15 +511,56 @@ export interface BaseMessages {
     breadcrumb: string;
     title: string;
     subtitle: string;
+    formTitle: string;
+    required: string;
     nameLabel: string;
+    namePlaceholder: string;
     emailLabel: string;
+    emailPlaceholder: string;
+    subjectLabel: string;
+    subjectPlaceholder: string;
+    subjects: Record<ContactSubjectKey, string>;
     messageLabel: string;
     messagePlaceholder: string;
     submit: string;
     submitting: string;
-    success: string;
-    error: string;
+    errors: {
+      nameRequired: string;
+      emailRequired: string;
+      emailInvalid: string;
+      subjectRequired: string;
+      messageRequired: string;
+      messageShort: (min: number) => string;
+      messageLong: (max: number) => string;
+    };
+    errorSummary: string;
+    prefilled: string;
+    sendErrorTitle: string;
+    sendErrorText: string;
+    resend: string;
+    rateLimited: string;
+    successTitle: string;
+    successText: string;
+    sendAnother: string;
+    offlineTitle: string;
+    offlineWithChannels: string;
+    offlineNoChannels: string;
     channelsTitle: string;
+    channelsText: string;
+    channels: {
+      email: string;
+      telegram: string;
+      telegramBot: string;
+      telegramBotHint: string;
+      phone: string;
+      address: string;
+      newTab: string;
+    };
+    channelsError: string;
+    channelsRetry: string;
+    partnership: { title: string; text: string; cta: string };
+    features: { responseTitle: string; responseText: (hours: number) => string; hoursTitle: string };
+    loading: string;
   };
 
   pricing: {
@@ -525,6 +775,7 @@ export interface BaseMessages {
   enums: {
     employment: Record<"full_time" | "part_time" | "remote" | "shift", string>;
     experience: Record<"none" | "one_to_three" | "three_to_six" | "six_plus", string>;
+    workplace: Record<"office" | "hybrid" | "remote", string>;
   };
 
   fmt: {
@@ -539,6 +790,53 @@ export interface BaseMessages {
     vacanciesCount: (n: number) => string;
   };
 }
+
+/** Bitta bildirishnoma shabloni: `{param}` o'rinlari bilan (audit R3, D-059). */
+export interface NotificationTemplate {
+  title: string;
+  body: string;
+}
+
+/**
+ * Server `payload.i18n.key` da yuboradigan kalitlar (audit R3, D-059).
+ * Ro'yxatda yo'q kalit — bazadagi matn ko'rsatiladi, xato chiqmaydi.
+ */
+export type NotificationTemplateKey =
+  | "application.new"
+  | "application.statusChanged"
+  | "alerts.newMatches"
+  | "vacancy.rejected"
+  | "vacancy.archivedByAdmin"
+  | "company.verified"
+  | "company.verificationRemoved"
+  | "payment.confirmed"
+  | "security.phone_changed"
+  | "security.recovery_completed"
+  | "security.sessions_invalidated";
+
+/**
+ * API javobidagi `error` kodlari (audit R3, i18n-3). Faqat shu kodlar tarjima qilinadi;
+ * qolganida umumiy matn ko'rsatiladi — serverning o'zbekcha xabari ru/en da chiqmasin.
+ * `NETWORK`/`BAD_RESPONSE` — klient tomonidagi kodlar (`ApiError`).
+ */
+export type ApiErrorCode =
+  | "INVALID_CREDENTIALS"
+  | "EMAIL_TAKEN"
+  | "WEAK_PASSWORD"
+  | "VALIDATION_ERROR"
+  | "RATE_LIMITED"
+  | "TOO_MANY_ATTEMPTS"
+  | "PHONE_NOT_VERIFIED"
+  | "TELEGRAM_UNAVAILABLE"
+  | "USE_PHONE_CHANGE"
+  | "VACANCY_LOCKED"
+  | "VACANCY_HAS_APPLICATIONS"
+  | "WRITE_CONFLICT"
+  | "SERVICE_UNAVAILABLE"
+  | "PAYLOAD_TOO_LARGE"
+  | "UNSUPPORTED_MEDIA_TYPE"
+  | "NETWORK"
+  | "BAD_RESPONSE";
 
 export interface ExtraMessages {
   metaExtra: {
@@ -583,6 +881,11 @@ export interface ExtraMessages {
     showAll: string;
     delete: string;
     viewAll: string;
+    /** Ro'yxat yuklanmadi — "bildirishnoma yo'q" deb ko'rsatilmaydi. */
+    loadError: string;
+    /** Amal (o'qildi / hammasi o'qildi) serverda bajarilmadi — soxta muvaffaqiyat ko'rsatilmaydi (audit R3, api-errors-4). */
+    actionError: string;
+    retry: string;
     settings: string;
     settingsTitle: string;
     settingsHint: string;
@@ -873,6 +1176,8 @@ export interface ExtraMessages {
       emptyTitle: string;
       emptyText: string;
       browse: string;
+      /** Sahifadagi ro'yxat cheklangan — barcha faol vakansiyalar qidiruvda. */
+      viewAllCount: (n: number) => string;
     };
     reviews: {
       title: string;
@@ -915,6 +1220,7 @@ export interface ExtraMessages {
     experience: string;
     employment: string;
     schedule: string;
+    workplace: string;
     skills: { title: string; more: (n: number) => string; less: string };
     actions: {
       save: string;
@@ -1187,6 +1493,26 @@ export interface ExtraMessages {
     loading: string;
   };
 
+  /**
+   * Server yaratgan bildirishnomalarning tarjima shablonlari (audit R3, D-059).
+   * Server `payload.i18n = { key, params }` yuboradi; matn shu yerdan olinadi,
+   * `{param}` o'rniga qiymat qo'yiladi. Kalit noma'lum yoki parametr yetishmasa —
+   * bazadagi o'zbekcha `title`/`body` ko'rsatiladi (eski yozuvlar shunday qoladi).
+   * Admin ommaviy xabari tarjima qilinmaydi (matnni admin yozadi).
+   */
+  notificationTemplates: Record<NotificationTemplateKey, NotificationTemplate>;
+
+  /**
+   * API xatolarining tarjimasi (audit R3, i18n-3). `apiErrorText(error, locale, { fallback, network, byCode })`
+   * `codes` ni `byCode` sifatida oladi: kod ma'lum bo'lsa shu matn, aks holda `generic`
+   * (uz tilida serverning o'z xabari). Tarmoq va buzilgan javob uchun — `network`.
+   */
+  errors: {
+    generic: string;
+    network: string;
+    codes: Record<ApiErrorCode, string>;
+  };
+
   /** `/notifications` — bildirishnomalar markazi. Tur/kanal/push nomlari — `notifications`. */
   notificationsPage: {
     breadcrumb: string;
@@ -1219,7 +1545,16 @@ export interface ExtraMessages {
     };
     time: { justNow: string; minutes: (n: number) => string; hours: (n: number) => string };
     notices: { markReadError: string; markAllError: string; deleteError: string; deleted: string; allMarked: string; dismiss: string };
-    list: { label: string; results: (n: number) => string; truncated: (n: number) => string };
+    list: {
+      label: string;
+      results: (n: number) => string;
+      truncated: (n: number) => string;
+      /** Cursor sahifalash (audit R3, D-078): "yana yuklash" holatlari. */
+      loadMore: string;
+      loadingMore: string;
+      loadMoreError: string;
+      end: string;
+    };
     pagination: {
       label: string;
       prev: string;
@@ -1288,6 +1623,11 @@ export interface ExtraMessages {
       emptyTitle: string;
       emptyText: string;
       clear: string;
+      /** Cursor sahifalash (audit R3, D-078): suhbatlar ro'yxatining davomi. */
+      loadMore: string;
+      loadingMore: string;
+      loadMoreError: string;
+      end: string;
     };
     chat: {
       back: string;
@@ -1313,6 +1653,11 @@ export interface ExtraMessages {
       notFoundText: string;
       backToList: string;
       offline: string;
+      /** Eskiroq xabarlar (audit R3, D-078). */
+      loadOlder: string;
+      loadingOlder: string;
+      loadOlderError: string;
+      historyStart: string;
     };
     vacancy: { label: string; about: string; closed: string };
     composer: { label: string; placeholder: string; send: string; hint: string };
@@ -1426,6 +1771,53 @@ export interface ExtraMessages {
       phoneVerified: string;
       empty: string;
     };
+    /** Qo'lda tiklash so'rovlari — /admin/users ichidagi ko'rinish (audit R3, D-049, D-063). */
+    recovery: {
+      viewLabel: string;
+      viewUsers: string;
+      viewRequests: string;
+      title: string;
+      subtitle: string;
+      statusLabel: string;
+      allStatuses: string;
+      status: {
+        pending: string;
+        approved: string;
+        rejected: string;
+        completed: string;
+        expired: string;
+      };
+      requester: string;
+      details: string;
+      contact: string;
+      created: string;
+      account: string;
+      accountMissing: string;
+      accountRole: string;
+      accountCreated: string;
+      accountBlocked: string;
+      phone: string;
+      backupPhone: string;
+      telegram: string;
+      telegramLinked: string;
+      telegramNotLinked: string;
+      none: string;
+      note: string;
+      notePlaceholder: string;
+      approve: string;
+      reject: string;
+      approveHint: string;
+      reviewed: string;
+      reviewNote: string;
+      events: string;
+      eventsShow: string;
+      eventsHide: string;
+      eventsEmpty: string;
+      eventsError: string;
+      eventsLoading: string;
+      eventType: Record<string, string>;
+      empty: string;
+    };
     vacancies: {
       searchPlaceholder: string;
       status: string;
@@ -1480,6 +1872,200 @@ export interface ExtraMessages {
       done: string;
       failed: string;
       accessDenied: string;
+      loadErrorTitle: string;
+      loadErrorText: string;
+      retry: string;
+    };
+  };
+
+  /** Kontent boshqaruvi: /admin/articles, /admin/team, /admin/invite. */
+  contentAdmin: {
+    nav: { articles: string; team: string };
+    roles: { admin: string; content_editor: string; content_author: string };
+    accessDenied: string;
+    toArticles: string;
+    articles: {
+      title: string;
+      subtitle: string;
+      subtitleAuthor: string;
+      newArticle: string;
+      searchLabel: string;
+      searchPlaceholder: string;
+      filtersLabel: string;
+      all: string;
+      status: { draft: string; in_review: string; published: string; archived: string };
+      columns: { title: string; author: string; category: string; status: string; updated: string; published: string; actions: string };
+      noAuthor: string;
+      noCategory: string;
+      notPublished: string;
+      reviewNote: string;
+      actions: {
+        menu: (title: string) => string;
+        edit: string;
+        preview: string;
+        view: string;
+        submit: string;
+        return: string;
+        withdraw: string;
+        publish: string;
+        unpublish: string;
+        archive: string;
+        restore: string;
+        delete: string;
+      };
+      confirm: { delete: (title: string) => string; unpublish: (title: string) => string; archive: (title: string) => string };
+      returnNotePrompt: string;
+      done: {
+        saved: string;
+        submitted: string;
+        returned: string;
+        published: string;
+        unpublished: string;
+        archived: string;
+        restored: string;
+        deleted: string;
+      };
+      failed: string;
+      loading: string;
+      empty: { title: string; text: string };
+      emptyFilter: { title: string; text: string; reset: string };
+      error: { title: string; text: string; retry: string };
+      results: (n: number) => string;
+    };
+    editor: {
+      newTitle: string;
+      editTitle: string;
+      back: string;
+      fields: {
+        title: string;
+        titlePlaceholder: string;
+        slug: string;
+        slugHint: string;
+        slugRedirectHint: string;
+        excerpt: string;
+        excerptHint: string;
+        content: string;
+        contentHint: string;
+        cover: string;
+        coverHint: string;
+        coverUpload: string;
+        coverReplace: string;
+        coverRemove: string;
+        coverUploading: string;
+        category: string;
+        categoryNone: string;
+        author: string;
+        authorNone: string;
+        tags: string;
+        tagsHint: string;
+        tagsPlaceholder: string;
+        tagRemove: (tag: string) => string;
+        seoTitle: string;
+        seoTitleHint: string;
+        seoDescription: string;
+        seoDescriptionHint: string;
+      };
+      sections: { status: string; cover: string; details: string; seo: string };
+      toolbar: {
+        label: string;
+        h2: string;
+        h3: string;
+        bold: string;
+        italic: string;
+        ul: string;
+        ol: string;
+        link: string;
+        quote: string;
+        tip: string;
+        image: string;
+        divider: string;
+        linkText: string;
+        imageAlt: string;
+      };
+      tabs: { write: string; preview: string };
+      buttons: { saveDraft: string; save: string; preview: string; submit: string; publish: string; saving: string };
+      statusLabel: string;
+      publishedAt: (date: string) => string;
+      updatedAt: (date: string) => string;
+      stats: { views: string; helpful: string };
+      readOnly: { in_review: string; published: string; archived: string; foreign: string };
+      unsaved: string;
+      counter: (n: number, max: number) => string;
+      previewEmpty: string;
+      previewNote: string;
+      errors: { title: string; contentShort: (min: number) => string; coverType: string; coverSize: string; generic: string };
+      loading: string;
+      notFound: { title: string; text: string };
+      loadError: { title: string; text: string; retry: string };
+    };
+    preview: { banner: string; edit: string; back: string };
+    team: {
+      title: string;
+      subtitle: string;
+      invite: {
+        title: string;
+        text: string;
+        email: string;
+        emailPlaceholder: string;
+        role: string;
+        submit: string;
+        sending: string;
+        created: (email: string) => string;
+        link: string;
+        copy: string;
+        copied: string;
+        emailSent: string;
+        emailNotSent: string;
+        roleHints: { admin: string; content_editor: string; content_author: string };
+      };
+      members: {
+        title: string;
+        you: string;
+        active: string;
+        blocked: string;
+        articles: (n: number) => string;
+        joined: (date: string) => string;
+        deactivate: string;
+        activate: string;
+        role: (name: string) => string;
+        edit: string;
+        noName: string;
+      };
+      invites: {
+        title: string;
+        expires: (date: string) => string;
+        expired: string;
+        invitedBy: (name: string) => string;
+        revoke: string;
+        empty: string;
+      };
+      profile: { title: string; fullName: string; position: string; save: string; cancel: string };
+      confirm: { deactivate: (name: string) => string; revoke: (email: string) => string; role: (name: string, role: string) => string };
+      done: { role: string; blocked: string; unblocked: string; revoked: string; profile: string };
+      failed: string;
+      loading: string;
+      error: { title: string; text: string; retry: string };
+    };
+    invite: {
+      title: string;
+      text: (role: string) => string;
+      email: string;
+      fullName: string;
+      position: string;
+      positionHint: string;
+      password: string;
+      passwordHint: string;
+      showPassword: string;
+      hidePassword: string;
+      submit: string;
+      submitting: string;
+      loading: string;
+      invalid: { title: string; text: string };
+      used: { title: string; text: string; login: string };
+      expired: { title: string; text: string };
+      signedIn: { title: string; text: (email: string) => string; logout: string };
+      home: string;
+      failed: string;
     };
   };
 
@@ -1495,14 +2081,285 @@ export interface ExtraMessages {
     edit: string;
     editTitle: string;
     saveChanges: string;
-    planUsage: (used: number, max: number, plan: string) => string;
-    limitReached: string;
-    upgrade: string;
+  };
+
+  /** `/employer/vacancies` — ish beruvchining "Vakansiyalarim" dashboard'i (+ forma sahifalari). */
+  employerVacanciesPage: {
+    loading: string;
+    statsLabel: string;
+    stats: { total: string; active: string; moderation: string; draft: string; rejected: string };
+    searchLabel: string;
+    searchPlaceholder: string;
+    clearSearch: string;
+    filters: {
+      status: string;
+      allStatuses: string;
+      region: string;
+      allRegions: string;
+      category: string;
+      allCategories: string;
+      sort: string;
+      reset: string;
+    };
+    optionCount: (label: string, n: number) => string;
+    sort: { newest: string; oldest: string; applications: string; title: string };
+    summary: (vacancies: number, applications: number) => string;
+    listLabel: string;
+    status: { active: string; moderation: string; draft: string; rejected: string; archived: string };
+    created: (date: string) => string;
+    published: (date: string) => string;
+    actions: {
+      applications: string;
+      edit: string;
+      close: string;
+      activate: string;
+      view: string;
+      delete: string;
+      menu: (title: string) => string;
+    };
+    empty: { title: string; text: string };
+    noResults: { title: string; text: string; reset: string };
+    error: { title: string; text: string; retry: string };
+    deleteDialog: { title: string; text: (title: string) => string; confirm: string; cancel: string };
+    notices: { created: string; updated: string; draft: string; closed: string; activated: string; deleted: string; dismiss: string };
+    errors: { generic: string; transition: string; hasApplications: string; incomplete: string; phoneGate: string };
+    pagination: {
+      label: string;
+      prev: string;
+      next: string;
+      page: (n: number) => string;
+      range: (from: number, to: number, total: number) => string;
+      perPage: string;
+      perPageOption: (n: number) => string;
+    };
+    form: {
+      back: string;
+      newTitle: string;
+      newSubtitle: string;
+      editTitle: string;
+      editSubtitle: string;
+      notFoundTitle: string;
+      notFoundText: string;
+      cancel: string;
+      metaNew: string;
+      metaEdit: string;
+    };
+    applicationsFilter: { label: (title: string) => string; showAll: string; none: string };
+  };
+
+  /** `/employer/vacancies/new` va `/:id/edit` — vakansiya formasi (bosqichlar, preview, ko'rib chiqish). */
+  vacancyForm: {
+    breadcrumbNew: string;
+    breadcrumbEdit: string;
+    stepsLabel: string;
+    steps: { basic: string; details: string; extra: string; review: string };
+    stepProgress: (current: number, total: number, label: string) => string;
+    stepDone: string;
+    stepHasErrors: string;
+    required: string;
+    optional: string;
+    sections: Record<"basic" | "description" | "requirements" | "conditions" | "extra" | "contacts", { title: string; subtitle: string }>;
+    fields: {
+      title: string;
+      titlePlaceholder: string;
+      category: string;
+      categoryPlaceholder: string;
+      schedule: string;
+      schedulePlaceholder: string;
+      region: string;
+      regionPlaceholder: string;
+      employment: string;
+      employmentPlaceholder: string;
+      experience: string;
+      workplace: string;
+      workplaceRemoteHint: string;
+      salary: string;
+      salaryFrom: string;
+      salaryTo: string;
+      currency: string;
+      salaryHidden: string;
+      salaryHiddenHint: string;
+      description: string;
+      descriptionPlaceholder: string;
+      requirements: string;
+      requirementsPlaceholder: string;
+      conditions: string;
+      conditionsPlaceholder: string;
+      listHint: string;
+      itemCount: (n: number) => string;
+      applyWithoutResume: string;
+      applyWithoutResumeHint: string;
+      email: string;
+      emailPlaceholder: string;
+      telegram: string;
+      telegramPlaceholder: string;
+      phone: string;
+      phonePlaceholder: string;
+    };
+    editor: { toolbar: string; bullet: string; numbered: string; heading: string; hint: string; count: (n: number) => string; min: (n: number) => string };
+    errors: {
+      titleRequired: string;
+      titleShort: (min: number) => string;
+      descriptionRequired: string;
+      descriptionShort: (min: number) => string;
+      employmentRequired: string;
+      categoryRequired: string;
+      regionRequired: string;
+      workplaceRequired: string;
+      salaryInvalid: string;
+      salaryRange: string;
+      emailInvalid: string;
+      telegramLong: (max: number) => string;
+      phoneLong: (max: number) => string;
+      summary: (n: number) => string;
+      saveTitle: string;
+      saveText: string;
+      retry: string;
+      server: (message: string) => string;
+    };
+    tips: { title: string; items: { title: string; text: string }[] };
+    preview: { title: string; open: string; label: string; hint: string; noTitle: string; noDescription: string };
+    actions: {
+      title: string;
+      review: string;
+      draft: string;
+      cancel: string;
+      publish: string;
+      saveChanges: string;
+      publishing: string;
+      savingDraft: string;
+      saving: string;
+      backToEdit: string;
+      publishNote: string;
+      draftNote: string;
+      editNote: string;
+    };
+    review: {
+      title: string;
+      subtitle: string;
+      subtitleEdit: string;
+      edit: string;
+      about: string;
+      requirements: string;
+      conditions: string;
+      contacts: string;
+      withoutResume: string;
+      details: string;
+    };
+    leave: { title: string; text: string; confirm: string; cancel: string };
+  };
+
+  /** `/employer/applications` — ish beruvchining "Murojaatlar" ish maydoni (ro'yxat + ariza + amallar). */
+  employerApplicationsPage: {
+    title: string;
+    subtitle: string;
+    loading: string;
+    searchLabel: string;
+    searchPlaceholder: string;
+    clearSearch: string;
+    filters: {
+      open: string;
+      title: string;
+      vacancy: string;
+      allVacancies: string;
+      region: string;
+      allRegions: string;
+      period: string;
+      periodAll: string;
+      period7: string;
+      period30: string;
+      sort: string;
+      sortNewest: string;
+      sortOldest: string;
+      reset: string;
+      close: string;
+      optionCount: (label: string, n: number) => string;
+    };
+    tabsLabel: string;
+    tabs: Record<"all" | "sent" | "viewed" | "invited" | "accepted" | "rejected", string>;
+    status: Record<"sent" | "viewed" | "invited" | "accepted" | "rejected", string>;
+    listLabel: string;
+    newMark: string;
+    pagination: { label: string; prev: string; next: string; page: (n: number) => string; range: (from: number, to: number, total: number) => string };
+    select: { title: string; text: string };
+    back: string;
+    detail: {
+      label: string;
+      menu: (name: string) => string;
+      appliedBanner: (vacancy: string) => string;
+      appliedOn: (date: string) => string;
+      appliedAgo: (relative: string) => string;
+      viaTelegram: string;
+      openToWork: string;
+      tabsLabel: string;
+      tabs: { resume: string; letter: string; activity: string };
+      noResume: string;
+      summary: string;
+      desiredSalary: string;
+      skills: string;
+      experience: string;
+      education: string;
+      present: string;
+      letterTitle: string;
+      activityApplied: string;
+      activityStatus: (status: string) => string;
+      infoTitle: string;
+      email: string;
+      phone: string;
+      region: string;
+    };
+    sidebar: {
+      label: string;
+      statusTitle: string;
+      statusLabel: string;
+      statusPlaceholder: string;
+      reasonLabel: string;
+      reasonHint: string;
+      reasonPlaceholder: string;
+      update: string;
+      updating: string;
+      sameStatus: string;
+      quickTitle: string;
+      invite: string;
+      accept: string;
+      reject: string;
+      message: string;
+      messageOpening: string;
+      vacancyTitle: string;
+      openVacancy: string;
+      editVacancy: string;
+      onlyThisVacancy: string;
+      applications: (n: number) => string;
+    };
+    dialog: {
+      invite: { title: string; text: (name: string, vacancy: string) => string; confirm: string };
+      accept: { title: string; text: (name: string, vacancy: string) => string; confirm: string };
+      reject: { title: string; text: (name: string, vacancy: string) => string; confirm: string };
+      cancel: string;
+      busy: string;
+    };
+    notices: {
+      updated: string;
+      failed: string;
+      failedWithReason: (message: string) => string;
+      chatFailed: string;
+      /** API ro'yxati cheklangan (eng yangi N ta) — umumiy son bilan. */
+      capped: (shown: number, total: number) => string;
+    };
+    empty: { title: string; text: string; cta: string };
+    noResults: { title: string; text: string; reset: string };
+    error: { title: string; text: string; retry: string };
   };
 
   /** `/profile` — nomzodning karyera markazi (dashboard). */
   profileHub: {
     navLabel: string;
+    /** Admin va kontent jamoasi uchun hisob sahifasi (StaffAccount) */
+    staff: {
+      title: string;
+      subtitle: string;
+      role: string;
+    };
     nav: {
       overview: string;
       personal: string;
@@ -1681,6 +2538,8 @@ export interface ExtraMessages {
       security: string;
       password: string;
       passwordHint: string;
+      /** Parolni Telegram orqali tiklash oqimiga havola (audit R3, D-045). */
+      resetPassword: string;
       contactSupport: string;
       logout: string;
       logoutHint: string;

@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { useT } from "../../lib/i18n/index.js";
 import type { ResumeData, ResumeEducationItem } from "../../lib/types.js";
-import { Button, EmptyState, Field, SaveStatus, SectionHeader, TextInput, useSaveState } from "./ui.js";
+import { Button, EmptyState, Field, SaveStatus, SectionHeader, TextInput, focusFirstInvalid, useSaveState } from "./ui.js";
 import { IconCap, IconPencil, IconPlus, IconTrash } from "./icons.js";
 
 const EMPTY: ResumeEducationItem = {
@@ -30,6 +30,22 @@ export function EducationList({
   const [confirmIndex, setConfirmIndex] = useState<number | null>(null);
   const saver = useSaveState();
 
+  // Audit R3, gap5-3: tahrirlovchi yopilgach fokus chaqirgan tugmaga qaytadi
+  const uid = useId();
+  const btnId = (key: string) => `${uid}-${key}`;
+  const [focusKey, setFocusKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusKey) return;
+    document.getElementById(btnId(focusKey))?.focus();
+    setFocusKey(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey]);
+
+  function closeEditor(key: string) {
+    setEditor(null);
+    setFocusKey(key);
+  }
+
   async function commit(next: ResumeEducationItem[]) {
     return Boolean(await saver.run(() => saveResume({ education: next })));
   }
@@ -45,6 +61,7 @@ export function EducationList({
           <>
           <SaveStatus state={saver.state} errorMessage={saver.error} />
           <Button
+            id={btnId("add")}
             variant="secondary"
             size="sm"
             onClick={() => {
@@ -65,9 +82,9 @@ export function EducationList({
             title={hub.education.newTitle}
             initial={editor.item}
             saving={saver.state === "saving"}
-            onCancel={() => setEditor(null)}
+            onCancel={() => closeEditor("add")}
             onSubmit={async (item) => {
-              if (await commit([item, ...items])) setEditor(null);
+              if (await commit([item, ...items])) closeEditor("edit-0");
             }}
           />
         )}
@@ -91,9 +108,9 @@ export function EducationList({
                 title={hub.education.editTitle}
                 initial={editor.item}
                 saving={saver.state === "saving"}
-                onCancel={() => setEditor(null)}
+                onCancel={() => closeEditor(`edit-${index}`)}
                 onSubmit={async (next) => {
-                  if (await commit(items.map((x, i) => (i === index ? next : x)))) setEditor(null);
+                  if (await commit(items.map((x, i) => (i === index ? next : x)))) closeEditor(`edit-${index}`);
                 }}
               />
             ) : (
@@ -121,6 +138,7 @@ export function EducationList({
                       {confirmIndex !== index && (
                         <div className="flex shrink-0 items-center gap-1">
                           <Button
+                            id={btnId(`edit-${index}`)}
                             variant="ghost"
                             size="sm"
                             onClick={() => {
@@ -154,7 +172,10 @@ export function EducationList({
                           className="!bg-danger hover:!bg-danger/90"
                           loading={saver.state === "saving"}
                           onClick={async () => {
-                            if (await commit(items.filter((_, i) => i !== index))) setConfirmIndex(null);
+                            if (!(await commit(items.filter((_, i) => i !== index)))) return;
+                            setConfirmIndex(null);
+                            const left = items.length - 1;
+                            setFocusKey(left > 0 ? `edit-${Math.min(index, left - 1)}` : "add");
                           }}
                         >
                           {hub.experience.delete}
@@ -226,7 +247,12 @@ function EducationEditor({
       noValidate
       onSubmit={(ev) => {
         ev.preventDefault();
-        if (!validate()) return;
+        const form = ev.currentTarget;
+        // Audit R3, gap5-2: xato maydonga fokus
+        if (!validate()) {
+          focusFirstInvalid(form);
+          return;
+        }
         void onSubmit({
           institution: item.institution.trim(),
           field: item.field.trim() || null,
@@ -246,6 +272,7 @@ function EducationEditor({
               id={p.id}
               describedBy={p.describedBy}
               invalid={p.invalid}
+              required={p.required}
               value={item.institution}
               maxLength={160}
               autoFocus
@@ -269,6 +296,7 @@ function EducationEditor({
               id={p.id}
               describedBy={p.describedBy}
               invalid={p.invalid}
+              required={p.required}
               inputMode="numeric"
               value={item.startYear}
               onChange={(v) => setItem({ ...item, startYear: digits(v) })}

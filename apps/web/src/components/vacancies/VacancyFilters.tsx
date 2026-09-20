@@ -196,7 +196,7 @@ export function VacancyFilters({
 
       <Group legend={f.company}>
         {companies.length > VISIBLE && (
-          <div className="mb-2 flex h-10 items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 focus-within:border-signal focus-within:bg-surface">
+          <div className="mb-2 flex h-10 items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 transition-[border-color,box-shadow] focus-within:border-signal focus-within:bg-surface focus-within:ring-4 focus-within:ring-signal/10">
             <IconSearch size={16} className="shrink-0 text-dusk" />
             <label htmlFor={`${uid}-company`} className="sr-only">
               {f.companySearch}

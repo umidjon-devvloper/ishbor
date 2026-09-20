@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { usePageContext } from "vike-react/usePageContext";
 import { BrandLogo } from "./BrandLogo.js";
 import { ThemeToggle } from "./ThemeToggle.js";
@@ -8,6 +8,8 @@ import { useT, useHref } from "../lib/i18n/index.js";
 import { useAuth } from "./AuthContext.js";
 import { useClickOutside } from "../lib/useClickOutside.js";
 import { useInboxSummary } from "../lib/useInboxSummary.js";
+import { isStaffRole } from "../lib/admin/roles.js";
+import { pageLocale } from "../lib/i18n/pageLocale.js";
 
 interface NavLink {
   label: string;
@@ -29,17 +31,82 @@ export default function Header() {
   const l = useHref();
   const { status, user, accessToken, logout } = useAuth();
   const pageContext = usePageContext();
-  const pathname = (pageContext.localePathname as string) ?? "/";
+  // Xato sahifasida (render(404)) server pageContext'ida localePathname yo'q — URL'dan olinadi
+  const pathname = pageLocale(pageContext).pathname;
   const search = (pageContext.urlParsed?.search ?? {}) as Record<string, string | undefined>;
   const { summary } = useInboxSummary(status === "authed" ? accessToken : null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const userRef = useRef<HTMLDivElement>(null);
+  const userButtonRef = useRef<HTMLButtonElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
   useClickOutside(userRef, () => setUserOpen(false), userOpen);
+
+  // audit R3, D-060 (a11y-ui-2, a11y-ui-9): popover/menyu klaviaturasi —
+  // Escape yopadi va fokusni ochgan tugmaga qaytaradi, ↑/↓ bandlar bo'ylab
+  // yuradi (useClickOutside faqat yopardi, fokus <body> ga tushardi).
+  function menuItems(box: HTMLElement | null): HTMLElement[] {
+    if (!box) return [];
+    return Array.from(box.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"));
+  }
+
+  function moveFocus(box: HTMLElement | null, step: number) {
+    const items = menuItems(box);
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    const next = current < 0 ? (step > 0 ? 0 : items.length - 1) : (current + step + items.length) % items.length;
+    items[next]?.focus();
+  }
+
+  function closeUserMenu(returnFocus: boolean) {
+    setUserOpen(false);
+    if (returnFocus) userButtonRef.current?.focus();
+  }
+
+  function onUserMenuKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    // Ichki vidjet (til tanlagich) tugmani o'zi ishlatgan bo'lsa aralashmaymiz
+    if (!userOpen || e.defaultPrevented) return;
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      e.preventDefault();
+      closeUserMenu(true);
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      moveFocus(userMenuRef.current, e.key === "ArrowDown" ? 1 : -1);
+    }
+  }
+
+  function onMobileMenuKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (!menuOpen || e.defaultPrevented) return;
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      e.preventDefault();
+      setMenuOpen(false);
+      menuButtonRef.current?.focus();
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      moveFocus(mobileMenuRef.current, e.key === "ArrowDown" ? 1 : -1);
+    }
+  }
+  // Client-side navigatsiyadan keyin mobil va akkaunt menyulari yopiladi (audit ISSUE-074)
+  const urlOriginal = pageContext.urlOriginal;
+  useEffect(() => {
+    setMenuOpen(false);
+    setUserOpen(false);
+  }, [urlOriginal]);
 
   const isEmployer = status === "authed" && user?.role === "employer";
   const isSeeker = status === "authed" && user?.role === "job_seeker";
   const isAdmin = status === "authed" && user?.role === "admin";
+  // Kontent jamoasi (muharrir, muallif): profil/xabarlar yo'q — faqat maqolalar paneli
+  const isContentStaff = status === "authed" && isStaffRole(user?.role) && !isAdmin;
+  const adminHref = isAdmin ? "/admin" : "/admin/articles";
   // Asosiy navigatsiya — ochiq bo'limlar. Akkaunt sahifalari (arizalar,
   // saqlanganlar, sozlamalar) bu yerda emas, avatar menyusida.
   const navLinks: NavLink[] = isEmployer
@@ -53,11 +120,11 @@ export default function Header() {
         { label: t.nav.vacancies, href: "/vacancies" },
         { label: t.nav.companies, href: "/companies" },
         { label: t.navExtra.salaries, href: "/salaries" },
-        { label: t.nav.articles, href: "/article" },
+        { label: t.nav.articles, href: "/articles" },
         ...(isSeeker
           ? [{ label: t.nav.messages, href: "/messages", badge: summary.unreadMessages }]
           : []),
-        ...(isAdmin ? [{ label: t.navExtra.admin, href: "/admin" }] : []),
+        ...(isAdmin || isContentStaff ? [{ label: t.navExtra.admin, href: adminHref }] : []),
       ];
 
   // Ish beruvchining "bosh sahifasi" — xodim qidirish (ish izlovchiniki — ish qidirish)
@@ -80,6 +147,7 @@ export default function Header() {
     active: isActive("/messages"),
     badge: summary.unreadMessages,
   };
+  const adminLink: AccountLink = { key: "admin", label: t.navExtra.admin, href: adminHref, icon: <ShieldIcon />, active: isActive("/admin") };
   const accountLinks: AccountLink[] = isSeeker
     ? [
         { key: "profile", label: t.nav.profile, href: "/profile", icon: <UserIcon />, active: pathname === "/profile" && !onSettings },
@@ -89,22 +157,23 @@ export default function Header() {
         messagesLink,
         { key: "settings", label: t.navExtra.settings, href: "/profile?tab=settings", icon: <GearIcon />, active: onSettings },
       ]
-    : [
-        { key: "profile", label: isEmployer ? t.nav.companyProfile : t.nav.profile, href: "/profile", icon: <UserIcon />, active: isActive("/profile") },
-        messagesLink,
-        ...(isEmployer
-          ? [{ key: "pricing", label: t.pricing.breadcrumb, href: "/pricing", icon: <PlanIcon />, active: isActive("/pricing") }]
-          : []),
-        ...(isAdmin ? [{ key: "admin", label: t.navExtra.admin, href: "/admin", icon: <ShieldIcon />, active: isActive("/admin") }] : []),
-      ];
+    : isContentStaff
+      ? [adminLink]
+      : [
+          { key: "profile", label: isEmployer ? t.nav.companyProfile : t.nav.profile, href: "/profile", icon: <UserIcon />, active: isActive("/profile") },
+          messagesLink,
+          // Tariflar havolasi yo'q — platforma hozircha bepul (monetizatsiya UI'si ko'rsatilmaydi)
+          ...(isAdmin ? [adminLink] : []),
+        ];
   // Mobil menyuda asosiy navigatsiyadagi bandlar takrorlanmaydi (nomzoddan tashqari)
   const mobileAccountLinks: AccountLink[] = isSeeker
     ? accountLinks
-    : [
+    : isContentStaff
+      ? []
+      : [
         accountLinks[0],
         ...(!isEmployer ? [messagesLink] : []),
         { key: "notifications", label: t.navExtra.notifications, href: "/notifications", icon: <BellIcon />, active: isActive("/notifications") },
-        ...(isEmployer ? accountLinks.filter((link) => link.key === "pricing") : []),
       ];
   // Avatar tugmasi akkaunt sahifalarida (xabarlar asosiy navigatsiyada) belgilanadi
   const accountActive = accountLinks.some((link) => link.active && link.key !== "messages" && link.key !== "admin");
@@ -126,7 +195,7 @@ export default function Header() {
             </span>
           </a>
 
-          <nav className="hidden items-center gap-1 lg:flex">
+          <nav aria-label={t.nav.menu} className="hidden items-center gap-1 lg:flex">
             {navLinks.map((link) => (
               <a
                 key={link.href}
@@ -153,10 +222,19 @@ export default function Header() {
           <div className="mx-1 hidden h-6 w-px bg-line sm:block" />
 
           {status === "authed" ? (
-            <div ref={userRef} className="relative hidden lg:block">
+            <div ref={userRef} onKeyDown={onUserMenuKeyDown} className="relative hidden lg:block">
               <button
+                ref={userButtonRef}
                 type="button"
                 onClick={() => setUserOpen((v) => !v)}
+                onKeyDown={(e) => {
+                  if (e.key !== "ArrowDown" || userOpen) return;
+                  e.preventDefault();
+                  setUserOpen(true);
+                  // Menyu ochilgandan keyin birinchi bandga fokus
+                  window.setTimeout(() => moveFocus(userMenuRef.current, 1), 0);
+                }}
+                aria-haspopup="true"
                 aria-expanded={userOpen}
                 aria-controls="account-menu"
                 aria-label={`${t.navExtra.accountMenu}: ${displayName}`}
@@ -189,7 +267,8 @@ export default function Header() {
               {userOpen && (
                 <div
                   id="account-menu"
-                  className="absolute right-0 z-50 mt-2 w-64 origin-top-right animate-pop overflow-hidden rounded-xl border border-line bg-surface shadow-pop"
+                  ref={userMenuRef}
+                  className="absolute right-0 z-50 mt-2 w-64 max-h-[calc(100dvh-6rem)] origin-top-right animate-pop overflow-y-auto overscroll-contain rounded-xl border border-line bg-surface shadow-pop"
                 >
                   <div className="border-b border-line px-4 py-3">
                     <p className="truncate text-sm font-semibold text-ink">{fullName}</p>
@@ -202,7 +281,7 @@ export default function Header() {
                           <a
                             href={l(link.href)}
                             aria-current={link.active ? "page" : undefined}
-                            onClick={() => setUserOpen(false)}
+                            onClick={() => closeUserMenu(false)}
                             className={`flex items-center justify-between gap-2.5 px-4 py-2.5 text-sm transition-colors hover:bg-surface-2 ${
                               link.active ? "bg-signal-soft font-semibold text-signal" : "text-ink"
                             }`}
@@ -253,9 +332,18 @@ export default function Header() {
           )}
 
           <button
+            ref={menuButtonRef}
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key !== "Escape" || !menuOpen) return;
+              e.stopPropagation();
+              e.preventDefault();
+              setMenuOpen(false);
+            }}
             aria-label={menuOpen ? t.ui.closeMenu : t.ui.openMenu}
+            aria-haspopup="true"
+            aria-controls="mobile-menu"
             aria-expanded={menuOpen}
             className="relative flex h-9 w-9 items-center justify-center rounded-lg text-ink transition-colors hover:bg-surface-2 lg:hidden"
           >
@@ -274,8 +362,13 @@ export default function Header() {
       </div>
 
       {menuOpen && (
-        <div className="animate-slide-down border-t border-line px-4 py-4 lg:hidden">
-          <nav className="flex flex-col gap-1">
+        <div
+          id="mobile-menu"
+          ref={mobileMenuRef}
+          onKeyDown={onMobileMenuKeyDown}
+          className="max-h-[calc(100dvh-6.5rem)] animate-slide-down overflow-y-auto overscroll-contain border-t border-line px-4 py-4 lg:hidden"
+        >
+          <nav aria-label={t.nav.menu} className="flex flex-col gap-1">
             {navLinks.map((link) => (
               <a
                 key={link.href}
@@ -299,22 +392,26 @@ export default function Header() {
           <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
             {status === "authed" ? (
               <>
-                <nav aria-label={t.navExtra.accountMenu} className="flex flex-col gap-1">
-                  {mobileAccountLinks.map((link) => (
-                    <a
-                      key={link.key}
-                      href={l(link.href)}
-                      aria-current={link.active ? "page" : undefined}
-                      className={`flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-surface-2 ${
-                        link.active ? "bg-signal-soft font-semibold text-signal" : "font-medium text-ink"
-                      }`}
-                    >
-                      {link.label}
-                      {link.badge ? <NavBadge count={link.badge} /> : null}
-                    </a>
-                  ))}
-                </nav>
-                <div className="h-px bg-line" aria-hidden />
+                {mobileAccountLinks.length > 0 && (
+                  <>
+                    <nav aria-label={t.navExtra.accountMenu} className="flex flex-col gap-1">
+                      {mobileAccountLinks.map((link) => (
+                        <a
+                          key={link.key}
+                          href={l(link.href)}
+                          aria-current={link.active ? "page" : undefined}
+                          className={`flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-surface-2 ${
+                            link.active ? "bg-signal-soft font-semibold text-signal" : "font-medium text-ink"
+                          }`}
+                        >
+                          {link.label}
+                          {link.badge ? <NavBadge count={link.badge} /> : null}
+                        </a>
+                      ))}
+                    </nav>
+                    <div className="h-px bg-line" aria-hidden />
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => logout()}
@@ -428,15 +525,6 @@ function BellIcon() {
         strokeLinejoin="round"
       />
       <path d="M13.7 19a2 2 0 01-3.4 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PlanIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-dusk" aria-hidden>
-      <rect x="3" y="6" width="18" height="12" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M3 10h18" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
 }

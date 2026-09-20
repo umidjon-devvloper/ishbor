@@ -7,23 +7,26 @@
  * (`path.basename`) ham to'g'ri ishlaydi. `removeDemoFiles()` faqat shu prefiksli
  * fayllarni o'chiradi — foydalanuvchilar yuklagan fayllarga tegmaydi.
  */
-import fs from "node:fs";
-import path from "node:path";
-import { UPLOAD_DIR, ensureUploadDir } from "../common/uploads.js";
+import { deleteFile, fileUrl, listFiles, putFile } from "../common/storage.js";
 
 const PREFIX = "demo-";
 
-export function writeDemoFile(name: string, content: string | Buffer): string {
-  ensureUploadDir();
+/**
+ * Demo faylini saqlash qatlami orqali yozadi (lokal disk yoki S3 — sozlamaga qarab),
+ * shuning uchun demo ma'lumot S3 ishlatadigan deployda ham to'g'ri ko'rinadi.
+ * Rezyume YOPIQ fayl: havolasi ichki (`/uploads/demo-resume-…`), uni faqat vakolat
+ * tekshiradigan marshrut ochadi (audit R3, D-058).
+ */
+export async function writeDemoFile(name: string, content: string | Buffer): Promise<string> {
   const filename = `${PREFIX}${name}`;
-  fs.writeFileSync(path.join(UPLOAD_DIR, filename), content);
-  return `/uploads/${filename}`;
+  const visibility = name.startsWith("resume-") ? "private" : "public";
+  await putFile(filename, Buffer.isBuffer(content) ? content : Buffer.from(content), visibility);
+  return fileUrl(filename, visibility);
 }
 
-export function removeDemoFiles(): number {
-  if (!fs.existsSync(UPLOAD_DIR)) return 0;
-  const files = fs.readdirSync(UPLOAD_DIR).filter((f) => f.startsWith(PREFIX));
-  for (const f of files) fs.rmSync(path.join(UPLOAD_DIR, f), { force: true });
+export async function removeDemoFiles(): Promise<number> {
+  const files = await listFiles(PREFIX);
+  for (const f of files) await deleteFile(f);
   return files.length;
 }
 

@@ -28,6 +28,36 @@ export interface PushPayload {
 }
 
 /**
+ * Ma'lum push xizmatlari (audit R3, gap2-5): obuna manzili sifatida istalgan host qabul qilinsa,
+ * server hujumchi tanlagan host:port ga chiquvchi so'rov yuboradi (SSRF yo'nalishi).
+ * Ro'yxat brauzerlarning haqiqiy push xizmatlari bilan cheklangan; port — faqat standart 443.
+ */
+const PUSH_HOSTS = [
+  "fcm.googleapis.com",
+  "android.googleapis.com",
+  "updates.push.services.mozilla.com",
+  "push.services.mozilla.com",
+  "web.push.apple.com",
+  "notify.windows.com",
+] as const;
+
+export function isAllowedPushEndpoint(endpoint: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  if (url.port && url.port !== "443") return false;
+  const host = url.hostname.toLowerCase();
+  return PUSH_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+}
+
+/** Push xizmatining javobini cheksiz kutmaslik uchun (audit R3, gap2-5). */
+const PUSH_TIMEOUT_MS = 10_000;
+
+/**
  * Foydalanuvchining barcha qurilmalariga push yuboradi.
  * Obuna eskirgan bo'lsa (404/410) — bazadan tozalanadi.
  */
@@ -42,10 +72,13 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
 
   await Promise.all(
     subs.map(async (sub: { id: string; endpoint: string; p256dh: string; auth: string }) => {
+      // Eski yozuvda notanish host bo'lishi mumkin — chiquvchi so'rov yuborilmaydi (audit R3, gap2-5)
+      if (!isAllowedPushEndpoint(sub.endpoint)) return;
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          body
+          body,
+          { timeout: PUSH_TIMEOUT_MS }
         );
         delivered += 1;
       } catch (e) {
@@ -58,6 +91,23 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
   );
 
   return delivered;
+}
+
+/**
+ * Foydalanuvchining barcha push obunalarini o'chiradi (audit R3, gap2-4).
+ *
+ * Seans bekor qilinganda (chiqish "barcha qurilmalardan", bloklash, rol o'zgarishi,
+ * parol tiklash, telefon almashtirish) eski qurilma push olishda davom etardi —
+ * umumiy kompyuterda bu boshqa odamga bildirishnoma ko'rsatardi.
+ * Hech qachon reject qilmaydi: asosiy oqim (bloklash, parol tiklash) buzilmasin.
+ */
+export async function deleteUserPushSubscriptions(userId: string): Promise<number> {
+  try {
+    const res = await prisma.pushSubscription.deleteMany({ where: { userId } });
+    return res.count;
+  } catch {
+    return 0;
+  }
 }
 
 export function getVapidPublicKey(): string {

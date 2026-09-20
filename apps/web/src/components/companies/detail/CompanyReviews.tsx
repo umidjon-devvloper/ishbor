@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useMemo, useState } from "react";
 import type { CompanyReviewVM } from "../../../lib/companies/detail.js";
-import { ratingSummary } from "../../../lib/companies/detail.js";
+import { isMyReview, ratingSummary } from "../../../lib/companies/detail.js";
+import { loginHrefWithReturn } from "../../../lib/auth/returnTo.js";
 import { ApiError, deleteReview, submitReview } from "../../../lib/api.js";
 import { formatDate } from "../../../lib/format.js";
 import { useHref, useLocale, useT } from "../../../lib/i18n/index.js";
@@ -45,7 +46,9 @@ export function CompanyReviews({
   const summary = useMemo(() => ratingSummary(reviews), [reviews]);
   const isSeeker = status === "authed" && user?.role === "job_seeker" && Boolean(accessToken);
   const isAdmin = status === "authed" && user?.role === "admin";
-  const mine = reviews.find((x) => x.userId && x.userId === user?.id);
+  // Audit R3, D-075: "meniki" serverdagi `mine` bayrog'idan (eski javobda userId)
+  const mine = reviews.find((x) => isMyReview(x, user?.id));
+  const notMine = (x: CompanyReviewVM) => !isMyReview(x, user?.id);
   const shown = limit ? reviews.slice(0, limit) : reviews;
   const showForm = !limit || reviews.length === 0;
 
@@ -55,6 +58,13 @@ export function CompanyReviews({
   const [error, setError] = useState<FormError>(null);
   const [gated, setGated] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pending, setPending] = useState(false);
+  // Audit R3, candidate-flows-12: kirishdan keyin shu kompaniya sahifasiga qaytadi
+  const loginHref = l("/login");
+  const [guestLogin, setGuestLogin] = useState(loginHref);
+  useEffect(() => {
+    setGuestLogin(loginHrefWithReturn(loginHref));
+  }, [loginHref]);
 
   // Oldin yozilgan sharh bo'lsa forma o'sha qiymatlar bilan to'ladi (tahrirlash)
   useEffect(() => {
@@ -81,15 +91,24 @@ export function CompanyReviews({
     setGated(false);
     try {
       const result = await submitReview(accessToken, slug, { rating, comment: comment.trim() || undefined });
+      if (result.status === "pending") {
+        // Moderatsiyadagi sharh ochiq ro'yxatda ko'rinmaydi — foydalanuvchiga holati aytiladi
+        onChange(reviews.filter((x) => x.id !== result.id && notMine(x)));
+        setSaved(false);
+        setPending(true);
+        return;
+      }
       const item: CompanyReviewVM = {
         id: result.id,
         rating: result.rating,
         comment: result.comment?.trim() || null,
         createdAt: result.createdAt,
         authorName: result.authorName || null,
+        mine: true,
         userId: user?.id ?? null,
       };
-      onChange([item, ...reviews.filter((x) => x.id !== item.id && x.userId !== user?.id)]);
+      onChange([item, ...reviews.filter((x) => x.id !== item.id && notMine(x))]);
+      setPending(false);
       setSaved(true);
     } catch (err) {
       if (isPhoneGateError(err)) setGated(true);
@@ -165,7 +184,7 @@ export function CompanyReviews({
         <ul className="mt-4 space-y-3">
           {shown.map((review) => {
             const name = review.authorName ?? d.anonymous;
-            const isMine = Boolean(review.userId && review.userId === user?.id);
+            const isMine = isMyReview(review, user?.id);
             return (
               <li key={review.id} className="rounded-2xl border border-line p-4">
                 <div className="flex items-start gap-3">
@@ -245,7 +264,7 @@ export function CompanyReviews({
               {busy ? r.submitting : r.submit}
             </button>
             <span role="status" className="text-[13.5px] font-medium text-growth">
-              {saved ? r.saved : ""}
+              {saved ? r.saved : pending ? r.pendingModeration : ""}
             </span>
           </div>
         </form>
@@ -253,7 +272,7 @@ export function CompanyReviews({
 
       {showForm && status === "guest" && (
         <a
-          href={l("/login")}
+          href={guestLogin}
           className="group mt-5 inline-flex items-center gap-1.5 rounded-md text-[14px] font-semibold text-signal hover:underline"
         >
           {d.loginToWrite}

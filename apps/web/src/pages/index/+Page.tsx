@@ -25,7 +25,7 @@ const CHIP_HUES: Record<string, { tint: string; icon: string }> = {
 };
 
 export default function Page() {
-  const { stats, vacancies, companies } = useData<Awaited<ReturnType<typeof data>>>();
+  const { stats, vacancies, companies, categoryCounts } = useData<Awaited<ReturnType<typeof data>>>();
   const t = useT();
   const { locale } = useLocale();
   const l = useHref();
@@ -117,8 +117,9 @@ export default function Page() {
             </div>
           </div>
 
-          {/* Statistika kartasi — pastel ikonka + rangli chiziqcha */}
+          {/* Statistika kartasi — pastel ikonka + rangli chiziqcha. API javob bermasa umuman chizilmaydi (0 ko'rsatilmaydi) */}
           <div className="relative">
+            {stats && (
             <div
               style={{ animationDelay: "220ms" }}
               className="relative z-[2] mt-8 grid animate-fade-up gap-6 rounded-2xl border border-line bg-surface/95 px-6 py-5 shadow-card backdrop-blur sm:grid-cols-3 sm:gap-0 sm:px-2"
@@ -161,9 +162,10 @@ export default function Page() {
                 }
               />
             </div>
+            )}
 
             {/* Top kompaniyalar lentasi */}
-            {companies.length > 0 && (
+            {companies && companies.length > 0 && (
               <div
                 style={{ animationDelay: "280ms" }}
                 className="relative z-[2] mb-2 mt-4 animate-fade-up rounded-2xl border border-line bg-surface/95 px-5 pb-5 pt-4 shadow-card backdrop-blur"
@@ -196,33 +198,47 @@ export default function Page() {
       <Section title={t.home.categoriesTitle} href="/vacancies" linkLabel={t.home.viewAll}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {CATEGORIES.map((cat, i) => (
-            <CategoryCard key={cat.slug} name={names[cat.slug]} slug={cat.slug} count={cat.count} index={i} />
+            <CategoryCard
+              key={cat.slug}
+              name={names[cat.slug]}
+              slug={cat.slug}
+              count={categoryCounts ? categoryCounts[cat.slug] ?? 0 : null}
+              index={i}
+            />
           ))}
         </div>
       </Section>
 
       {/* SO'NGGI VAKANSIYALAR */}
       <Section title={t.home.latestTitle} href="/vacancies" linkLabel={t.home.viewAll}>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {vacancies.map((v, i) => (
-            <VacancyCard
-              key={v.id}
-              vacancy={v}
-              index={i}
-              favorite={favorites.enabled ? favorites.isFavorite(v.id) : undefined}
-              onToggleFavorite={favorites.enabled ? favorites.toggle : undefined}
-            />
-          ))}
-        </div>
+        {vacancies === null ? (
+          <LoadErrorNote text={t.home.loadError} />
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {vacancies.map((v, i) => (
+              <VacancyCard
+                key={v.id}
+                vacancy={v}
+                index={i}
+                favorite={favorites.enabled ? favorites.isFavorite(v.id) : undefined}
+                onToggleFavorite={favorites.enabled ? favorites.toggle : undefined}
+              />
+            ))}
+          </div>
+        )}
       </Section>
 
       {/* TOP KOMPANIYALAR (kartalar) */}
       <Section title={t.companies.title} href="/companies" linkLabel={t.home.viewAll}>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {companies.map((c, i) => (
-            <CompanyCard key={c.slug} company={c} index={i} />
-          ))}
-        </div>
+        {companies === null ? (
+          <LoadErrorNote text={t.home.loadError} />
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {companies.map((c, i) => (
+              <CompanyCard key={c.slug} company={c} index={i} />
+            ))}
+          </div>
+        )}
       </Section>
 
       {/* ISH BERUVCHI CTA — indigo band */}
@@ -320,11 +336,20 @@ function Stat({
       </span>
       <div className="min-w-0">
         <div className="font-display text-[26px] font-extrabold leading-none tracking-tight text-ink">
-          <CountUp value={value} suffix="+" />
+          <CountUp value={value} />
         </div>
         <span style={{ background: bar }} className="my-1.5 block h-[3px] w-11 rounded-full" aria-hidden />
         <div className="truncate text-[13.5px] font-medium text-dusk">{label}</div>
       </div>
     </div>
+  );
+}
+
+/** Blok ma'lumoti yuklanmadi — bo'sh ro'yxat emas, aniq xabar (audit ISSUE-016). */
+function LoadErrorNote({ text }: { text: string }) {
+  return (
+    <p role="alert" className="rounded-2xl border border-dashed border-line bg-surface px-5 py-8 text-center text-sm text-dusk">
+      {text}
+    </p>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import type { CompanyDetailVM, CompanyReviewVM } from "../../../lib/companies/detail.js";
-import { ratingSummary } from "../../../lib/companies/detail.js";
+import { companyRatingSummary } from "../../../lib/companies/detail.js";
 import { useLocale, useT } from "../../../lib/i18n/index.js";
 import { regionName } from "../../../lib/i18n/regions.js";
 import { CompanyLogo } from "../CompanyLogo.js";
@@ -25,7 +25,9 @@ export function CompanyDetailHeader({
   const t = useT();
   const d = t.companyDetail;
   const { locale } = useLocale();
-  const summary = useMemo(() => ratingSummary(reviews), [reviews]);
+  // Ro'yxat cheklangan bo'lsa (ko'p sharh) — o'rtacha serverdan, son mahalliy o'zgarish bilan; aks holda jonli
+  // ro'yxatdan. "Cheklangan" dastlabki server ro'yxatidan aniqlanadi — o'chirishdan keyin eski son qolmaydi (audit PHASE 6, U24)
+  const summary = useMemo(() => companyRatingSummary(company, reviews), [company, reviews]);
   const region = company.regionSlug ? regionName(locale, company.regionSlug, company.regionName) : company.regionName;
 
   const meta: { key: string; icon: React.ReactNode; text: string }[] = [];

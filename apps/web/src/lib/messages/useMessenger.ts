@@ -5,17 +5,31 @@ import { useChatSocket, type SocketMessage } from "../useChatSocket.js";
 import { mapMessageToViewModel, type ConversationView, type MessageStatus, type MessageView } from "./adapter.js";
 import { fetchConversationList, fetchConversationMessages } from "./api.js";
 import { emitInboxChanged } from "./events.js";
+import { isPageActive, isPageVisible, onPageActive, staggerDelay } from "./live.js";
 
 /** Server tasdig'i shu vaqtda kelmasa — xabar "Yuborilmadi" deb belgilanadi. */
 export const SEND_TIMEOUT_MS = 10_000;
 
-export type ListState = { status: "loading" } | { status: "error" } | { status: "ready"; items: ConversationView[] };
+/** Havola bilan ochilgan suhbatni qidirishda avtomatik yuklanadigan sahifalar chegarasi (D-078). */
+const AUTO_PAGE_LIMIT = 10;
+
+/** Ro'yxat/tarix davomini yuklash holati (audit R3, D-078). */
+export type MoreStatus = "idle" | "loading" | "error";
+
+export type ListState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; items: ConversationView[]; nextCursor: string | null; more: MoreStatus };
 
 export interface ThreadState {
   status: "loading" | "error" | "ready";
   items: MessageView[];
   /** Suhbat ochilganda o'qilmagan bo'lgan birinchi xabar — "Yangi xabarlar" ajratgichi. */
   newFromId: string | null;
+  /** Serverda eskiroq xabarlar bormi (audit R3, D-078). */
+  hasMore: boolean;
+  /** "Eskiroq xabarlar" tugmasi holati. */
+  older: MoreStatus;
 }
 
 export type PartnerState = UserSummary | "loading" | "error";
@@ -34,6 +48,39 @@ function bump(items: ConversationView[], id: string, patch: (c: ConversationView
   return [patch(item), ...next];
 }
 
+function timeOf(message: MessageView): number {
+  return message.createdAt ? new Date(message.createdAt).getTime() : 0;
+}
+
+/**
+ * Serverdan kelgan xabarlarni mavjudlari bilan birlashtiradi (id bo'yicha, xronologik tartibda).
+ * Eskiroq sahifa yuklangandan keyin jimgina yangilash eski xabarlarni o'chirib yubormaydi.
+ */
+function mergeMessages(existing: MessageView[], incoming: MessageView[]): MessageView[] {
+  const byId = new Map<string, MessageView>();
+  for (const message of existing) if (message.status === "sent") byId.set(message.id, message);
+  for (const message of incoming) byId.set(message.id, message);
+  return [...byId.values()].sort((a, b) => timeOf(a) - timeOf(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * Yuborilmagan (mahalliy) pufak aslida serverga yetib borganmi (audit R3, realtime-12).
+ * `clientId` server javobida bo'lsa aynan shu bo'yicha; bo'lmasa — o'sha matnli, o'zim yuborgan
+ * va shu vaqt oralig'idagi xabar. Shu tekshiruv bo'lmasa "Yuborilmadi" pufagi saqlangan nusxa
+ * yonida turaverar va "Qayta yuborish" ikkinchi nusxani yaratardi.
+ */
+function alreadyDelivered(local: MessageView, server: MessageView[], userId: string): boolean {
+  const body = local.body.trim();
+  const at = local.createdAt ? new Date(local.createdAt).getTime() : null;
+  return server.some((message) => {
+    if (local.clientId && message.clientId && message.clientId === local.clientId) return true;
+    if (message.senderId !== userId || message.body.trim() !== body) return false;
+    if (at === null || !message.createdAt) return false;
+    const delta = new Date(message.createdAt).getTime() - at;
+    return delta >= -60_000 && delta <= 600_000;
+  });
+}
+
 /**
  * `/messages` ma'lumot qatlami: suhbatlar ro'yxati, ochilgan suhbat tarixi va mavjud
  * WebSocket (`/ws/chat`) orqali real-time xabar/o'qildi hodisalari.
@@ -44,6 +91,14 @@ function bump(items: ConversationView[], id: string, patch: (c: ConversationView
  *   qaytargach "yuborildi"ga o'tadi; ulanish yo'q yoki tasdiq kelmasa — "Yuborilmadi"
  *   va "Qayta yuborish".
  * - `activeId` — ekranda ochiq turgan suhbat (mobil ro'yxat ko'rinishida `null`).
+ *
+ * Audit R3:
+ * - D-078: suhbatlar ro'yxati va tarix kursor bilan sahifalanadi ("Yana suhbatlar",
+ *   "Eskiroq xabarlar"), har bir holat (yuklanmoqda, xato, oxiri) ko'rinib turadi;
+ * - realtime-6: "o'qildi" faqat sahifa ko'rinib turganda va fokusda yuboriladi; yashirin
+ *   tabda qayta ulanish tarixni qayta so'ramaydi (REST so'rovi o'qilgan deb belgilaydi);
+ * - realtime-12: qayta yuklashda serverga yetib borgan mahalliy pufak takrorlanmaydi;
+ * - realtime-16: tasdiq kelmasa ulanish yarim ochiq deb hisoblanadi va qayta ulanadi.
  */
 export function useMessenger(token: string, userId: string, activeId: string | null) {
   const [list, setList] = useState<ListState>({ status: "loading" });
@@ -61,6 +116,12 @@ export function useMessenger(token: string, userId: string, activeId: string | n
   const listInflight = useRef<Promise<void> | null>(null);
   const threadInflight = useRef(new Map<string, Promise<void>>());
   const timers = useRef(new Map<string, number>());
+  /** Yashirin tabda kelgan xabarlar: sahifa ko'ringanda "o'qildi" yuboriladi (audit R3, realtime-6). */
+  const pendingRead = useRef(new Set<string>());
+  /** Yashirin tabda qayta ulanish bo'ldi — tarix sahifa ko'ringanda yangilanadi. */
+  const pendingThreadReload = useRef<string | null>(null);
+  /** Havola bilan ochilgan suhbatni qidirishda yuklangan qo'shimcha sahifalar soni (cheklangan). */
+  const autoPages = useRef(0);
 
   const reloadList = useCallback(
     (silent = false) => {
@@ -68,11 +129,24 @@ export function useMessenger(token: string, userId: string, activeId: string | n
       if (!silent) setList({ status: "loading" });
       const request = fetchConversationList(token)
         .then(
-          (items) => {
+          (page) => {
             // Ochiq suhbat tarixi allaqachon olingan — server hisobidagi eski o'qilmaganlar ko'rinmasin
             const active = activeRef.current;
             const loaded = active ? threadsRef.current[active]?.status === "ready" : false;
-            setList({ status: "ready", items: loaded ? items.map((c) => (c.id === active ? { ...c, unread: 0 } : c)) : items });
+            const items = loaded ? page.items.map((c) => (c.id === active ? { ...c, unread: 0 } : c)) : page.items;
+            // audit R3, D-078: jimgina yangilash ("Yana suhbatlar" bilan) yuklangan keyingi
+            // sahifalarni o'chirmasin — aks holda ochiq suhbat ro'yxatdan tushib, "topilmadi" ko'rinardi
+            setList((prev) => {
+              const ids = new Set(items.map((c) => c.id));
+              const tail = prev.status === "ready" ? prev.items.filter((c) => !ids.has(c.id)) : [];
+              return {
+                status: "ready",
+                items: [...items, ...tail],
+                // Davomi saqlanib qolgan bo'lsa kursor ham oldingi (eng oxirgi yuklangan) joyda qoladi
+                nextCursor: tail.length > 0 && prev.status === "ready" ? prev.nextCursor : page.nextCursor,
+                more: "idle",
+              };
+            });
           },
           () => {
             if (!silent || listRef.current.status !== "ready") setList({ status: "error" });
@@ -87,6 +161,33 @@ export function useMessenger(token: string, userId: string, activeId: string | n
     [token]
   );
 
+  /** Suhbatlar ro'yxatining davomi (audit R3, D-078). Xatoda ro'yxat saqlanadi, tugma xato holatiga o'tadi. */
+  const loadMoreConversations = useCallback(() => {
+    const current = listRef.current;
+    if (current.status !== "ready" || !current.nextCursor || current.more === "loading") return Promise.resolve();
+    const cursor = current.nextCursor;
+    setList({ ...current, more: "loading" });
+    return fetchConversationList(token, { before: cursor }).then(
+      (page) => {
+        setList((prev) => {
+          if (prev.status !== "ready") return prev;
+          const seen = new Set(prev.items.map((c) => c.id));
+          const fresh = page.items.filter((c) => !seen.has(c.id));
+          return {
+            status: "ready",
+            items: [...prev.items, ...fresh],
+            // Server o'sha kursorni qaytarsa cheksiz aylanmasin
+            nextCursor: page.nextCursor && page.nextCursor !== cursor ? page.nextCursor : null,
+            more: "idle",
+          };
+        });
+      },
+      () => {
+        setList((prev) => (prev.status === "ready" ? { ...prev, more: "error" } : prev));
+      }
+    );
+  }, [token]);
+
   const loadThread = useCallback(
     (id: string, silent = false) => {
       const pending = threadInflight.current.get(id);
@@ -94,32 +195,75 @@ export function useMessenger(token: string, userId: string, activeId: string | n
       const current = listRef.current;
       const unreadBefore = current.status === "ready" ? current.items.find((c) => c.id === id)?.unread ?? 0 : 0;
       if (!silent) {
-        setThreads((prev) => ({ ...prev, [id]: { status: "loading", items: prev[id]?.items ?? [], newFromId: prev[id]?.newFromId ?? null } }));
+        setThreads((prev) => ({
+          ...prev,
+          [id]: {
+            status: "loading",
+            items: prev[id]?.items ?? [],
+            newFromId: prev[id]?.newFromId ?? null,
+            hasMore: prev[id]?.hasMore ?? false,
+            older: "idle",
+          },
+        }));
       }
       const request = fetchConversationMessages(token, id)
         .then(
-          (items) => {
+          (page) => {
+            const items = page.items;
             setThreads((prev) => {
-              const local = (prev[id]?.items ?? []).filter((m) => m.status !== "sent");
+              const before = prev[id];
+              const existing = before?.items ?? [];
+              // Serverga yetib borgan mahalliy pufaklar takrorlanmaydi (audit R3, realtime-12).
+              // Solishtirish faqat YANGI kelgan server xabarlari bilan: ilgari ko'rilgan bir xil
+              // matnli xabar (foydalanuvchi "ok" ni ikki marta yozgan) yuborilmagan pufakni
+              // jimgina yo'q qilib yubormasin — "Yuborilmadi" belgisi joyida qoladi.
+              const known = new Set(existing.filter((m) => m.status === "sent").map((m) => m.id));
+              const arrived = items.filter((m) => !known.has(m.id));
+              const local = existing.filter((m) => m.status !== "sent" && !alreadyDelivered(m, arrived, userId));
               const incoming = items.filter((m) => m.senderId !== userId);
               const newFromId =
                 unreadBefore > 0 && incoming.length > 0
                   ? incoming[Math.max(0, incoming.length - unreadBefore)].id
                   : silent
-                    ? prev[id]?.newFromId ?? null
+                    ? before?.newFromId ?? null
                     : null;
-              return { ...prev, [id]: { status: "ready", items: [...items, ...local], newFromId } };
+              const merged = mergeMessages(before?.items ?? [], items);
+              // audit R3, D-078: "Eskiroq xabarlar" bilan allaqachon yuklangan bo'lsak, eng yangi
+              // sahifaning `hasMore` qiymati eskirgan — aks holda qayta ulangach ishlamaydigan
+              // tugma qaytib chiqardi. Shu holda oldingi qiymat saqlanadi.
+              const oldestAt = items.length > 0 ? timeOf(items[0]) : 0;
+              const pagedOlder = oldestAt > 0 && existing.some((m) => m.status === "sent" && timeOf(m) > 0 && timeOf(m) < oldestAt);
+              return {
+                ...prev,
+                [id]: {
+                  status: "ready",
+                  items: [...merged, ...local],
+                  newFromId,
+                  hasMore: pagedOlder && before ? before.hasMore : page.hasMore,
+                  older: "idle",
+                },
+              };
             });
             if (unreadBefore > 0) {
-              setList((prev) =>
-                prev.status === "ready" ? { status: "ready", items: prev.items.map((c) => (c.id === id ? { ...c, unread: 0 } : c)) } : prev
-              );
+              setList((prev) => (prev.status === "ready" ? { ...prev, items: prev.items.map((c) => (c.id === id ? { ...c, unread: 0 } : c)) } : prev));
+              pendingRead.current.delete(id);
               emitInboxChanged();
             }
           },
           () => {
             setThreads((prev) =>
-              silent && prev[id]?.status === "ready" ? prev : { ...prev, [id]: { status: "error", items: prev[id]?.items ?? [], newFromId: null } }
+              silent && prev[id]?.status === "ready"
+                ? prev
+                : {
+                    ...prev,
+                    [id]: {
+                      status: "error",
+                      items: prev[id]?.items ?? [],
+                      newFromId: null,
+                      hasMore: prev[id]?.hasMore ?? false,
+                      older: "idle",
+                    },
+                  }
             );
           }
         )
@@ -130,6 +274,41 @@ export function useMessenger(token: string, userId: string, activeId: string | n
       return request;
     },
     [token, userId]
+  );
+
+  /** Eskiroq xabarlar (audit R3, D-078): eng eski yuklangan xabardan oldingilari ro'yxat boshiga qo'shiladi. */
+  const loadOlder = useCallback(
+    (id: string) => {
+      const thread = threadsRef.current[id];
+      if (!thread || thread.status !== "ready" || !thread.hasMore || thread.older === "loading") return Promise.resolve();
+      const oldest = thread.items.find((m) => m.status === "sent");
+      if (!oldest) return Promise.resolve();
+      setThreads((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], older: "loading" } } : prev));
+      return fetchConversationMessages(token, id, { before: oldest.id }).then(
+        (page) => {
+          setThreads((prev) => {
+            const now = prev[id];
+            if (!now) return prev;
+            const seen = new Set(now.items.map((m) => m.id));
+            const older = page.items.filter((m) => !seen.has(m.id));
+            return {
+              ...prev,
+              [id]: {
+                ...now,
+                items: [...older, ...now.items],
+                // Hech narsa kelmasa "yana bor" deb turmaymiz (cheksiz tugma bo'lmasin)
+                hasMore: older.length > 0 && page.hasMore,
+                older: "idle",
+              },
+            };
+          });
+        },
+        () => {
+          setThreads((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], older: "error" } } : prev));
+        }
+      );
+    },
+    [token]
   );
 
   const setStatus = useCallback((conversationId: string, clientId: string, status: MessageStatus) => {
@@ -157,6 +336,8 @@ export function useMessenger(token: string, userId: string, activeId: string | n
       const mine = message.senderId === userId;
       const conversationId = message.conversationId;
       const isActive = conversationId === activeRef.current;
+      // audit R3, realtime-6: yashirin yoki fokussiz tabda xabar o'qilgan hisoblanmaydi
+      const readNow = isActive && isPageActive();
       if (raw.clientId) clearTimer(raw.clientId);
 
       setThreads((prev) => {
@@ -174,28 +355,31 @@ export function useMessenger(token: string, userId: string, activeId: string | n
         // Yangi suhbat (masalan, ish beruvchi birinchi marta yozdi) — ro'yxat qayta olinadi
         void reloadList(true);
         if (!mine) emitInboxChanged();
+        if (!mine && isActive && !readNow) pendingRead.current.add(conversationId);
         return;
       }
       setList((prev) =>
         prev.status !== "ready"
           ? prev
           : {
-              status: "ready",
+              ...prev,
               items: bump(prev.items, conversationId, (c) => ({
                 ...c,
                 lastMessage: message.body.trim(),
                 lastMessageAt: message.createdAt,
                 lastMessageMine: mine,
                 lastMessageRead: false,
-                unread: mine || isActive ? c.unread : c.unread + 1,
+                unread: mine || readNow ? c.unread : c.unread + 1,
               })),
             }
       );
-      if (!mine && isActive) {
+      if (!mine && readNow) {
         socket.markRead(conversationId);
         // Server o'qildi yozuvini saqlab ulgursin — keyin header soni so'raladi
         window.setTimeout(emitInboxChanged, 500);
       } else if (!mine) {
+        // Ochiq, lekin ko'rinmayotgan suhbat: o'qildi sahifa faollashganda yuboriladi
+        if (isActive) pendingRead.current.add(conversationId);
         emitInboxChanged();
       }
     },
@@ -211,17 +395,50 @@ export function useMessenger(token: string, userId: string, activeId: string | n
       });
       setList((prev) =>
         prev.status === "ready"
-          ? { status: "ready", items: prev.items.map((c) => (c.id === conversationId && c.lastMessageMine ? { ...c, lastMessageRead: true } : c)) }
+          ? { ...prev, items: prev.items.map((c) => (c.id === conversationId && c.lastMessageMine ? { ...c, lastMessageRead: true } : c)) }
           : prev
       );
     },
     onOpen: (reconnected) => {
       if (!reconnected) return;
-      // Uzilish paytida o'tkazib yuborilgan xabarlar
-      void reloadList(true);
-      if (activeRef.current) void loadThread(activeRef.current, true);
+      // Uzilish paytida o'tkazib yuborilgan xabarlar. audit R3, realtime-7: so'rovlar 0..3 s ga tarqatiladi
+      const active = activeRef.current;
+      window.setTimeout(() => {
+        void reloadList(true);
+      }, staggerDelay());
+      if (!active) return;
+      // audit R3, realtime-6: tarix so'rovi serverda "o'qildi" yozadi — yashirin tabda kutib turamiz
+      if (!isPageVisible()) {
+        pendingThreadReload.current = active;
+        return;
+      }
+      window.setTimeout(() => {
+        if (activeRef.current === active) void loadThread(active, true);
+      }, staggerDelay());
     },
   });
+
+  // Sahifa yana ko'rindi: kutib turgan "o'qildi" va tarix yangilanishi bajariladi (audit R3, realtime-6)
+  const socketRef = useRef(socket);
+  socketRef.current = socket;
+  useEffect(() => {
+    return onPageActive(() => {
+      const waiting = [...pendingRead.current];
+      pendingRead.current.clear();
+      for (const conversationId of waiting) {
+        if (conversationId !== activeRef.current) continue;
+        socketRef.current.markRead(conversationId);
+        setList((prev) => (prev.status === "ready" ? { ...prev, items: prev.items.map((c) => (c.id === conversationId ? { ...c, unread: 0 } : c)) } : prev));
+      }
+      if (waiting.length > 0) window.setTimeout(emitInboxChanged, 500);
+      const deferred = pendingThreadReload.current;
+      pendingThreadReload.current = null;
+      if (deferred && deferred === activeRef.current) {
+        const existing = threadsRef.current[deferred];
+        void loadThread(deferred, existing?.status === "ready");
+      }
+    });
+  }, [loadThread]);
 
   const dispatch = useCallback(
     (message: MessageView) => {
@@ -236,6 +453,8 @@ export function useMessenger(token: string, userId: string, activeId: string | n
         window.setTimeout(() => {
           timers.current.delete(clientId);
           setStatus(message.conversationId, clientId, "failed");
+          // Tasdiq kelmadi — ulanish yarim ochiq bo'lishi mumkin (audit R3, realtime-16)
+          socketRef.current.reset();
         }, SEND_TIMEOUT_MS)
       );
     },
@@ -258,7 +477,7 @@ export function useMessenger(token: string, userId: string, activeId: string | n
         clientId,
       };
       setThreads((prev) => {
-        const thread = prev[conversationId] ?? { status: "ready" as const, items: [], newFromId: null };
+        const thread = prev[conversationId] ?? { status: "ready" as const, items: [], newFromId: null, hasMore: false, older: "idle" as const };
         return { ...prev, [conversationId]: { ...thread, items: [...thread.items, message] } };
       });
       dispatch(message);
@@ -287,7 +506,9 @@ export function useMessenger(token: string, userId: string, activeId: string | n
 
   const loadRating = useCallback(
     (conversationId: string) => {
-      fetchConversationRating(token, conversationId).then((rating) => setRatings((prev) => ({ ...prev, [conversationId]: rating })));
+      fetchConversationRating(token, conversationId)
+        .then((rating) => setRatings((prev) => ({ ...prev, [conversationId]: rating })))
+        .catch(() => setRatings((prev) => ({ ...prev, [conversationId]: null })));
     },
     [token]
   );
@@ -312,9 +533,10 @@ export function useMessenger(token: string, userId: string, activeId: string | n
       const state = partnersRef.current[otherUserId];
       if (!force && state && state !== "error") return;
       setPartners((prev) => ({ ...prev, [otherUserId]: "loading" }));
-      fetchUserSummary(token, otherUserId).then((summary) =>
-        setPartners((prev) => ({ ...prev, [otherUserId]: summary ?? "error" }))
-      );
+      // Xatoda panel "loading"da qotib qolmasin (audit ISSUE-068)
+      fetchUserSummary(token, otherUserId)
+        .then((summary) => setPartners((prev) => ({ ...prev, [otherUserId]: summary ?? "error" })))
+        .catch(() => setPartners((prev) => ({ ...prev, [otherUserId]: "error" })));
     },
     [token]
   );
@@ -325,16 +547,36 @@ export function useMessenger(token: string, userId: string, activeId: string | n
     void reloadList();
   }, [reloadList]);
 
-  // Suhbat ochildi: tarix (keshlangan bo'lsa — jimgina yangilanadi) va baho holati
-  const listReady = list.status === "ready";
+  // audit R3, D-078: havola bilan ochilgan suhbat birinchi sahifada bo'lmasligi mumkin —
+  // topilmaguncha (yoki sahifalar tugaguncha) ro'yxat davomi yuklanadi, "topilmadi" deyilmaydi
   useEffect(() => {
-    if (!activeId || !listReady) return;
-    const exists = (listRef.current as Extract<ListState, { status: "ready" }>).items.some((c) => c.id === activeId);
-    if (!exists) return;
+    autoPages.current = 0;
+  }, [activeId]);
+  useEffect(() => {
+    if (!activeId || list.status !== "ready") return;
+    if (list.items.some((c) => c.id === activeId)) return;
+    if (!list.nextCursor || list.more !== "idle" || autoPages.current >= AUTO_PAGE_LIMIT) return;
+    autoPages.current += 1;
+    void loadMoreConversations();
+  }, [activeId, list, loadMoreConversations]);
+
+  // Suhbat ochildi: tarix (keshlangan bo'lsa — jimgina yangilanadi) va baho holati
+  // Faol suhbat ro'yxatda paydo bo'lgan zahoti (avto-sahifalash keyingi sahifadan topsa ham) effekt
+  // qayta ishlaydi: ilgari faqat `listReady` ga qaralardi va u sahifa qo'shilganda o'zgarmagani uchun
+  // havola bilan ochilgan suhbat tarixi yuklanmay qolardi (audit R3 ikkinchi audit, frontend-docs-3).
+  const activeInList = list.status === "ready" && activeId !== null && list.items.some((c) => c.id === activeId);
+  useEffect(() => {
+    if (!activeId || !activeInList) return;
     const thread = threadsRef.current[activeId];
-    void loadThread(activeId, thread?.status === "ready");
     if (!(activeId in ratingsRef.current)) loadRating(activeId);
-  }, [activeId, listReady, loadThread, loadRating]);
+    // audit R3, realtime-6: tarix so'rovi serverda "o'qildi" yozadi — fon tabida (masalan
+    // havola yangi tabda ochilganda) so'ramaymiz, tab ko'ringanda yuklanadi
+    if (!isPageVisible()) {
+      pendingThreadReload.current = activeId;
+      return;
+    }
+    void loadThread(activeId, thread?.status === "ready");
+  }, [activeId, activeInList, loadThread, loadRating]);
   const ratingsRef = useRef(ratings);
   ratingsRef.current = ratings;
 
@@ -346,14 +588,23 @@ export function useMessenger(token: string, userId: string, activeId: string | n
     };
   }, []);
 
+  // Havola bilan ochilgan suhbat hali topilmadi, lekin qidiruv davom etyapti — "topilmadi" deyilmaydi
+  const activeMissing = activeId !== null && list.status === "ready" && !list.items.some((c) => c.id === activeId);
+  const findingActive =
+    activeMissing && (list.status === "ready" ? list.more === "loading" || (list.nextCursor !== null && autoPages.current < AUTO_PAGE_LIMIT) : false);
+
   return {
     list,
     threads,
     ratings,
     partners,
+    /** Ro'yxat davomidan tanlangan suhbat qidirilmoqda (audit R3, D-078). */
+    findingActive,
     connected: socket.connected,
     reloadList,
+    loadMoreConversations,
     loadThread,
+    loadOlder,
     send,
     retry,
     discard,

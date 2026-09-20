@@ -8,7 +8,6 @@ import type {
   VacancyFacets,
   VacancyPage,
   Company,
-  Article,
   Stats,
   CurrentUser,
   Profile,
@@ -30,12 +29,11 @@ import type {
   Candidate,
   CompanyReviewItem,
   TelegramStatus,
+  TelegramLink,
   ConversationRating,
   UserSummary,
   SubscriptionState,
 } from "./types.js";
-
-const EMPTY_STATS: Stats = { vacancies: 0, companies: 0, applicationsToday: 0 };
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
@@ -57,10 +55,42 @@ export class ApiError extends Error {
   }
 }
 
+/** SSR'da API javobini kutish chegarasi: sekin API barcha ochiq sahifalarni osiltirib qo'ymasin (audit ISSUE-069). */
+const SERVER_FETCH_TIMEOUT_MS = 8000;
+
+/**
+ * Serverda (SSR) so'rovga vaqt chegarasi qo'shadi; brauzerda chaqiruvchining signali o'zgarishsiz.
+ * Timeout `TimeoutError` bo'lib keladi (AbortError emas) — chaqiruvchilar uni tarmoq xatosi deb biladi.
+ */
+export function withServerTimeout(signal?: AbortSignal | null): AbortSignal | undefined {
+  if (typeof window !== "undefined") return signal ?? undefined;
+  const timeout = AbortSignal.timeout(SERVER_FETCH_TIMEOUT_MS);
+  if (!signal) return timeout;
+  const any = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  return typeof any === "function" ? any([signal, timeout]) : signal;
+}
+
+/**
+ * SSR so'rovlariga `x-ssr-key` qo'shadi (audit R3, D-074): butun web serverdan
+ * keladigan trafik umumiy IP bucket'iga emas, alohida yuqori limitli bucket'ga tushadi.
+ * `import.meta.env.SSR` bundler tomonidan statik almashtiriladi — kalit klient
+ * bundle'iga hech qachon tushmaydi; `VITE_` o'zgaruvchisi ishlatilmaydi.
+ */
+export function ssrHeaders(): Record<string, string> {
+  if (!import.meta.env.SSR) return {};
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  const key = env?.SSR_API_KEY;
+  return key ? { "x-ssr-key": key } : {};
+}
+
 /** Ulanish xatosida null qaytaradi (server o'chiq bo'lsa ham sayt ishlashi uchun). */
 async function tryFetch(path: string, init?: RequestInit): Promise<Response | null> {
   try {
-    return await fetch(`${API_URL}${path}`, init);
+    return await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: { ...(init?.headers as Record<string, string> | undefined), ...ssrHeaders() },
+      signal: withServerTimeout(init?.signal),
+    });
   } catch {
     return null;
   }
@@ -130,20 +160,9 @@ export function loginWithGoogle(credential: string, role?: "job_seeker" | "emplo
   return authRequest<AuthResponse>("/api/auth/google", { credential, ...(role ? { role } : {}) });
 }
 
-/** Telegram kirishni boshlaydi: bot deep-link + polling tokeni. */
-export function startTelegramLogin() {
-  return authRequest<{ token: string; link: string }>("/api/auth/telegram/start", undefined);
-}
-
-export type TelegramLoginPoll =
-  | { status: "pending" }
-  | { status: "expired" }
-  | { status: "not_linked" }
-  | { status: "ok"; accessToken: string };
-
-export function pollTelegramLogin(token: string) {
-  return authRequest<TelegramLoginPoll>("/api/auth/telegram/poll", { token });
-}
+// Telegram kirish kanali emas (audit R3, D-041): `telegram/start` va `telegram/poll`
+// yo'llari hamda `telegramLogin()` olib tashlandi. Telegram faqat telefon tasdiqlash
+// va parolni tiklash uchun ishlatiladi — lib/auth/recovery.ts.
 
 /** httpOnly refresh cookie orqali yangi access token oladi (muddati tugaganda). */
 export async function refreshAccessToken(): Promise<string | null> {
@@ -162,6 +181,25 @@ export async function fetchMe(token: string): Promise<CurrentUser | null> {
   const res = await tryFetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
   if (!res || !res.ok) return null;
   return (await res.json()) as CurrentUser;
+}
+
+export type MeResult = { kind: "ok"; user: CurrentUser } | { kind: "unauthorized" } | { kind: "error" };
+
+/**
+ * Seansni tiklash uchun: "token yaroqsiz" (401/403) va "server/tarmoq javob bermadi" farqlanadi.
+ * Ilgari ikkalasi ham `null` edi va tarmoq uzilishi foydalanuvchini mehmonga aylantirib, tokenni o'chirardi (audit ISSUE-020).
+ */
+export async function fetchMeResult(token: string): Promise<MeResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+  } catch {
+    return { kind: "error" };
+  }
+  if (res.status === 401 || res.status === 403) return { kind: "unauthorized" };
+  if (!res.ok) return { kind: "error" };
+  const user = (await res.json().catch(() => null)) as CurrentUser | null;
+  return user ? { kind: "ok", user } : { kind: "error" };
 }
 
 export interface AppliedApplication {
@@ -208,6 +246,8 @@ function mapVacancy(raw: any, companyFallback?: { name: string; slug: string }):
     regionSlug: raw.region?.slug ?? null,
     categoryName: raw.category?.name ?? null,
     scheduleType: raw.scheduleType ?? null,
+    // Eski e'lonlarda maydon yo'q — bandlik turi "remote" bo'lsa masofaviy, aks holda noma'lum (ko'rsatilmaydi)
+    workplaceType: raw.workplaceType ?? (raw.employmentType === "remote" ? "remote" : null),
     skills: extractSkills(`${raw.title ?? ""}\n${raw.requirements ?? ""}`),
   };
 }
@@ -216,7 +256,13 @@ function mapCompany(raw: any): Company {
   // Katalog (`GET /api/companies`) ko'rsatkichlarni serverda hisoblab beradi;
   // kompaniya sahifasi (`/api/companies/:slug`) esa sharh va vakansiyalar ro'yxatini.
   const fromList = typeof raw.reviewCount === "number";
-  const { rating, count } = fromList ? { rating: raw.rating ?? 0, count: raw.reviewCount } : avgRating(raw.reviews);
+  // Kompaniya sahifasi javobidagi ro'yxatlar cheklangan — to'liq to'plam bo'yicha son va reyting `reviewSummary`da
+  const summary = raw.reviewSummary && typeof raw.reviewSummary.count === "number" ? raw.reviewSummary : null;
+  const { rating, count } = fromList
+    ? { rating: raw.rating ?? 0, count: raw.reviewCount }
+    : summary
+      ? { rating: summary.rating ?? 0, count: summary.count }
+      : avgRating(raw.reviews);
   return {
     id: raw.id,
     slug: raw.slug,
@@ -232,7 +278,9 @@ function mapCompany(raw: any): Company {
     isVerified: raw.isVerified ?? false,
     activeVacancyCount: fromList
       ? raw.activeVacancyCount ?? 0
-      : Array.isArray(raw.vacancies)
+      : typeof raw._count?.vacancies === "number"
+        ? raw._count.vacancies
+        : Array.isArray(raw.vacancies)
         ? raw.vacancies.length
         : 0,
   };
@@ -248,19 +296,6 @@ function mapReview(raw: any): CompanyReviewItem {
     createdAt: raw.createdAt,
     authorName,
     userId: raw.userId,
-  };
-}
-
-function mapArticle(raw: any): Article {
-  const content: string = raw.content ?? "";
-  const words = content.trim() ? content.trim().split(/\s+/).length : 0;
-  const excerpt =
-    raw.metaDescription ?? (content.length > 160 ? `${content.slice(0, 157)}...` : content);
-  return {
-    slug: raw.slug,
-    title: raw.title,
-    excerpt,
-    readMinutes: Math.max(1, Math.round(words / 180)),
   };
 }
 
@@ -308,7 +343,7 @@ export async function fetchVacancies(
 export async function fetchVacancyPage(params: URLSearchParams, signal?: AbortSignal): Promise<VacancyPage> {
   let res: Response;
   try {
-    res = await fetch(`${API_URL}/api/vacancies?${params}`, { signal });
+    res = await fetch(`${API_URL}/api/vacancies?${params}`, { signal: withServerTimeout(signal), headers: ssrHeaders() });
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") throw err;
     throw new ApiError(0, "Serverga ulanib bo'lmadi");
@@ -328,7 +363,7 @@ export async function fetchVacancyPage(params: URLSearchParams, signal?: AbortSi
 /** Filtr paneli sonlari. Ikkinchi darajali ma'lumot — xatoda `null` (panel sonlarsiz ishlaydi). */
 export async function fetchVacancyFacets(params: URLSearchParams, signal?: AbortSignal): Promise<VacancyFacets | null> {
   try {
-    const res = await fetch(`${API_URL}/api/vacancies/facets?${params}`, { signal });
+    const res = await fetch(`${API_URL}/api/vacancies/facets?${params}`, { signal: withServerTimeout(signal), headers: ssrHeaders() });
     if (!res.ok) return null;
     return (await res.json()) as VacancyFacets;
   } catch (err) {
@@ -345,7 +380,7 @@ export async function fetchVacancyFacets(params: URLSearchParams, signal?: Abort
 export async function fetchVacancyDetail(slug: string, signal?: AbortSignal): Promise<VacancyDetailVM | null> {
   let res: Response;
   try {
-    res = await fetch(`${API_URL}/api/vacancies/${encodeURIComponent(slug)}`, { signal });
+    res = await fetch(`${API_URL}/api/vacancies/${encodeURIComponent(slug)}`, { signal: withServerTimeout(signal), headers: ssrHeaders() });
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") throw err;
     throw new ApiError(0, "Serverga ulanib bo'lmadi");
@@ -359,7 +394,7 @@ export async function fetchVacancyDetail(slug: string, signal?: AbortSignal): Pr
 /** "O'xshash vakansiyalar" — ikkinchi darajali blok: xatoda bo'sh ro'yxat (blok yashiriladi). */
 export async function fetchSimilarVacancies(slug: string, limit = 4, signal?: AbortSignal): Promise<Vacancy[]> {
   try {
-    const res = await fetch(`${API_URL}/api/vacancies/${encodeURIComponent(slug)}/similar?limit=${limit}`, { signal });
+    const res = await fetch(`${API_URL}/api/vacancies/${encodeURIComponent(slug)}/similar?limit=${limit}`, { signal: withServerTimeout(signal), headers: ssrHeaders() });
     if (!res.ok) return [];
     const json = await res.json();
     return (json.items ?? []).map((v: any) => mapVacancy(v));
@@ -405,8 +440,8 @@ export async function fetchCompanyPage(
   let res: Response;
   try {
     res = await fetch(`${API_URL}/api/companies?${qs}`, {
-      signal: options.signal,
-      headers: options.token ? { Authorization: `Bearer ${options.token}` } : undefined,
+      signal: withServerTimeout(options.signal),
+      headers: { ...ssrHeaders(), ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}) },
     });
   } catch (err) {
     if ((err as Error)?.name === "AbortError") throw err;
@@ -452,7 +487,7 @@ export async function fetchCompany(
 export async function fetchCompanyDetail(slug: string, signal?: AbortSignal): Promise<CompanyDetailVM | null> {
   let res: Response;
   try {
-    res = await fetch(`${API_URL}/api/companies/${encodeURIComponent(slug)}`, { signal });
+    res = await fetch(`${API_URL}/api/companies/${encodeURIComponent(slug)}`, { signal: withServerTimeout(signal), headers: ssrHeaders() });
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") throw err;
     throw new ApiError(0, "Serverga ulanib bo'lmadi");
@@ -468,7 +503,7 @@ export async function fetchCompanyDetail(slug: string, signal?: AbortSignal): Pr
 /** "O'xshash kompaniyalar" — ikkinchi darajali blok: xatoda bo'sh ro'yxat (blok yashiriladi). */
 export async function fetchSimilarCompanies(slug: string, limit = 5, signal?: AbortSignal): Promise<Company[]> {
   try {
-    const res = await fetch(`${API_URL}/api/companies/${encodeURIComponent(slug)}/similar?limit=${limit}`, { signal });
+    const res = await fetch(`${API_URL}/api/companies/${encodeURIComponent(slug)}/similar?limit=${limit}`, { signal: withServerTimeout(signal), headers: ssrHeaders() });
     if (!res.ok) return [];
     const json = await res.json();
     return (json.items ?? []).map(mapCompany);
@@ -500,24 +535,19 @@ export async function deleteReview(token: string, id: string): Promise<void> {
     credentials: "include",
     headers: authHeaders(token),
   });
-  if (!res.ok) throw new ApiError(res.status, "Xatolik");
+  if (!res.ok) await throwApiError(res);
 }
 
 // ---------------------------------------------------------
-// Maqolalar va statistika
+// Statistika (maqolalar — lib/articles/api.ts)
 // ---------------------------------------------------------
 
-export async function fetchArticles(): Promise<Article[]> {
-  const res = await tryFetch("/api/articles");
-  if (!res || !res.ok) return [];
-  const json = await res.json();
-  return (json.items ?? []).map(mapArticle);
-}
-
-export async function fetchStats(): Promise<Stats> {
+/** Xatoda `null`: "0 vakansiya / 0 kompaniya" ko'rsatilmasin — blok yashiriladi (audit ISSUE-016). */
+export async function fetchStats(): Promise<Stats | null> {
   const res = await tryFetch("/api/stats");
-  if (!res || !res.ok) return EMPTY_STATS;
-  return (await res.json()) as Stats;
+  if (!res || !res.ok) return null;
+  const json = (await res.json().catch(() => null)) as Stats | null;
+  return json && typeof json.vacancies === "number" ? json : null;
 }
 
 // ---------------------------------------------------------
@@ -528,6 +558,15 @@ export async function fetchRegions(): Promise<Region[]> {
   const res = await tryFetch("/api/regions");
   if (!res || !res.ok) return [];
   const json = await res.json();
+  return (json.items ?? []) as Region[];
+}
+
+/** Hududlar forma uchun majburiy bo'lganda: xatoda `ApiError` (bo'sh ro'yxat bilan forma chizilmasin). */
+export async function fetchRegionsStrict(): Promise<Region[]> {
+  const res = await tryFetch("/api/regions");
+  if (!res) throw new ApiError(0, "Network");
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new ApiError(res.status, "Xatolik");
   return (json.items ?? []) as Region[];
 }
 
@@ -553,10 +592,16 @@ export async function updateProfile(token: string, data: ProfileUpdate): Promise
 // Rezyume (saytda to'ldiriladi)
 // ---------------------------------------------------------
 
+/**
+ * `null` — rezyume haqiqatan yo'q (200 + `resume: null`). Tarmoq yoki server xatosida `ApiError`:
+ * ilgari xato "rezyume yo'q" deb qabul qilinib, keyingi bo'lim saqlanishi (PUT butun hujjat)
+ * tajriba, ta'lim va ko'nikmalarni o'chirib yuborardi (audit ISSUE-017).
+ */
 export async function fetchResume(token: string): Promise<ResumeData | null> {
   const res = await tryFetch("/api/resume", { headers: { Authorization: `Bearer ${token}` } });
-  if (!res || !res.ok) return null;
-  const json = await res.json();
+  if (!res) throw new ApiError(0, "Network");
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new ApiError(res.status, json?.message ?? "Xatolik", json?.error);
   return (json.resume ?? null) as ResumeData | null;
 }
 
@@ -611,7 +656,7 @@ export async function deleteResumeFile(token: string): Promise<void> {
 export async function fetchMyApplications(token: string): Promise<MyApplication[]> {
   const res = await tryFetch("/api/applications", { headers: authHeaders(token) });
   if (!res) throw new ApiError(0, "Network");
-  if (!res.ok) throw new ApiError(res.status, "Xatolik");
+  if (!res.ok) await throwApiError(res);
   const rows = (await res.json()) as unknown;
   if (!Array.isArray(rows)) return [];
   return rows.filter((row) => row?.vacancy && APPLICATION_STATUSES.includes(row.status)).map(mapMyApplication);
@@ -675,12 +720,14 @@ function mapMyApplication(row: any): MyApplication {
 // Ish beruvchi kompaniyasi
 // ---------------------------------------------------------
 
+/** `null` — kompaniya haqiqatan yo'q. Xatoda `ApiError`: bo'sh forma bilan mavjud kompaniya ustidan yozilmasin (audit ISSUE-018). */
 export async function fetchMyCompany(token: string): Promise<MyCompany | null> {
   const res = await tryFetch("/api/employer/company", {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res || !res.ok) return null;
-  const json = await res.json();
+  if (!res) throw new ApiError(0, "Network");
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new ApiError(res.status, json?.message ?? "Xatolik", json?.error);
   return (json.company ?? null) as MyCompany | null;
 }
 
@@ -727,6 +774,16 @@ export async function saveMyCompany(token: string, data: MyCompanyInput): Promis
 // Ish beruvchi: vakansiyalar va murojaatlar
 // ---------------------------------------------------------
 
+/** Server xabari va kodi bilan `ApiError` — umumiy "Xatolik" o'rniga (audit ISSUE-102). */
+async function throwApiError(res: Response): Promise<never> {
+  const json = (await res.json().catch(() => null)) as { message?: unknown; error?: unknown } | null;
+  throw new ApiError(
+    res.status,
+    typeof json?.message === "string" ? json.message : "Xatolik",
+    typeof json?.error === "string" ? json.error : undefined
+  );
+}
+
 function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
@@ -745,20 +802,6 @@ export async function fetchCategories(): Promise<Category[]> {
 
 export async function fetchEmployerVacancies(token: string): Promise<EmployerVacancy[]> {
   return (await authGet<{ items: EmployerVacancy[] }>("/api/employer/vacancies", token, { items: [] })).items;
-}
-
-/**
- * Vakansiyalar + amaldagi tarif holati (limit sarfini ko'rsatish uchun).
- * Server ikkalasini bitta javobda beradi — qo'shimcha so'rov kerak emas.
- */
-export async function fetchEmployerBoard(
-  token: string
-): Promise<{ items: EmployerVacancy[]; subscription: SubscriptionState | null }> {
-  return authGet<{ items: EmployerVacancy[]; subscription: SubscriptionState | null }>(
-    "/api/employer/vacancies",
-    token,
-    { items: [], subscription: null }
-  );
 }
 
 /** Mavjud vakansiyani tahrirlaydi (faqat berilgan maydonlar yangilanadi). */
@@ -797,7 +840,7 @@ export async function setVacancyStatus(token: string, id: string, status: "activ
     headers: { "Content-Type": "application/json", ...authHeaders(token) },
     body: JSON.stringify({ status }),
   });
-  if (!res.ok) throw new ApiError(res.status, "Xatolik");
+  if (!res.ok) await throwApiError(res);
 }
 
 export async function deleteVacancy(token: string, id: string) {
@@ -806,12 +849,41 @@ export async function deleteVacancy(token: string, id: string) {
     credentials: "include",
     headers: authHeaders(token),
   });
-  if (!res.ok) throw new ApiError(res.status, "Xatolik");
+  if (!res.ok) await throwApiError(res);
 }
 
-export async function fetchCandidates(token: string, text?: string): Promise<Candidate[]> {
-  const qs = text ? `?text=${encodeURIComponent(text)}` : "";
-  return (await authGet<{ items: Candidate[] }>(`/api/candidates${qs}`, token, { items: [] })).items;
+export interface CandidatePage {
+  items: Candidate[];
+  /** API keyingi sahifa borligini aytdi. */
+  hasMore: boolean;
+}
+
+/**
+ * Nomzodlar bazasining bitta sahifasi. Xatoda `ApiError` (server kodi saqlanadi, masalan COMPANY_REQUIRED) —
+ * "nomzod topilmadi" bilan "yuklab bo'lmadi" farqlanadi (audit ISSUE-023). API sahifalaydi, keyingilari
+ * `page` bilan olinadi (audit PHASE 6, U25, U5).
+ */
+export async function fetchCandidates(
+  token: string,
+  params: { text?: string; page?: number } = {},
+  signal?: AbortSignal
+): Promise<CandidatePage> {
+  const qs = new URLSearchParams();
+  if (params.text) qs.set("text", params.text);
+  if (params.page && params.page > 1) qs.set("page", String(params.page));
+  const search = qs.toString();
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/candidates${search ? `?${search}` : ""}`, { headers: authHeaders(token), signal });
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") throw err;
+    throw new ApiError(0, "Network");
+  }
+  if (!res.ok) await throwApiError(res);
+  const json = (await res.json().catch(() => null)) as { items?: unknown; hasMore?: unknown } | null;
+  // Buzuq javob "nomzod yo'q" bo'lib ko'rinmasin
+  if (!json || !Array.isArray(json.items)) throw new ApiError(res.status, "Kutilmagan javob");
+  return { items: json.items as Candidate[], hasMore: json.hasMore === true };
 }
 
 export async function fetchEmployerApplications(token: string): Promise<EmployerApplication[]> {
@@ -830,7 +902,7 @@ export async function setApplicationStatus(
     headers: { "Content-Type": "application/json", ...authHeaders(token) },
     body: JSON.stringify(reason ? { status, reason } : { status }),
   });
-  if (!res.ok) throw new ApiError(res.status, "Xatolik");
+  if (!res.ok) await throwApiError(res);
 }
 
 export async function fetchInboxSummary(token: string): Promise<InboxSummary> {
@@ -844,16 +916,16 @@ export async function fetchInboxSummary(token: string): Promise<InboxSummary> {
 // Telegram (hisob bog'lash + telefon tasdiqlash)
 // ---------------------------------------------------------
 
+/** Xatoda `ApiError`: holat noma'lum bo'lsa "bog'lanmagan" deb ko'rsatilmaydi. */
 export async function fetchTelegramStatus(token: string): Promise<TelegramStatus> {
-  return authGet<TelegramStatus>("/api/telegram/status", token, {
-    linked: false,
-    phoneVerified: false,
-    phone: null,
-    botUsername: null,
-  });
+  const res = await tryFetch("/api/telegram/status", { headers: authHeaders(token) });
+  if (!res) throw new ApiError(0, "Network");
+  if (!res.ok) await throwApiError(res);
+  return (await res.json()) as TelegramStatus;
 }
 
-export async function requestTelegramLink(token: string): Promise<string> {
+/** Telefon tasdiqlash uchun deep-link (audit R3, D-042): `{ link, expiresAt }`. */
+export async function requestTelegramLink(token: string): Promise<TelegramLink> {
   const res = await fetch(`${API_URL}/api/telegram/link`, {
     method: "POST",
     credentials: "include",
@@ -862,7 +934,7 @@ export async function requestTelegramLink(token: string): Promise<string> {
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, json?.message ?? "Xatolik", json?.error);
-  return json.link as string;
+  return { link: String(json?.link ?? ""), expiresAt: (json?.expiresAt as string | undefined) ?? null };
 }
 
 // ---------------------------------------------------------

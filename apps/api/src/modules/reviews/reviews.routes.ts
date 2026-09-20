@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../common/prisma.js";
-import { Errors } from "../../common/errors.js";
+import { AppError, Errors } from "../../common/errors.js";
+import { idParams } from "../../common/validation.js";
+import { bumpDataVersion } from "../../common/cache.js";
 import { requireAuth, requireRole, requirePhoneVerified } from "../../common/auth-guard.js";
 
 const reviewSchema = z.object({
@@ -11,7 +13,7 @@ const reviewSchema = z.object({
 
 export async function reviewRoutes(app: FastifyInstance) {
   // Kompaniyaga 5 yulduzli sharh qoldirish (slug bo'yicha).
-  // Oldindan moderatsiya yo'q — darrov ko'rinadi (admin keyin o'chira oladi).
+  // Yangi sharh oldindan moderatsiyasiz — darrov ko'rinadi (mahsulot qarori; admin keyin o'chira oladi).
   app.post(
     "/api/companies/:slug/reviews",
     { preHandler: [requireAuth, requireRole("job_seeker"), requirePhoneVerified] },
@@ -19,8 +21,12 @@ export async function reviewRoutes(app: FastifyInstance) {
       const { slug } = req.params as { slug: string };
       const body = reviewSchema.parse(req.body);
 
-      const company = await prisma.company.findUnique({ where: { slug }, select: { id: true } });
-      if (!company) throw Errors.notFound("Kompaniya topilmadi");
+      // audit R3, gap4-1: egasi bloklangan kompaniya ochiq sahifada yo'q — unga sharh ham yozilmaydi
+      const company = await prisma.company.findUnique({
+        where: { slug },
+        select: { id: true, owner: { select: { isBlocked: true } } },
+      });
+      if (!company || company.owner.isBlocked) throw Errors.notFound("Kompaniya topilmadi");
 
       // Faqat shu kompaniyaga ariza yuborgan nomzod sharh qoldira oladi (haqqoniylik uchun)
       const hasApplied = await prisma.application.findFirst({
@@ -37,12 +43,18 @@ export async function reviewRoutes(app: FastifyInstance) {
       // Har bir foydalanuvchidan bitta sharh — mavjud bo'lsa yangilanadi
       const existing = await prisma.companyReview.findFirst({
         where: { companyId: company.id, userId: req.user!.sub },
-        select: { id: true },
+        select: { id: true, status: true },
       });
       const review = existing
         ? await prisma.companyReview.update({
             where: { id: existing.id },
-            data: { rating: body.rating, comment: body.comment ?? null, status: "approved" },
+            data: {
+              rating: body.rating,
+              comment: body.comment ?? null,
+              // Admin rad etgan (yoki qayta ko'rib chiqishga qo'ygan) sharh tahrirlansa — moderatsiyaga
+              // tushadi, o'z-o'zidan tasdiqlanmaydi (audit ISSUE-027). Tasdiqlangan sharh tasdiqlanganicha qoladi.
+              status: existing.status === "approved" ? "approved" : "pending",
+            },
           })
         : await prisma.companyReview.create({
             data: {
@@ -53,6 +65,8 @@ export async function reviewRoutes(app: FastifyInstance) {
               status: "approved",
             },
           });
+
+      bumpDataVersion();
 
       // Muallif ismi bilan qaytaramiz (UI darrov ko'rsatishi uchun)
       const profile = await prisma.jobSeekerProfile.findUnique({
@@ -69,17 +83,35 @@ export async function reviewRoutes(app: FastifyInstance) {
         createdAt: review.createdAt,
         authorName,
         mine: true,
+        status: review.status,
       });
     }
   );
 
-  // Sharhni o'chirish — admin yoki sharh muallifi
+  // Sharhni o'chirish — admin har qanday holatdagi sharhni; muallif esa FAQAT tasdiqlangan
+  // (ochiq ko'rinayotgan) sharhini o'chira oladi (audit R3, D-075 / gap2-1). Ilgari muallif
+  // rad etilgan sharhini o'chirib, xuddi shu matnni qaytadan yuborardi: @@unique([companyId,userId])
+  // slot bo'shab qolgani uchun POST "create" yo'liga tushib, sharh darrov "approved" bo'lardi —
+  // moderatsiya (va admin o'chirishi) shu tarzda chetlab o'tilardi. Endi slot band qoladi va
+  // qayta yuborish "update" yo'li orqali `pending` ga tushadi.
   app.delete("/api/reviews/:id", { preHandler: [requireAuth] }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const review = await prisma.companyReview.findUnique({ where: { id } });
+    const { id } = idParams.parse(req.params);
+    const review = await prisma.companyReview.findUnique({
+      where: { id },
+      select: { id: true, userId: true, status: true },
+    });
     if (!review) throw Errors.notFound();
-    if (review.userId !== req.user!.sub && req.user!.role !== "admin") throw Errors.forbidden();
+    const isAdmin = req.user!.role === "admin";
+    if (review.userId !== req.user!.sub && !isAdmin) throw Errors.forbidden();
+    if (!isAdmin && review.status !== "approved") {
+      throw new AppError(
+        403,
+        "REVIEW_UNDER_MODERATION",
+        "Moderatsiyadagi yoki rad etilgan sharhni faqat admin o'chira oladi. Sharhni tahrirlab qayta yuborishingiz mumkin."
+      );
+    }
     await prisma.companyReview.delete({ where: { id } });
+    bumpDataVersion();
     return reply.status(200).send({ ok: true });
   });
 }

@@ -10,14 +10,23 @@
 |---|---|---|
 | Fon (`paper`) | `#F4F8FE` havorang-oq | `#0B0F1A` to'q ko'k-ko'mir |
 | Karta (`surface`) | `#FFFFFF` | `#121828` |
-| Tugma (`signal`) | `#4F46E5` indigo — oq matn 6:1 | `#6366F1` — oq matn 4.9:1 |
+| Tugma foni (`signal`) | `#4F46E5` indigo — oq matn 6.3:1 | `#5B52EA` — oq matn 5.4:1 |
+| Tugma hover (`signal-strong`) | `#4338CA` — oq matn 8.0:1 | `#4B43D9` — oq matn 6.8:1 |
+| Indigo MATN (`signal-text`) | `#4F46E5` — oq fonda 6.3:1 | `#A5B4FC` — `surface` da 8.9:1 |
 | Gradient urg'u | `#2563EB → #7C3AED → #EC4899` | yorqinroq variantlari |
 | Oltin (`gold`) | `#F59E0B` — FAQAT logo "!" va yulduzlar | `#F5B82E` |
-| Maosh (`growth`) | `#047857` | `#3DCE8F` |
+| Maosh (`growth`) | `#04704F` | `#3DCE8F` |
 | Xato (`danger`) | `#BE123C` | `#F47882` |
 
 Tungi rejimda tugmalar ham indigo (oq matn) — avvalgi davrlardagi
 `.dark .bg-signal` matn-flip qoidalari OLIB TASHLANGAN.
+
+**MUHIM (audit R3, D-060):** indigo FON va indigo MATN — ikki xil token.
+Bitta qiymat oq matn ostida ham, quyuq fon ustidagi matn sifatida ham AA
+bera olmaydi (matematik jihatdan imkonsiz). `bg-signal` / `border-signal` /
+`ring-signal` — `--signal`; `text-signal` esa `--signal-text` dan oladi
+(`global.css` oxiridagi utility override bloki). Sinf nomlari o'zgarmadi,
+shuning uchun 400 ga yaqin faylni tahrirlash kerak bo'lmadi.
 
 ## Tipografika
 
@@ -54,7 +63,205 @@ Tungi rejimda tugmalar ham indigo (oq matn) — avvalgi davrlardagi
   o'chirilgan.
 - i18n: `home.heroBadge`, `home.topCompanies` uch tilda qo'shilgan
   (types.ts dagi Messages tipiga ham).
-- Kontrastlar tekshirilgan: dusk 4.9/6.5:1, signal tugmalar 6/4.9:1.
+- Kontrastlar (o'lchangan, WCAG 2.1 AA — audit R3): `dusk` 5.5/6.7:1,
+  indigo tugma + oq matn 6.3/5.4:1, indigo matn 6.3/8.9:1, `gold-deep`
+  tint ustida 5.4:1 dan yuqori, `growth` tint ustida 4.96:1.
+
+## Kontrast, harakat va klaviatura (a11y — audit R3, D-060)
+
+Avvalgi versiyada "jonli fon har doim harakatda" brend talabi va kontrast
+bo'yicha tekshirilmagan da'vo bor edi. Owner'ning Round 3 ko'rsatmasi bilan
+bekor qilindi — WCAG 2.1 AA majburiy.
+
+- **Kontrast tokenlar bilan tuzatiladi**, komponent sinflari bilan emas.
+  O'zgarganlari: tungi `--signal` (`#6366F1` → `#5B52EA`), tungi
+  `--signal-strong` (`#818CF8` → `#4B43D9`), yangi `--signal-text` /
+  `--signal-text-strong`, kunduzgi `--gold-deep` (`#B45309` → `#9A4A08`),
+  kunduzgi `--growth` (`#047857` → `#04704F`).
+- `global.css` oxirida kichik **utility override** bloki bor: `text-signal`,
+  `text-dusk/80`, `text-dusk/70`, `placeholder:text-dusk/80`, `text-ink/55`,
+  `text-white/80`, `text-white/75`, `.dark .bg-growth.text-white` va
+  `.bg-white/20.text-white` (indigo tugmadagi sanoqchi). Bu sinflar
+  yuzlab faylda ishlatilgani uchun rang manbasini bir joydan almashtirish
+  eng kam xavfli yo'l. Yangi kod uchun qoida: **matn uchun alpha berilgan
+  `dusk` ishlatilmaydi** (`text-dusk/80` emas, `text-dusk`).
+- **`prefers-reduced-motion: reduce`** — cheksiz dekorativ animatsiyalar
+  (`drift-*`, `particle`, `text-shine`, `breathe`, `shimmer`, `pulse-ring`,
+  `spin-slow`), kirish animatsiyalari (`animate-fade-up`, `card-in`, `pop`,
+  `slide-down`, `sheet-in`, `drawer-in`, `bar-grow`, `float`) va
+  scroll-reveal o'chadi; `scroll-behavior: auto`. JS'dagi
+  `behavior: "smooth"` chaqiruvlari ham `Layout.tsx` dagi
+  `ReducedMotionScroll` orqali darhol scroll'ga aylanadi. Yuklanish
+  indikatorlari (`animate-spin`, `animate-pulse`) qoladi — ular holat
+  ko'rsatkichi, harakat bezagi emas.
+- **Fokus har doim ko'rinadi:** global `:focus-visible` 2px `--focus`
+  konturi, va `focus:outline-none` utility'si endi `:focus-visible` da
+  konturni qaytaradi (ilgari uni butunlay o'chirardi).
+- **Klaviatura:** `Select` va `LanguageSwitcher` — WAI-ARIA combobox+listbox
+  (↑/↓, Home/End, Enter/Probel, Escape, `aria-activedescendant`); header
+  akkaunt menyusi va mobil menyu — ↑/↓ va Escape (fokus ochgan tugmaga
+  qaytadi); `StarInput` — radiogroup (roving tabindex, ←/→, Home/End) va
+  tanlov faqat rang bilan emas, shakl bilan ham (`★` / `☆`).
+- **O'tish havolasi:** `Layout` dagi birinchi fokuslanuvchi element
+  `#main-content` ga olib boradi (`t.ui.skipToContent`), `<main>` da
+  `tabIndex={-1}`. `html { scroll-padding-top: 5.5rem }` — sticky header
+  fokuslangan elementni yopib qo'ymaydi.
+- **Qoladigan ma'lum kamchiliklar:** brend oltini (`--gold`, yulduzlar va
+  logodagi "!") oq fonda 2.15:1 — identitet elementi, matn alternativasi
+  bilan (`aria-label`, `aria-hidden` glif); Footer'dagi ulkan
+  `text-ink/[0.06]` suv belgisi va `CompanyLogo` bosh harflari (o'sha
+  fayllar bu auditda boshqa guruhga tegishli).
+
+## Vakansiyalarim — `/employer/vacancies` (2026-09-14)
+
+Ish beruvchi dashboard'i (faqat `employer`; mehmon → `/login`, boshqa rol → `/`). Gorizontal navbar,
+sidebar yo'q. Tartib: sarlavha + "Yangi vakansiya" (`/employer/vacancies/new`) → 5 statistika kartasi →
+toolbar → xulosa qatori ("N ta vakansiya · M ta ariza") → qatorlar → sahifalash. Footer — watermark'siz.
+
+| Blok | Manba | Yo'q bo'lsa |
+|---|---|---|
+| Ro'yxat | mavjud `GET /api/employer/vacancies` (hammasi bitta javobda) — `lib/employer/vacancies/adapter.ts` | noto'g'ri maydon `null` → o'sha qism chizilmaydi |
+| Statistika | Jami / Faol / Moderatsiyada / Qoralama / Rad etilgan — ro'yxatdan hisoblanadi | karta bosilsa shu holat filtri (`aria-pressed`) |
+| Hudud / toifa filtri | ro'yxatdagi haqiqiy qiymatlar, sonlari bilan | variant yo'q — tanlov chizilmaydi |
+| Rad etish sababi | `rejectionReason` (faqat `rejected`) | sabab yo'q — qator ostida matn yo'q |
+| Arizalar soni | `_count.applications` → `/employer/applications?vacancy=:id` | son yo'q — chizilmaydi |
+
+- **Monetizatsiya yo'q** (platforma bepul): javobdagi `subscription` o'qilmaydi; "Premium: 5/100",
+  "Tarifni oshirish" olib tashlandi; header hisob menyusi va `/employer/*` footeridan `/pricing` havolasi yo'q.
+  Faol vakansiyalar soni cheklanmagan (backend'dagi 402 `PLAN_LIMIT_REACHED` olib tashlandi); `/pricing` → `/employer`.
+- Qator (xl+): nom/joy·bandlik/maosh | holat | arizalar | sana | amallar — ro'yxat `grid` + qatorlar `subgrid`,
+  ustunlar hamma qatorda bir chiziqda. Telefonda: amallar bir qatorda, "Arizalarni ko'rish" alohida to'liq qatorda.
+- Amallar faqat backend ruxsat beradiganlari: faol → Yopish; yopilgan/qoralama → Faollashtirish
+  (`PATCH /api/vacancies/:id/status`); Tahrirlash (`/employer/vacancies/:id/edit`); ⋮ menyu — Saytda ko'rish
+  (faqat faol), O'chirish (`alertdialog`, fokus "Bekor qilish"da, Esc). "Qayta yuborish"/"Nusxa olish" yo'q —
+  backendda bunday amal yo'q. Natija — yuqorida xabar (`?notice=created|updated` formadan qaytganda, URL'dan olinadi).
+- Holat URL'da: `?q=` (debounce, replace), `status`, `region`, `category`, `sort`
+  (newest/oldest/applications/title), `page`, `size` — push, refresh/orqaga saqlanadi.
+- Holatlar alohida: skelet (`aria-busy`), bo'sh (CTA), filtr bo'yicha bo'sh ("Filtrlarni tozalash"),
+  xato (`role="alert"` + qayta urinish — hech qachon "vakansiyalar yo'q" emas), kompaniya profili yo'q.
+- Forma alohida sahifalarda: `/employer/vacancies/new`, `/employer/vacancies/:id/edit` (topilmasa — "Vakansiya topilmadi").
+- Backend tuzatishi: `PATCH status` ilgari rad etilgan/moderatsiyadagi vakansiyani to'g'ridan-to'g'ri `active`
+  qilishga ruxsat berardi (moderatsiyani chetlab o'tish) — endi 409; faqat faol↔yopilgan va qoralama→faol.
+
+## Murojaatlar — `/employer/applications` (2026-09-14)
+
+Ish beruvchining asosiy recruitment ish maydoni: gorizontal navbar ("Murojaatlar" faol, badge — haqiqiy
+yangi arizalar soni), sidebar-navigatsiya yo'q, footer ixcham. Tartib: sarlavha + qidiruv + "Filtrlar" →
+holat tablari → CHAP arizalar | MARKAZ tanlangan ariza | O'NG amallar (≥1280); 1024–1279 — ro'yxat | tafsilot
+(amallar tafsilot ostida); <1024 — ro'yxat → ariza ("← Murojaatlar"), amallar tafsilot ostida.
+
+| Blok | Manba | Yo'q bo'lsa |
+|---|---|---|
+| Ro'yxat | mavjud `GET /api/employer/applications` (to'liq ro'yxat; qidiruv/filtr/sahifalash klientda) | xato → "Murojaatlarni yuklab bo'lmadi" + qayta urinish (bo'sh holat emas) |
+| Holat tablari | real enum: `sent` Yangi, `viewed` Ko'rib chiqilmoqda, `invited` Suhbatga taklif, `accepted` Qabul qilingan, `rejected` Rad etilgan; sonlar joriy qidiruv/filtrdan | — ("Taklif/offer" kabi mavjud bo'lmagan holat yo'q) |
+| Tafsilot | nomzod (ism, lavozim, rasm), shu ARIZA holati, hudud, "ish qidiryapti", Telegram manbasi, sana | har bir chip/qator faqat ma'lumot bo'lsa |
+| Tablar | Rezyume (tuzilgan rezyume), Ariza xati (faqat bor bo'lsa), Faoliyat (`statusHistory`) | rezyume yo'q → "Nomzod bu arizaga rezyume biriktirmagan." |
+| Vakansiya kartasi | ariza vakansiyasi: hudud (masofaviyda yo'q), ish joylashuvi, bandlik, maosh (yashirilmagan bo'lsa), arizalar soni | faol emas → ochiq sahifa o'rniga "Vakansiyani ochish" (tahrirlash) |
+
+- Ariza ≠ nomzod: bir nomzodning bir nechta arizasi alohida qator, holat har bir arizaga tegishli.
+- Amallar faqat backendda borlari: holat (`PATCH /api/applications/:id/status`, izoh ixtiyoriy — nomzodga xabar
+  bo'lib boradi), "Suhbatga taklif qilish" / "Qabul qilish" (holat), "Rad etish" (tasdiq oynasi), "Nomzodga xabar
+  yozish" (`POST /api/conversations/start` → `/messages?c=`). **Yo'q**: eslatmalar, suhbat vaqtini belgilash,
+  savol-javob, PDF rezyume/yuklab olish (backendda yo'q).
+- Holat server javobidan keyin yangilanadi (xato — aniq xabar, holat o'zgarmaydi). Ariza bosilganda `sent → viewed`
+  (mavjud xulq), navbar badge yangilanadi; desktopda avtomatik tanlangan birinchi ariza holatini O'ZGARTIRMAYDI.
+- URL: `?status=&vacancy=&region=&period=&q=&sort=&page=&application=` — refresh/orqaga saqlanadi;
+  "Vakansiyalarim"dagi `?vacancy=` havolasi faol filtr chipi bo'lib chiqadi.
+- Backend (qo'shimcha, qisqa): ro'yxat javobiga `statusHistory` (kim o'zgartirgani yuborilmaydi) va vakansiya
+  kartasi maydonlari qo'shildi; ruxsat — faqat o'z kompaniyasi arizalari (e2e: begona ish beruvchi 403 / bo'sh ro'yxat).
+
+## Yangi vakansiya yaratish — `/employer/vacancies/new`, `/:id/edit` (2026-09-14)
+
+"Vakansiyalarim" bilan bir xil til: gorizontal navbar (Vakansiyalarim faol), sidebar-navigatsiya yo'q.
+Tartib: breadcrumb (Vakansiyalarim › Yangi vakansiya) → sarlavha → 2 ustun (xl+): chapda bosqichlar + forma,
+o'ngda maslahatlar, jonli preview, "Saqlash va yuborish" (preview+amallar `sticky`). xl dan kichikda sidebar
+pastda (md: maslahat | preview, amallar to'liq enli), telefonda bitta ustun.
+
+| Bo'lim (bosqich) | Maydonlar → backend |
+|---|---|
+| 1. Asosiy ma'lumotlar | nom* `title` (≥3), kategoriya* `categoryId`, bandlik turi* `employmentType`, ish joylashuvi* `workplaceType` (ofisda / gibrid / masofaviy — radio kartalar), hudud* `regionId` (masofaviyda yashiriladi va yuborilmaydi), ish grafigi `scheduleType`, tajriba `experienceRequired`, maosh dan/gacha `salaryMin/Max` (butun so'm), "Maosh ko'rsatilmasin" `isSalaryHidden` |
+| 2. Tavsif va talablar | tavsif* `description` (≥10), talablar `requirements`, ish sharoitlari `conditions` (qator = band) |
+| 3. Qo'shimcha ma'lumotlar | rezyumesiz ariza `applyWithoutResume`, bog'lanish `contactEmail/Telegram/Phone` |
+| 4. Ko'rib chiqish | vakansiya sahifasi bilan bir xil ko'rinish (`parseRichText`, `toItems`) |
+
+- Majburiy = backend bilan bir xil (`vacancies.rules.ts`): nom, tavsif, bandlik turi, kategoriya, ish joylashuvi;
+  hudud — masofaviydan boshqa hollarda. Qoida yaratish va tahrirlashda yakuniy qiymatlar bo'yicha tekshiriladi.
+  Yangi e'londa bandlik turida "Masofaviy" yo'q (masofaviylik — ish joylashuvida); eski e'londa saqlanib qoladi.
+  **Yo'q maydonlar qo'shilmagan**: "Vazifalar" (modelda yo'q), valyuta (sahifa har doim so'mda chizadi).
+- Ish joylashuvi hamma joyda bir xil: preview/ko'rib chiqish chiplari, "Vakansiyalarim" qatori (masofaviyda hudud yo'q),
+  ochiq sahifa (`VacancyMeta`, karta), JSON-LD (masofaviy — `TELECOMMUTE`, hududsiz bo'lsa `jobLocation` yo'q).
+  Eski e'londa maydon bo'sh: bandlik turi "remote" bo'lsa masofaviy deb ko'rsatiladi, aks holda ko'rsatilmaydi.
+  "Masofaviy" filtri (`employment=remote`) ish joylashuvi masofaviy e'lonlarni ham oladi (MongoDB va Meilisearch).
+- Bosqichlar — bitta forma: 1–3 bosilsa bo'limga scroll, joriy bo'lim IntersectionObserver bilan; bajarilgan ✓,
+  urinishdan keyin xatoli — qizil halqa. Telefonda raqamlar + "1/4 · nomi".
+- Tavsif paneli faqat sahifa chizadigan belgilar: "- " ro'yxat, "1. " raqamli, ":" — kichik sarlavha
+  (qalin/kursiv/havola yo'q — ko'rinmasdi). Belgilar soni + backend minimali; talab/sharoitlarda bandlar soni.
+- Validatsiya maydon ostida (`aria-invalid`, `aria-describedby`), blur yoki urinishdan keyin; "Ko'rib chiqish"/
+  saqlashda — xatolar soni + birinchi xatoli maydonga scroll/fokus.
+- Preview — faqat formadagi qiymatlar va kompaniya profili (nom, logo); bo'sh joyda neytral chiziq, "arizalar soni"
+  kabi yangi vakansiyada yo'q narsa chizilmaydi. Maosh yashirilsa — raqam yo'q.
+- Saqlash: "E'lon qilish" — `POST /api/vacancies` (darhol faol, backend moderatsiyasiz — "moderatsiyadan o'tadi"
+  degan va'da yo'q); "Qoralama sifatida saqlash" — `status: "draft"` (saytda yo'q, keyin
+  ro'yxatdan faollashtiriladi); tahrirlash — `PUT`. Muvaffaqiyat → `/employer/vacancies?notice=created|draft|updated`.
+  Xato: tarmoq/server — "Vakansiyani saqlab bo'lmadi" + qayta urinish; 4xx — backend xabari (maydon nomi forma
+  yorlig'i bilan); telefon tasdiqlanmagan — `PhoneGateNotice`. Saqlanayotganda barcha tugmalar o'chiq.
+- Saqlanmagan o'zgarish: "Bekor qilish" va sayt ichidagi har qanday havola (navbar, breadcrumb, footer) — tasdiq
+  oynasi (`useLeaveGuard`: Vike client routing `beforeunload`ni chaqirmaydi va `preventDefault`ni hisobga olmaydi,
+  shuning uchun bosish `document` capture bosqichida ushlanadi); sahifani yopish / tashqi manzil — brauzer ogohlantirishi.
+- Backend: `createSchema` ga `scheduleType`, `isSalaryHidden`, yaratishda `status: active|draft`; maosh butun son,
+  tahrirlashda `null` bilan tozalanadi (ilgari o'nlik son 500 berardi, maoshni o'chirib bo'lmasdi).
+
+## Yordam markazi va aloqa — `/support`, `/contact` (2026-09-14)
+
+Qo'llab-quvvatlash qatlami: `/support` — foydalanuvchi muammoni o'zi hal qiladi,
+`/contact` — hal qila olmasa jamoaga yozadi. Ikkalasida ixcham sarlavha, o'ngda
+berilgan illyustratsiya (`q.png` → `support-help*.webp`, `x.png` → `contact-mail*.webp`;
+qayta chizilmagan — qora fon shaffoflashtirilgan, chetdagi nur silliq so'ndirilgan,
+yorug'/tungi ikki variant, `<768px` yashirin), footer — watermark'siz (`PRODUCT_PATHS`).
+
+**`/support`** — tartib (telefonda ham): qidiruv → "Masalan:" so'zlari → kategoriyalar →
+savollar → mavzuga oid maqolalar (qidiruvda) → "Savolingizga javob topmadingizmi?" → `/contact`.
+
+| Blok | Manba | Yo'q bo'lsa |
+|---|---|---|
+| Savollar | lug'at `t.support.faq` (mavjud arxitektura, 3 til): `id`, `category`, `q`, `a`, `keywords` | savol/javobi bo'sh yozuv tashlanadi; birorta ham bo'lmasa "Hozircha savollar qo'shilmagan" + `/contact` |
+| Kategoriyalar | 8 ta kalit, son = shu kategoriyadagi haqiqiy savollar | savoli yo'q kategoriya kartasi chiqmaydi (hozir 3 ta) |
+| "Masalan:" | `t.support.suggestions` | faqat savollar ichida natija beradigan so'z ko'rinadi |
+| Maqolalar | mavjud `GET /api/articles?q=&pageSize=3` | topilmasa bo'lim yo'q; xato — "Yordam ma'lumotlarini yuklab bo'lmadi." + haqiqiy qayta so'rov |
+
+- Qidiruv: savol, javob matni, kategoriya nomi va kalit so'zlar (`lib/list.ts` normallash — o'zbekcha
+  apostrof variantlari bir xil). Debounce 300ms, Enter/"Qidirish" — darhol, tozalash tugmasi.
+- Holat URL'da (`useHistoryQuery`): `?q=` (replace), `?category=` (push) — refresh, orqaga/oldinga.
+- Accordion (WAI-ARIA): sarlavha ichida tugma, `aria-expanded/controls`, javob `role="region"`,
+  yopiq javob DOM'da `hidden` (SEO). Bitta ochiq (mavjud naqsh). `/support#faq-password` shu savolni ochadi.
+- Javobdagi `[matn](/yo'l)` — xavfsiz inline parser (`lib/articles/content.ts`), ichki havola tilga moslanadi.
+- FAQ faktlari kod bilan tekshirilgan: ariza va vakansiya uchun Telegram orqali tasdiqlangan telefon;
+  rezyumesiz ariza — vakansiya ruxsat bersa, aks holda rezyume avtomatik; vakansiya darhol faol, faol
+  vakansiyalar soni cheklanmagan; parolni o'zi tiklash oqimi BOR — `/login?recover=1` (Telegram bot orqali
+  tasdiqlash), Telegram/raqam yo'q bo'lsa `/login?recover=manual`. Telegram KIRISH kanali emas (audit R3, docs-1).
+- JSON-LD FAQPage — sahifadagi savollar, javob oddiy matn.
+
+**`/contact`** — forma → boshqa kanallar → hamkorlik → xususiyat kartalari.
+
+- Forma: mavjud `POST /api/support` (admin Telegram chatiga). Ism, email, mavzu, xabar — majburiy;
+  mavzular backend `CONTACT_SUBJECTS` bilan bir xil. Tekshiruv maydon ostida (blur yoki yuborishda),
+  xato `aria-describedby` bilan bog'langan, birinchi xatoli maydonga fokus. Yuborish paytida tugma o'chiq.
+  Muvaffaqiyat — ✓ "Xabaringiz yuborildi." (fokus sarlavhaga), "Yana xabar yuborish" ism/emailni saqlaydi.
+  Xato — matn saqlanadi + "Qayta yuborish"; 429 va 503 uchun alohida matn. Honeypot (`website`).
+- Kirgan foydalanuvchi: ism va email profildan faqat bo'sh maydonlarga (tahrirlanadi), token yuboriladi —
+  jamoa xabarda hisobni ko'radi.
+- **Kanallar faqat sozlamadan** — `GET /api/support/contacts` (API env): `SUPPORT_EMAIL`,
+  `SUPPORT_TELEGRAM` (bo'lmasa — ishlab turgan bot, u xabarni admin chatiga uzatadi), `SUPPORT_PHONE`,
+  `SUPPORT_ADDRESS`, `SUPPORT_HOURS`, `SUPPORT_RESPONSE_HOURS`, `PARTNERSHIP_EMAIL`. Noto'g'ri qiymat
+  (masalan raqam emas telefon) ham ko'rsatilmaydi. Avval sahifada qattiq yozilgan email/Telegram/telefon
+  (`+998 71 200 00 00` — namuna ko'rinishida) olib tashlandi.
+- Hamkorlik kartasi — forma ishlasa ("Hamkorlik" mavzusi tanlanib xabarga fokus) yoki `PARTNERSHIP_EMAIL`.
+  "Tez javob"/"Ish vaqti" kartalari — faqat `SUPPORT_RESPONSE_HOURS`/`SUPPORT_HOURS` bo'lsa ("Xavfsiz aloqa"
+  kabi siyosatga asoslanmagan va'da yo'q). Hech biri yo'q — yon ustun ham chizilmaydi, forma to'liq enli.
+- Forma sozlanmagan (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_ADMIN_CHAT_ID` yo'q) — ogohlantirish, "Yuborish" o'chiq.
+- Backend tuzatishi: ilgari Telegram xabarni rad etsa ham `{ ok: true }` qaytardi — endi 502.
+- Kanallar serverda (`+data`); xato bo'lsa brauzer qayta so'raydi (skelet), yana xato — "Aloqa kanallarini
+  yuklab bo'lmadi." + qayta urinish; forma bu vaqtda ham ishlaydi.
 
 ## Kirish / ro'yxatdan o'tish (2026-09-11)
 
@@ -66,10 +273,10 @@ brend paneli (faqat `lg+`, dekorativ). Umumiy forma qismlari `AuthForm.tsx` da:
   brauzerning "orqaga" tugmasi kutilgandek).
 - `AuthField` / `PasswordField` — chapida ikonka, 48px balandlik; parol
   maydonida ko'rsatish/yashirish tugmasi (`aria-label` uch tilda).
-- Ijtimoiy kirish (`SocialLogin`): Google, Apple va Telegram BITTA qatorda
-  (`sm:grid-cols-3`) — ustma-ust uch tugma kartani ~55px uzaytirardi. Yorliq
-  qisqa (provayder nomi), to'liq ma'no `aria-label` da. Mobilda (`<640px`)
-  Telegram pastga, to'liq enga o'tadi — aks holda yorliq kesilardi.
+- Ijtimoiy kirish (`SocialLogin`): Google va Apple. **Telegram kirish kanali
+  EMAS** (audit R3, D-041/docs-1): Telegram tugmasi, `/api/auth/telegram/start`
+  va `/poll` olib tashlangan. Telegram faqat telefon tasdiqlash va parolni
+  tiklash uchun. Yorliq qisqa (provayder nomi), to'liq ma'no `aria-label` da.
   `VITE_GOOGLE_CLIENT_ID` berilganda Google o'rniga haqiqiy GIS tugmasi
   chiziladi; berilmasa (va Apple har doim) tugma bosilganda "hozircha
   ulanmagan" izohi chiqadi — jim turgan tugmadan yaxshiroq.
@@ -90,12 +297,12 @@ brend paneli (faqat `lg+`, dekorativ). Umumiy forma qismlari `AuthForm.tsx` da:
   referens dizayndagi ko'rinish shundan chiqadi.
 - Mobil (`<640px`): panel yashiriladi; tab, rol kartasi va ijtimoiy tugma
   yorliqlari kichrayadi (`text-[13px]`, `whitespace-nowrap`) — aks holda
-  "Ro'yxatdan o'tish" va "Xodim qidiraman" ikki qatorga sinardi. Telegram
-  tugmasi mobilda alohida qatorga, to'liq enga o'tadi.
+  "Ro'yxatdan o'tish" va "Xodim qidiraman" ikki qatorga sinardi.
 
-**Diqqat:** paneldagi 12 000+ / 6 000+ / 300 000+ raqamlari — marketing
-qiymatlari (referens dizayndan), bazadan olinmaydi. Ishga tushirishdan oldin
-haqiqiy raqamlarga moslang yoki olib tashlang.
+**Raqamlar (yangilangan — ISSUE-015, audit R3/docs-15):** panel raqamlari
+endi marketing qiymatlari emas: `AuthShell` `GET /api/stats` dan oladi
+(`BrandPanel`). So'rov bajarilmasa raqamlar bloki umuman chizilmaydi —
+to'qima ko'rsatkich ko'rsatilmaydi.
 
 ## Profil markazi — `/profile` (2026-09-11)
 
@@ -218,7 +425,7 @@ Daraja matni: 0–49% "Profilingizni to'ldiring", 50–79% "…yanada yaxshilang
 | Tafsilot: rezyume, qo'shimcha xat | `resume`, `coverLetter` | bo'lim yo'q |
 | Tafsilot: tarix | `createdAt` + holat tarixi | kelajak bosqichlar chizilmaydi; tarixda yo'q joriy holat — sanasiz |
 | Umumiy statistika | ro'yxatdan hisob (taqsimot, ko'rib chiqilgan %) | arizalar yo'q — blok yo'q |
-| Maslahatlar | suhbat bor → tayyorgarlik (`/article`); rezyume to'liq emas → "to'ldiring", aks holda "yangilang"; obunalar | — |
+| Maslahatlar | suhbat bor → tayyorgarlik (`/articles?category=interview`); rezyume to'liq emas → "to'ldiring", aks holda "yangilang"; obunalar | — |
 | Sahifalash | "N ta arizadan a–b" + raqamlar + "Sahifadagi" | ≤ 5 natija — panel yo'q; 1 sahifa — raqamlar yo'q |
 
 Ish beruvchining javob matni alohida saqlanmaydi (sabab chatga yuboriladi) — tafsilotda
@@ -228,6 +435,123 @@ Ish beruvchining javob matni alohida saqlanmaydi (sabab chatga yuboriladi) — t
 vakansiyalar ("Barchasi 0" kartasi va ixcham panel bilan), filtr natijasi bo'sh —
 "Filtrlarni tozalash" (alohida), API xatosi — "Qayta urinish" (haqiqiy so'rov).
 Sahifa `noindex`, `robots.txt` da yopiq. Footer — ixcham.
+
+## Maqolalar — `/articles`, `/articles/:slug`, `/admin/articles`, `/admin/team` (2026-09-14)
+
+Uch qism: ochiq ro'yxat, maqola sahifasi va kontent boshqaruvi (CMS). Qoida bir
+xil: ma'lumot bor — ko'rsatiladi, yo'q — blok umuman chizilmaydi.
+
+**Marshrutlar.** Kanonik `/articles`, `/articles/:slug`. `/article` va
+`/article/:slug` → 301 (til prefiksi va so'rov saqlanadi). Chop etilgan maqola
+slug'i o'zgarsa eskisi `previousSlugs` da qoladi va 301 bilan yangisiga o'tadi.
+Qoralama, ko'rib chiqilayotgan va arxivdagi maqola ochiq URL'da — 404.
+
+**Ro'yxat.** Ixcham sarlavha (yo'l ko'rsatkichi, H1, tavsif, haqiqiy son) +
+o'ngda `articles-news.webp` (berilgan `hh.png`, alpha bor — bitta nusxa ikkala
+rejimga, `md+`). Toolbar: qidiruv (350ms debounce, URL `replace`), saralash
+(Eng yangi / Eng eski / Mashhur — `viewsCount`), kategoriya chiplari (faqat
+maqolasi bor kategoriyalar, sonlari bilan; haqiqiy havolalar). Birinchi
+sahifada eng tepadagi maqola katta karta (qidiruvda yo'q), ostida 9 kartali
+grid: 3 / 2 / 1 ustun (`sm:2`, `lg:3`) — 9 har ikki to'rda to'liq qator beradi.
+Muqovasiz karta matnli (tavsif 5 qatorgacha), muqovasiz katta karta — yumshoq
+indigo fonli matnli keng karta. Meta qatori: kategoriya · sana · o'qish vaqti,
+faqat mavjudlari ("0 daqiqa" hech qachon).
+
+Kategoriya ranglari (kichik qalin matn, ikkala rejimda AA): karyera indigo,
+rezyume violet, suhbat sky, maosh `growth`, ish topish amber, maslahatlar pink.
+
+**Maqola sahifasi.** Matn ustuni `max-w-3xl` (17px / 1.8), yon panel
+300–330px: Mundarija (kamida 3 ta H2), Mavzuga oid (kategoriya +3, umumiy teg
++2), Foydali bo'ldimi? (serverga ovoz, brauzer eslab qoladi), Teglar (qidiruvga
+havola). Telefonda avval maqola, keyin yon bo'limlar; mundarija matn oldida
+yig'iladigan `<details>`. Oxirida "Vakansiyalarni ko'rish" chaqiruvi (maqola →
+vakansiya oqimi). Ulashish: Web Share API, bo'lmasa havola nusxalanadi.
+**Saqlash tugmasi yo'q** — backend'da maqolani saqlash funksiyasi yo'q.
+
+**Matn formati.** Cheklangan Markdown: `##`, `###`, `**qalin**`, `*kursiv*`,
+`[havola](url)`, `-` va `1.` ro'yxatlar, `>` iqtibos, `> [!TIP]` maslahat bloki
+(amber), `![tavsif](url)`, `---`. Parser (`lib/articles/content.ts`) React
+elementlarini beradi — `dangerouslySetInnerHTML` yo'q; havola faqat http(s),
+mailto va ichki yo'l, rasm — https yoki `/uploads/…`.
+
+**Holatlar.** Skelet (ro'yxat: katta karta + kartalar; sahifa: sarlavha,
+muallif, muqova, matn, yon panel), "Maqolalarni yuklab bo'lmadi." / "Maqolani
+yuklab bo'lmadi." + Qayta urinish (SSR javob bermasa brauzer o'zi bir marta
+qayta so'raydi), "Hozircha maqolalar mavjud emas.", "Hech qanday maqola
+topilmadi." + Filtrlarni tozalash, "Maqola topilmadi." (HTTP 404).
+
+**SEO.** Ro'yxat kanonigi filtrsiz `/articles`, `?q=` — noindex. Sahifa:
+SEO sarlavha/tavsif (bo'lmasa sarlavha, qisqa tavsif, matn boshi), `og:type
+article`, `og:image` faqat muqova bo'lsa, JSON-LD Article + BreadcrumbList,
+`article:published_time`/`tag`. `sitemap-articles.xml` — faqat chop etilganlar.
+Footer: ro'yxat va sahifada zich (so'z-belgisiz), `/admin` da ixcham.
+
+**CMS.** `AdminShell allow="staff"`: SUPER_ADMIN (`admin`) — butun panel +
+Maqolalar + Jamoa; `content_editor` va `content_author` — faqat Maqolalar
+(`/admin` → `/admin/articles`, header'da profil/xabarlar yo'q). Ro'yxat: qidiruv
+(sarlavha/muallif), holat filtri sonlari bilan, `lg+` jadval / kichikda kartalar,
+⋮ menyuda faqat server qaytargan `permissions`. Muharrir: chapda sarlavha, slug
+(`/articles/` prefiksi, bo'sh bo'lsa sarlavhadan), qisqa tavsif, matn (asboblar
+paneli, Ctrl+B/I/K, Ctrl+S — saqlash, rasm yuklash); o'ngda Holat (sana,
+ko'rishlar, foydali ovozlar, o'tish tugmalari), Muqova, Tafsilotlar (kategoriya,
+muallif, teglar), SEO (hisoblagichlar). "Ko'rib chiqish" — saqlanmagan forma
+saytdagi `ArticleDetailView` ko'rinishida (ulashish/ovozsiz).
+
+| Rol | Yaratish | Tahrirlash | Ko'rib chiqishga | Chop etish / olish / arxiv | O'chirish | Jamoa |
+|---|---|---|---|---|---|---|
+| Super admin | ✓ | hammasi | ✓ | ✓ | ✓ | ✓ |
+| Muharrir | ✓ | hammasi | ✓ | ✓ | — | — |
+| Muallif | ✓ (o'zi muallif) | o'z qoralamasi | o'z qoralamasi / qaytarib olish | — | — | — |
+
+Jamoaga ochiq ro'yxatdan o'tish yo'q: super admin email + rol bilan taklif
+yaratadi, havola (7 kun, bir marta, bazada SHA-256 hash) `/admin/invite` ga olib
+boradi. Faolsizlantirish va rol o'zgarishi eski token bilan ham darhol kuchga
+kiradi (`requireStaff` bazani tekshiradi).
+
+**Demo.** 12 ta chop etilgan maqola (7 tasida `images.png` dagi referens
+muqovalar, 5 tasi muqovasiz, 1 tasi muallifsiz) + qoralama (muharrir izohi
+bilan), ko'rib chiqishdagi va arxivdagi maqola; `editor@`, `author@`, faol emas
+`author2@` va 2 ta taklif (biri muddati o'tgan).
+
+## Xabarlar — `/messages` (2026-09-14)
+
+Nomzod va ish beruvchi uchun umumiy messenger (mehmon → `/login`). Asosiy navigatsiyada
+"Xabarlar [o'qilmagan xabarlar soni]", avatar menyusida ham bor. Ixcham sarlavha (md+ da
+`messages-chat.webp` — berilgan `message.png` qora foni shaffoflashtirilgan; yorug' rejimda nuri
+qisqartirilgan nusxa, tungida `messages-chat-dark.webp` — asl porlash) → messenger:
+**xl** — ro'yxat 300px | chat | panel 300px; **md–lg** — ro'yxat | chat, panel "i" orqali o'ngdan
+drawer; **telefon** — 2 qadam (ro'yxat → chat, "← Suhbatlar"), panel — pastdan bottom sheet,
+chat ochiq bo'lsa sarlavha yashirin va yozish maydoni doim ekranda. Balandlik
+`clamp(520px, 100dvh − 15rem, 860px)`, footer — ixcham.
+
+**Ma'lumot** — mavjud endpointlar: `GET /api/conversations`, `GET …/:id/messages` (ochilganda
+server o'qilgan deb belgilaydi), `GET/POST …/:id/rating`, `GET /api/users/:id/summary`,
+WebSocket `/ws/chat` (xabar + "read" hodisasi; uzilsa 1s…30s qayta ulanadi). Adapterlar
+`mapConversationToViewModel`, `mapMessageToViewModel`, `mapCompanyToConversationViewModel`
+(`lib/messages/adapter.ts`). Suhbatlar ro'yxatiga qo'shimcha (ixtiyoriy) maydonlar: `otherRole`,
+`otherHeadline`, `avatarUrl`, `company` (logo, tasdiq, soha, tavsif, hudud), `vacancy`,
+`lastMessageMine/Read`. **Vakansiya konteksti**: suhbatda vakansiya maydoni yo'q — nomzodning shu
+kompaniyaga bergan arizasidan (bir nechta bo'lsa: taklif > qabul > ko'rildi > yuborildi > rad);
+yashirilgan maosh raqamlari javobga qo'shilmaydi.
+
+**Yuborish:** pufak darhol "yuborilmoqda" (soat belgisi), server `clientId` ni faqat yuboruvchiga
+qaytargach "yuborildi"; ulanish yo'q yoki 10s ichida tasdiq kelmasa — "Yuborilmadi" + "Qayta
+yuborish" / "Bekor qilish". Enter — yuborish, Shift+Enter — yangi qator, bo'sh matn yuborilmaydi,
+4000 belgi. Belgilar faqat server holatidan: ✓ — saqlandi, ✓✓ — o'qildi. Kun ajratgichi (Bugun /
+Kecha / "12 dekabr, 2026"), ochilganda o'qilmagan bo'lgan xabarlar oldidan "Yangi xabarlar".
+
+**Ko'rsatilmaydi (backend'da yo'q):** fayl biriktirish, emoji, suhbatni o'chirish/arxiv/mute/shikoyat,
+onlayn holati, "yozmoqda". "⋮" menyusi faqat mavjud amallar: baho berish (mavjud o'zaro baho,
+hali berilmagan bo'lsa), kompaniya sahifasi, vakansiya. Panel kartalari ma'lumotga qarab: kompaniya
+(yoki kompaniyasiz admin → "ISH BOR! qo'llab-quvvatlash" + `/support`, ish beruvchi ko'rinishida —
+nomzod profili), "Suhbat haqida" (vakansiya bo'lsa), "Havolalar" (xabarlardagi http(s) havolalar
+bo'lsa). Bo'sh karta yo'q.
+
+**URL holati:** `?c=<id>` (mavjud "Yozish" tugmalari shu manzilga olib keladi), `?unread=true`,
+`?q=` (replace). Header soni `lib/messages/events.ts` orqali darhol yangilanadi. Holatlar:
+skelet (3 ustun), "Xabarlar yo'q" (nomzodga "Vakansiyalarni ko'rish"), "Suhbatni tanlang",
+"Suhbat topilmadi" (begona yoki mavjud bo'lmagan `?c=`), ro'yxat xatosi va suhbat xatosi — alohida
+"Qayta urinish".
 
 ## Bildirishnomalar markazi — `/notifications` (2026-09-13)
 
@@ -249,7 +573,7 @@ yo'q — o'ylab topilmagan. Noma'lum tur — "Boshqa", kategoriya belgisisiz.
 
 **Havola** — `payload.url`, faqat ichki yo'l: "//host" va "/\host" rad (backend va frontend).
 Tugma matni yo'ldan (`/applications` → "Arizalarni ko'rish", `/vacancies/:slug` → "Vakansiyani
-ko'rish", `/companies/:slug`, `/profile`, `/article`, …). Nomzodga `/employer`, `/admin`
+ko'rish", `/companies/:slug`, `/profile`, `/articles`, …). Nomzodga `/employer`, `/admin`
 havolasi ko'rsatilmaydi. O'qilmagan bildirishnoma havolasi bosilsa — avval o'qildi (≤1.2s kutiladi).
 
 **URL holati:** `?tab=settings` (profil sozlamalaridagi havola bilan mos), `?unread=true`,
@@ -357,7 +681,10 @@ o'tadi: refresh, orqaga/oldinga va ulashish ishlaydi. Qidiruvda
 - Hajm — ish beruvchi formasidagi oraliqlar (1–10 … 500+). 1–50/51–200 kabi
   oraliqlar bazadagi qiymatlarga to'g'ri kelmaydi.
 - Ish turi — kompaniyaning faol vakansiyalaridan: `remote` va joyida
-  ishlanadigan. "Gibrid" uchun ma'lumot yo'q, shuning uchun filtri ham yo'q.
+  ishlanadigan. `workplace_type` (office/hybrid/remote) bazada BOR, lekin
+  filtr ataylab ikkitalik: gibrid joyida ishlash deb hisoblanadi
+  (`companies.list.ts` — `REMOTE_VACANCY_EXPR`). Eski, maydonsiz e'lonlarda
+  `employment_type === "remote"` ga qaraladi.
 - Mashhurlik — tasdiqlanganlar oldin, so'ng faol vakansiyalar ko'rilishi,
   25 × sharhlar va 10 × vakansiyalar.
 
@@ -389,7 +716,9 @@ tugmalar ustiga ~65px chiqib turardi (o'lchangan), shuning uchun bu oraliqda:
 - kirgan foydalanuvchida faqat avatar, ism xl+ da.
 
 **Demo ma'lumot:** `npm run db:demo` — 42 kompaniya, 80 vakansiya, 13 nomzod,
-arizalar, chat, sharh, to'lov, maqola (`apps/api/src/prisma/demo-seed.ts`).
+arizalar, chat, sharh, maqola va meros to'lov yozuvlari
+(`apps/api/src/prisma/demo-seed.ts`). To'lov/tarif UI'si ko'rsatilmaydi —
+platforma bepul, billing `BILLING_ENABLED` bilan o'chiq (D-065).
 Kirish: `seeker@demo.ish.top` / `hr@demo.ish.top`, parol `password123`.
 `npm run db:demo -- --reset` faqat `@demo.ish.top` hisoblariga bog'liq
 yozuvlarni o'chiradi.
@@ -526,8 +855,10 @@ katalog ham emas — asosiy elementlar qidiruv, filtr va ro'yxat.
 - Ko'nikma teglari: vakansiyada alohida maydon yo'q, shuning uchun talablar
   matnidan ma'lum ko'nikmalar lug'ati bo'yicha ajratiladi
   (`lib/vacancies/skills.ts`). Topilmasa teg chiqmaydi.
-- Uchinchi meta — ish jadvali (`scheduleType`), bo'lsa. "Ofisda/Gibrid" maydoni
-  bazada yo'q, shuning uchun ko'rsatilmaydi.
+- Meta qatori: ish joylashuvi (`workplaceType` — ofis/gibrid/masofaviy,
+  bo'lsa), tajriba, bandlik turi va ish jadvali (`scheduleType`, bo'lsa).
+  Eski, `workplaceType` siz e'lonlarda `employmentType === "remote"`
+  masofaviy deb o'qiladi (`lib/api.ts`), takror yorliq chiqmaydi.
 - Badge'lar: Premium (`isPremium`), Tezkor (`isUrgent`). Referensdagi "TOP" uchun
   alohida maydon yo'q.
 - Logo bo'lmasa — nomdan barqaror gradientli bosh harflar (`CompanyLogo`).

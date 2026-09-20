@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchSimilarVacancies, fetchVacancyDetail } from "../api.js";
+import { reportVacancyView } from "../views.js";
 import type { Vacancy } from "../types.js";
 import type { VacancyDetailVM } from "./detail.js";
 
@@ -48,6 +49,11 @@ export function useVacancyDetail(initial: VacancyDetailData) {
 
     return () => controller.abort();
   }, [request, slug]);
+
+  // Ko'rish faqat sahifa HAQIQATAN ochilganda va faqat brauzerdan sanaladi (audit: views-1)
+  useEffect(() => {
+    if (state.kind === "ok") reportVacancyView(slug);
+  }, [slug, state.kind]);
 
   const retry = useCallback(() => setRequest((r) => ({ id: r.id + 1, silent: false })), []);
   return { state, retry, retrying };

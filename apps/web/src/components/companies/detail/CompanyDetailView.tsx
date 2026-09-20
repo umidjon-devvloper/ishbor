@@ -1,8 +1,10 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Company } from "../../../lib/types.js";
 import type { CompanyDetailVM, CompanyReviewVM } from "../../../lib/companies/detail.js";
 import { useT } from "../../../lib/i18n/index.js";
 import { useShare } from "../../../lib/useShare.js";
+import { useAuth } from "../../AuthContext.js";
+import { fetchMyReviewIds } from "../../../lib/companies/myReviews.js";
 import { useCompanyTab, type CompanyTab } from "../../../lib/companies/useCompanyTab.js";
 import { VacancyTabs, panelId, tabId, type DetailTab } from "../../vacancies/detail/VacancyTabs.js";
 import { CompanyDetailHeader } from "./CompanyDetailHeader.js";
@@ -29,6 +31,40 @@ export function CompanyDetailView({ company, similar }: { company: CompanyDetail
   const [reviews, setReviews] = useState<CompanyReviewVM[]>(company.reviews);
   const tabsRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * Audit R3, D-075: sahifa ma'lumoti SSR'da tokensiz olinadi, shuning uchun
+   * javobdagi `mine` hammasida `false` bo'ladi (`userId` esa endi umuman
+   * qaytarilmaydi) — o'z sharhini yozgan nomzod tahrirlash va o'chirish
+   * imkonini yo'qotardi. Faqat shu holatda bayroq bir marta aniqlashtiriladi.
+   */
+  const { status, user, accessToken } = useAuth();
+  const mineChecked = useRef(false);
+  const needsMine =
+    status === "authed" &&
+    user?.role === "job_seeker" &&
+    Boolean(accessToken) &&
+    reviews.length > 0 &&
+    !reviews.some((r) => r.mine);
+  useEffect(() => {
+    if (!needsMine || !accessToken || mineChecked.current) return;
+    mineChecked.current = true;
+    let cancelled = false;
+    const controller = new AbortController();
+    void fetchMyReviewIds(company.slug, accessToken, controller.signal).then((ids) => {
+      if (cancelled || ids.size === 0) return;
+      setReviews((prev) => prev.map((r) => (ids.has(r.id) ? { ...r, mine: true } : r)));
+    });
+    return () => {
+      cancelled = true;
+      // StrictMode'da effekt ikki marta ishga tushadi — bekor qilingan so'rov qayta urinsin
+      mineChecked.current = false;
+      controller.abort();
+    };
+  }, [needsMine, accessToken, company.slug]);
+
+  // Sahifadagi ro'yxat 100 ta bilan cheklangan — son API'dagi haqiqiy faol vakansiyalar sonidan (audit PHASE 6, U27)
+  const vacancyTotal = Math.max(company.activeVacancyTotal ?? 0, company.vacancies.length);
+
   const available: CompanyTab[] = ["overview", "vacancies"];
   if (reviews.length > 0) available.push("reviews");
   if (company.images.length > 0) available.push("photos");
@@ -40,7 +76,7 @@ export function CompanyDetailView({ company, similar }: { company: CompanyDetail
       id === "overview"
         ? d.tabs.overview
         : id === "vacancies"
-          ? d.tabs.vacancies(company.vacancies.length)
+          ? d.tabs.vacancies(vacancyTotal)
           : id === "reviews"
             ? d.tabs.reviews(reviews.length)
             : d.tabs.photos(company.images.length),
@@ -91,11 +127,17 @@ export function CompanyDetailView({ company, similar }: { company: CompanyDetail
               <>
                 <CompanyOverview company={company} />
                 <CompanyPhotosSection images={company.images} companyName={company.name} onShowAll={() => openTab("photos")} />
-                <CompanyVacancies vacancies={company.vacancies} limit={PREVIEW_VACANCIES} onShowAll={() => openTab("vacancies")} />
+                <CompanyVacancies
+                  vacancies={company.vacancies}
+                  total={vacancyTotal}
+                  companySlug={company.slug}
+                  limit={PREVIEW_VACANCIES}
+                  onShowAll={() => openTab("vacancies")}
+                />
                 <CompanyReviews slug={company.slug} reviews={reviews} onChange={setReviews} limit={PREVIEW_REVIEWS} onShowAll={() => openTab("reviews")} />
               </>
             )}
-            {panel("vacancies", <CompanyVacancies vacancies={company.vacancies} />)}
+            {panel("vacancies", <CompanyVacancies vacancies={company.vacancies} total={vacancyTotal} companySlug={company.slug} />)}
             {reviews.length > 0 && panel("reviews", <CompanyReviews slug={company.slug} reviews={reviews} onChange={setReviews} />)}
             {company.images.length > 0 && panel("photos", <CompanyPhotosGrid images={company.images} companyName={company.name} />)}
           </div>

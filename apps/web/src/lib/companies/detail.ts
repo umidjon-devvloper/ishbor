@@ -17,7 +17,19 @@ export interface CompanyReviewVM {
   createdAt: string;
   /** Profilda ism bo'lmasa `null` — UI "Nomzod" deb yozadi. */
   authorName: string | null;
+  /**
+   * Audit R3, D-075: ochiq sahifada sharh muallifining `userId` si qaytarilmaydi;
+   * "bu meniki" bayrog'i serverda ixtiyoriy token bo'yicha hisoblanadi.
+   */
+  mine: boolean;
+  /** Eski javob shakli (server hali `mine` yubormasa) — moslik uchun. */
   userId: string | null;
+}
+
+/** Sharh shu foydalanuvchiniki-mi: yangi `mine` bayrog'i, bo'lmasa eski `userId`. */
+export function isMyReview(review: Pick<CompanyReviewVM, "mine" | "userId">, userId: string | null | undefined): boolean {
+  if (review.mine) return true;
+  return Boolean(review.userId && userId && review.userId === userId);
 }
 
 export interface RatingSummary {
@@ -45,6 +57,11 @@ export interface CompanyDetailVM {
   regionName: string | null;
   images: string[];
   reviews: CompanyReviewVM[];
+  /** API `reviewSummary` — to'liq to'plam bo'yicha (ro'yxat cheklangan bo'lsa ham to'g'ri). Yo'q bo'lsa `null`. */
+  reviewTotal: number | null;
+  ratingAverage: number | null;
+  /** Faol vakansiyalarning umumiy soni (ro'yxat cheklangan bo'lishi mumkin). */
+  activeVacancyTotal: number | null;
   vacancies: Vacancy[];
 }
 
@@ -85,6 +102,24 @@ export function ratingSummary(reviews: { rating: number }[]): RatingSummary {
 }
 
 /**
+ * Sarlavhadagi reyting va son (audit PHASE 6, U24). Ro'yxat "cheklangan"mi — serverning DASTLABKI
+ * ro'yxatidan (`company.reviews` < `reviewTotal`) aniqlanadi: jonli ro'yxat bilan solishtirilsa, o'z
+ * sharhini o'chirgandan keyin eski reyting va son ko'rinib qolardi.
+ * - cheklanmagan → jonli ro'yxatdan (qo'shish/o'chirish darhol aks etadi);
+ * - cheklangan → serverdagi o'rtacha, son esa mahalliy farq bilan (jonli − dastlabki).
+ */
+export function companyRatingSummary(
+  company: Pick<CompanyDetailVM, "reviews" | "reviewTotal" | "ratingAverage">,
+  reviews: { rating: number }[]
+): RatingSummary {
+  const local = ratingSummary(reviews);
+  const total = company.reviewTotal;
+  if (total === null || company.ratingAverage === null || company.reviews.length >= total) return local;
+  const count = Math.max(0, total + reviews.length - company.reviews.length);
+  return { ...local, rating: count > 0 ? company.ratingAverage : null, count };
+}
+
+/**
  * `GET /api/companies/:slug` javobi → view-model. `vacancies` — api.ts'dagi
  * umumiy vakansiya mapperidan o'tgan ro'yxat (ro'yxat kartasi bilan bir xil).
  */
@@ -118,6 +153,7 @@ export function mapCompanyToViewModel(raw: any, options: { resolveUrl: (path: st
             comment: str(r.comment),
             createdAt: String(r.createdAt ?? ""),
             authorName: name || null,
+            mine: r.mine === true,
             userId: str(r.userId),
           };
         })
@@ -139,6 +175,9 @@ export function mapCompanyToViewModel(raw: any, options: { resolveUrl: (path: st
     regionName: str(raw?.region?.name),
     images,
     reviews,
+    reviewTotal: typeof raw?.reviewSummary?.count === "number" ? raw.reviewSummary.count : null,
+    ratingAverage: typeof raw?.reviewSummary?.rating === "number" ? raw.reviewSummary.rating : null,
+    activeVacancyTotal: typeof raw?._count?.vacancies === "number" ? raw._count.vacancies : null,
     vacancies,
   };
 }

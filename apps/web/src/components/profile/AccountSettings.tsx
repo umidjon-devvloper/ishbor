@@ -23,9 +23,11 @@ import {
 } from "./icons.js";
 
 /**
- * Hisob sozlamalari. Serverda parolni almashtirish yoki hisobni o'chirish
- * API'si yo'q — shuning uchun bu amallar ishlamaydigan tugma emas, yordam
- * markaziga aniq yo'naltirish sifatida ko'rsatiladi.
+ * Hisob sozlamalari.
+ *
+ * Parol Telegram orqali tiklanadi (audit R3, D-045): qator `/login?recover=1`
+ * oqimiga olib boradi. Hisobni o'chirish API'si hali yo'q — u yordam markaziga
+ * yo'naltiradi (ishlamaydigan tugma emas).
  */
 export function AccountSettings({ profile, email }: { profile: Profile | null; email: string }) {
   const t = useT();
@@ -85,8 +87,8 @@ export function AccountSettings({ profile, email }: { profile: Profile | null; e
 
       <SettingsGroup title={s.security}>
         <SettingRow icon={<IconLock size={18} />} title={s.password} description={s.passwordHint}>
-          <a href={l("/support")} className={buttonClass("secondary", "sm")}>
-            <IconHelp size={15} /> {s.contactSupport}
+          <a href={l("/login?recover=1")} className={buttonClass("secondary", "sm")}>
+            <IconShield size={15} /> {s.resetPassword}
           </a>
         </SettingRow>
         <SettingRow icon={<IconLogout size={18} />} title={s.logout} description={s.logoutHint}>

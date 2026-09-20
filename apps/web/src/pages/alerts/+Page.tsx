@@ -1,34 +1,47 @@
 import React, { useEffect, useState } from "react";
-import { useT, useHref } from "../../lib/i18n/index.js";
+import { useT, useHref, useLocale } from "../../lib/i18n/index.js";
+import { formatDate } from "../../lib/format.js";
 import { useAuth } from "../../components/AuthContext.js";
 import { useRequireRole } from "../../lib/useRoleGuard.js";
-import { deleteSavedSearch, fetchSavedSearches, updateSavedSearch } from "../../lib/apiExtra.js";
+import { ErrorState } from "../../components/profile/ui.js";
+import { deleteSavedSearch, fetchSavedSearchesStrict, updateSavedSearch } from "../../lib/apiExtra.js";
 import type { SavedSearch } from "../../lib/types.js";
 
-/** Saqlangan qidiruvlar (obunalar) — yangi vakansiya chiqqanda xabar keladi. */
+type LoadState = "loading" | "error" | "ready";
+
+/**
+ * Saqlangan qidiruvlar (obunalar) — yangi vakansiya chiqqanda xabar keladi.
+ * Audit ISSUE-022: API xatosi "obunalar yo'q" bo'lib ko'rinmaydi — xato holati va haqiqiy qayta so'rov.
+ */
 export default function Page() {
   const t = useT();
   const l = useHref();
+  const { locale } = useLocale();
   const { status, user, accessToken } = useAuth();
   useRequireRole("job_seeker", "/employer/candidates");
 
+  const allowed = status === "authed" && user?.role === "job_seeker" && Boolean(accessToken);
   const [items, setItems] = useState<SavedSearch[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<LoadState>("loading");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (status !== "authed" || user?.role !== "job_seeker" || !accessToken) return;
-    let cancelled = false;
-    fetchSavedSearches(accessToken)
-      .then((list) => {
-        if (!cancelled) setItems(list);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [status, user, accessToken]);
+    if (!allowed || !accessToken) return;
+    const controller = new AbortController();
+    setState("loading");
+    fetchSavedSearchesStrict(accessToken, controller.signal).then(
+      (list) => {
+        if (controller.signal.aborted) return;
+        setItems(list);
+        setState("ready");
+      },
+      (err: unknown) => {
+        if (controller.signal.aborted || (err as Error)?.name === "AbortError") return;
+        setState("error");
+      }
+    );
+    return () => controller.abort();
+  }, [allowed, accessToken, attempt]);
 
   async function toggleActive(item: SavedSearch) {
     if (!accessToken) return;
@@ -44,9 +57,13 @@ export default function Page() {
   }
 
   async function changeFrequency(item: SavedSearch, frequency: "instant" | "daily") {
-    if (!accessToken) return;
+    if (!accessToken || item.frequency === frequency) return;
+    const previous = item.frequency;
     setItems((prev) => prev.map((s) => (s.id === item.id ? { ...s, frequency } : s)));
-    await updateSavedSearch(accessToken, item.id, { frequency }).catch(() => undefined);
+    // Server rad etsa — tanlov qaytariladi (ilgari xato yutilib, ekranda saqlanmagan qiymat qolardi)
+    await updateSavedSearch(accessToken, item.id, { frequency }).catch(() => {
+      setItems((prev) => prev.map((s) => (s.id === item.id ? { ...s, frequency: previous } : s)));
+    });
   }
 
   async function drop(id: string) {
@@ -68,12 +85,14 @@ export default function Page() {
       <p className="mt-1 text-sm text-dusk">{t.alerts.subtitle}</p>
 
       <div className="mt-7">
-        {loading ? (
+        {state === "loading" ? (
           <div className="space-y-3">
             {[0, 1].map((i) => (
               <div key={i} className="h-24 animate-pulse rounded-xl border border-line bg-surface-2" />
             ))}
           </div>
+        ) : state === "error" ? (
+          <ErrorState onRetry={() => setAttempt((n) => n + 1)} />
         ) : items.length === 0 ? (
           <div className="rounded-2xl border border-line bg-surface p-10 text-center">
             <p className="font-display text-base font-semibold text-ink">{t.alerts.empty}</p>
@@ -113,9 +132,8 @@ export default function Page() {
                       </span>
                       <span>
                         {t.alerts.lastChecked}:{" "}
-                        {item.lastNotifiedAt
-                          ? new Date(item.lastNotifiedAt).toLocaleDateString()
-                          : t.alerts.never}
+                        {/* Audit R3, i18n-7: sana brauzer tili emas, sahifa tili bo'yicha */}
+                        {item.lastNotifiedAt ? formatDate(item.lastNotifiedAt, locale) : t.alerts.never}
                       </span>
                     </p>
                   </div>
@@ -126,6 +144,7 @@ export default function Page() {
                         <button
                           key={value}
                           type="button"
+                          aria-pressed={item.frequency === value}
                           onClick={() => void changeFrequency(item, value)}
                           className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
                             item.frequency === value

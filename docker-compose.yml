@@ -18,7 +18,8 @@ services:
     restart: unless-stopped
     command: ["--replSet", "rs0", "--bind_ip_all"]
     ports:
-      - "27017:27017"
+      # Faqat loopback: xizmat autentifikatsiyasiz ishlaydi (audit R3, headers-infra-16)
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongodata:/data/db
     healthcheck:
@@ -39,7 +40,8 @@ services:
       MEILI_ENV: development
       MEILI_NO_ANALYTICS: "true"
     ports:
-      - "7700:7700"
+      # Faqat loopback: Meilisearch master key'siz ishlaydi (audit R3, headers-infra-16)
+      - "127.0.0.1:7700:7700"
     volumes:
       - meilidata:/meili_data
 

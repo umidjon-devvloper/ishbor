@@ -30,15 +30,20 @@ export function CompanyStats({ company }: { company: CompanyDetailVM }) {
 
   return (
     <dl aria-label={d.stats.label} className={`grid gap-3 ${STAT_GRID[items.length]}`}>
+      {/* audit R3, a11y-ui (axe definition-list/dlitem): <dt>/<dd> <dl> ning
+          bevosita bolasi yoki BITTA <div> ichida bo'lishi kerak edi — ikkita
+          div ichida edi. Endi bitta grid: ikonka chapda, qiymat tepada,
+          yozuv pastda (DOM tartibi dt → dd, ko'rinish o'zgarmaydi). */}
       {items.map((item) => (
-        <div key={item.key} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3.5">
-          <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-signal-soft text-signal">
+        <div
+          key={item.key}
+          className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 rounded-2xl border border-line bg-surface p-3.5"
+        >
+          <span aria-hidden className="row-span-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-signal-soft text-signal">
             {item.icon}
           </span>
-          <div className="flex min-w-0 flex-col-reverse">
-            <dt className="text-[12.5px] leading-snug text-dusk [overflow-wrap:anywhere]">{item.label}</dt>
-            <dd className="font-display text-[17px] font-bold leading-snug text-ink [overflow-wrap:anywhere]">{item.value}</dd>
-          </div>
+          <dt className="col-start-2 row-start-2 text-[12.5px] leading-snug text-dusk [overflow-wrap:anywhere]">{item.label}</dt>
+          <dd className="col-start-2 row-start-1 font-display text-[17px] font-bold leading-snug text-ink [overflow-wrap:anywhere]">{item.value}</dd>
         </div>
       ))}
     </dl>

@@ -152,7 +152,9 @@ export async function billingRoutes(app: FastifyInstance) {
         type: "system",
         title: "To'lov qabul qilindi",
         body: `"${payment.plan.name}" tarifi faollashtirildi.`,
-        url: "/pricing",
+        url: "/profile",
+        // Web matnni o'z tilida chizadi (audit R3, D-059)
+        i18n: { key: "payment.confirmed", params: { planName: payment.plan.name } },
       });
     }
 

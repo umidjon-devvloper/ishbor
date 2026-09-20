@@ -1,4 +1,5 @@
 import React from "react";
+import { usePageContext } from "vike-react/usePageContext";
 import { THEME_INIT_SCRIPT } from "../lib/theme.js";
 import { useHead } from "../lib/i18n/head.js";
 import { SITE_ORIGIN, type Locale } from "../lib/i18n/config.js";
@@ -31,6 +32,12 @@ const PRELOAD_FONTS: Record<Locale, string[]> = {
 /** Barcha sahifalar uchun umumiy <head> teglari (vike-react `Head` sozlamasi). */
 export default function HeadDefault() {
   const { alternates, xDefault, locale } = useHead();
+  const pageContext = usePageContext();
+  // Xato sahifasida (`_error`) `is404` true/false bo'ladi, oddiy sahifada — null.
+  // Xato sahifasi hech qaysi tilda mavjud emas: hreflang va x-default chiqmaydi (audit R3, seo-12).
+  const isErrorPage = pageContext.is404 !== null && pageContext.is404 !== undefined;
+  // CSP nonce (audit R3, D-057). Dev serverda null — atribut umuman qo'yilmaydi.
+  const nonce = pageContext.cspNonce ?? undefined;
   return (
     <>
       <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -49,12 +56,13 @@ export default function HeadDefault() {
       <meta property="og:image" content={`${SITE_ORIGIN}/logo.png`} />
       <meta name="twitter:card" content="summary_large_image" />
       {/* Ko'p tilli SEO — Google har tilni alohida URL sifatida ko'radi */}
-      {alternates.map((a) => (
-        <link key={a.locale} rel="alternate" hrefLang={a.locale} href={a.href} />
-      ))}
-      <link rel="alternate" hrefLang="x-default" href={xDefault} />
+      {!isErrorPage &&
+        alternates.map((a) => (
+          <link key={a.locale} rel="alternate" hrefLang={a.locale} href={a.href} />
+        ))}
+      {!isErrorPage && <link rel="alternate" hrefLang="x-default" href={xDefault} />}
       {/* FOUC oldini olish (mavzu) — React hidratsiyasidan oldin ishlaydi */}
-      <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
     </>
   );
 }

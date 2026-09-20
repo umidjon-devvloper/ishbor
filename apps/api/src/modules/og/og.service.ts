@@ -21,6 +21,16 @@ interface LoadedFonts {
   spaceGroteskBold: Buffer;
   interRegular: Buffer;
   interMedium: Buffer;
+  /**
+   * Kirill harflari (audit R3, seo-7). Space Grotesk'da kirill subset umuman yo'q, Inter'ning
+   * `latin` fayllarida ham yo'q — ruscha sarlavhali e'lonning ulashish rasmi bo'sh chiqardi.
+   * Satori bir oila ichida emas, FAQAT boshqa nomdagi shriftlar orasidan yetishmagan belgini
+   * qidiradi, shuning uchun bu fayllar alohida "Inter Cyrillic" oilasi sifatida ro'yxatdan
+   * o'tkaziladi.
+   */
+  interCyrillicRegular: Buffer;
+  interCyrillicMedium: Buffer;
+  interCyrillicBold: Buffer;
 }
 
 let fonts: LoadedFonts | null = null;
@@ -33,6 +43,9 @@ function loadFonts(): LoadedFonts {
       spaceGroteskBold: read("@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff"),
       interRegular: read("@fontsource/inter/files/inter-latin-400-normal.woff"),
       interMedium: read("@fontsource/inter/files/inter-latin-600-normal.woff"),
+      interCyrillicRegular: read("@fontsource/inter/files/inter-cyrillic-400-normal.woff"),
+      interCyrillicMedium: read("@fontsource/inter/files/inter-cyrillic-600-normal.woff"),
+      interCyrillicBold: read("@fontsource/inter/files/inter-cyrillic-700-normal.woff"),
     };
     return fonts;
   } catch (e) {
@@ -52,7 +65,8 @@ export interface OgVacancyInput {
 }
 
 export async function renderVacancyOgImage(input: OgVacancyInput): Promise<Buffer> {
-  const { spaceGroteskBold, interRegular, interMedium } = loadFonts();
+  const { spaceGroteskBold, interRegular, interMedium, interCyrillicRegular, interCyrillicMedium, interCyrillicBold } =
+    loadFonts();
 
   const markup = {
     type: "div",
@@ -67,7 +81,8 @@ export async function renderVacancyOgImage(input: OgVacancyInput): Promise<Buffe
         backgroundColor: "#0F1B2D",
         backgroundImage:
           "radial-gradient(circle at 18% 14%, rgba(30,136,229,0.35) 0%, rgba(30,136,229,0) 42%), radial-gradient(circle at 88% 82%, rgba(255,193,7,0.25) 0%, rgba(255,193,7,0) 45%)",
-        fontFamily: "Inter",
+        // Kirill belgilari uchun zaxira oila (audit R3, seo-7)
+        fontFamily: "Inter, Inter Cyrillic",
       },
       children: [
         {
@@ -93,7 +108,7 @@ export async function renderVacancyOgImage(input: OgVacancyInput): Promise<Buffe
                 props: {
                   style: {
                     display: "flex",
-                    fontFamily: "Space Grotesk",
+                    fontFamily: "Space Grotesk, Inter Cyrillic",
                     fontSize: "30px",
                     fontWeight: 700,
                     color: "#F6F5FB",
@@ -114,7 +129,8 @@ export async function renderVacancyOgImage(input: OgVacancyInput): Promise<Buffe
                 props: {
                   style: {
                     display: "flex",
-                    fontFamily: "Space Grotesk",
+                    // Sarlavha kirill bo'lsa harflar "Inter Cyrillic" dan olinadi (audit R3, seo-7)
+                    fontFamily: "Space Grotesk, Inter Cyrillic",
                     fontSize: "58px",
                     fontWeight: 700,
                     color: "#FFFFFF",
@@ -174,6 +190,9 @@ export async function renderVacancyOgImage(input: OgVacancyInput): Promise<Buffe
       { name: "Space Grotesk", data: spaceGroteskBold, weight: 700, style: "normal" },
       { name: "Inter", data: interRegular, weight: 400, style: "normal" },
       { name: "Inter", data: interMedium, weight: 600, style: "normal" },
+      { name: "Inter Cyrillic", data: interCyrillicRegular, weight: 400, style: "normal" },
+      { name: "Inter Cyrillic", data: interCyrillicMedium, weight: 600, style: "normal" },
+      { name: "Inter Cyrillic", data: interCyrillicBold, weight: 700, style: "normal" },
     ],
   });
 

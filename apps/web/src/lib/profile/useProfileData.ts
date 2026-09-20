@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchProfile, fetchRegions, fetchResume, saveResume as putResume, updateProfile } from "../api.js";
+import { fetchProfile, fetchRegionsStrict, fetchResume, saveResume as putResume, updateProfile } from "../api.js";
 import type { Profile, ProfileUpdate, Region, ResumeData, ResumeInput } from "../types.js";
 
 export type LoadStatus = "loading" | "ready" | "error";
@@ -63,7 +63,19 @@ export function useProfileCore(token: string | null, fallbackTitle: string) {
   const load = useCallback(async () => {
     if (!token) return;
     setStatus("loading");
-    const [p, r, reg] = await Promise.all([fetchProfile(token), fetchResume(token), fetchRegions()]);
+    let p: Profile | null;
+    let r: ResumeData | null;
+    let reg: Region[];
+    try {
+      // Hududlar ham qat'iy: xatoda bo'sh ro'yxat bilan forma hududni "tanlanmagan" ko'rsatib, saqlash uni
+      // o'chirib yuborardi — endi xato holati va qayta urinish chiqadi (audit PHASE 6, U30)
+      [p, r, reg] = await Promise.all([fetchProfile(token), fetchResume(token), fetchRegionsStrict()]);
+    } catch {
+      // Rezyume yuklanmadi — "rezyume yo'q" deb bo'sh holat bilan davom etilmaydi: keyingi saqlash
+      // (PUT butun hujjat) mavjud tajriba, ta'lim va ko'nikmalarni o'chirib yuborardi (audit ISSUE-017)
+      if (aliveRef.current) setStatus("error");
+      return;
+    }
     if (!aliveRef.current) return;
     setRegions(reg);
     // Nomzod uchun server har doim profil qaytaradi (bo'sh bo'lsa ham) — null faqat xatoda.

@@ -4,8 +4,9 @@ import { useAuth } from "../../components/AuthContext.js";
 import { Skeleton } from "../../components/Skeleton.js";
 import { EmployerCompanyForm } from "../../components/EmployerCompanyForm.js";
 import { TelegramConnect } from "../../components/TelegramConnect.js";
-import { fetchMyApplications, fetchMyCompany, fetchRegions } from "../../lib/api.js";
-import { fetchFavorites } from "../../lib/apiExtra.js";
+import { fetchMyApplications, fetchMyCompany, fetchRegionsStrict } from "../../lib/api.js";
+import { fetchFavoritesStrict } from "../../lib/apiExtra.js";
+import { loginHrefWithReturn } from "../../lib/auth/returnTo.js";
 import type { CurrentUser, MyCompany, Region, TelegramStatus } from "../../lib/types.js";
 import { useProfileTab, type ProfileTab } from "../../lib/profile/tabs.js";
 import { computeCompletion, isResumeReady, SKILLS_TARGET } from "../../lib/profile/completion.js";
@@ -21,6 +22,7 @@ import { EducationList } from "../../components/profile/EducationList.js";
 import { SkillsEditor } from "../../components/profile/SkillsEditor.js";
 import { SavedJobs } from "../../components/profile/SavedJobs.js";
 import { AccountSettings } from "../../components/profile/AccountSettings.js";
+import { StaffAccount } from "../../components/profile/StaffAccount.js";
 import { Card, ErrorState } from "../../components/profile/ui.js";
 
 export default function Page() {
@@ -29,12 +31,15 @@ export default function Page() {
 
   useEffect(() => {
     if (status === "guest" || (status === "authed" && !accessToken)) {
-      window.location.assign(l("/login"));
+      window.location.assign(loginHrefWithReturn(l("/login")));
     }
   }, [status, accessToken, l]);
 
   if (status !== "authed" || !accessToken || !user) return <HubSkeleton />;
   if (user.role === "employer") return <EmployerProfile token={accessToken} />;
+  // Admin va kontent jamoasi — hisob sahifasi (nomzod karyera markazi ularga to'g'ri kelmaydi,
+  // nomzodga xos so'rovlar 403 berib sahifa xatoda qolardi; audit: profile-1)
+  if (user.role !== "job_seeker") return <StaffAccount token={accessToken} user={user} />;
   return <SeekerHub token={accessToken} user={user} />;
 }
 
@@ -48,7 +53,8 @@ function SeekerHub({ token, user }: { token: string; user: CurrentUser }) {
   const core = useProfileCore(token, t.resume.jobTitle);
 
   const applicationsLoader = useCallback(() => fetchMyApplications(token), [token]);
-  const favoritesLoader = useCallback(() => fetchFavorites(token), [token]);
+  // Xato bo'sh "Saqlanganlar" bo'lib ko'rinmasin (audit ISSUE-022)
+  const favoritesLoader = useCallback(() => fetchFavoritesStrict(token), [token]);
   const applications = useRemoteList(applicationsLoader);
   const favorites = useRemoteList(favoritesLoader);
 
@@ -239,26 +245,43 @@ function HubSkeleton() {
 
 function EmployerProfile({ token }: { token: string }) {
   const t = useT();
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<"loading" | "error" | "ready">("loading");
+  const [attempt, setAttempt] = useState(0);
   const [regions, setRegions] = useState<Region[]>([]);
   const [company, setCompany] = useState<MyCompany | null>(null);
 
+  // Kompaniya yoki hududlar yuklanmasa bo'sh forma chizilmaydi: saqlansa mavjud kompaniya
+  // ma'lumotlari bo'sh qiymatlar bilan ustidan yozilardi (audit ISSUE-018)
   useEffect(() => {
     let cancelled = false;
-    fetchRegions().then((r) => {
-      if (!cancelled) setRegions(r);
-    });
-    fetchMyCompany(token).then((c) => {
-      if (cancelled) return;
-      setCompany(c);
-      setLoading(false);
-    });
+    setState("loading");
+    Promise.all([fetchRegionsStrict(), fetchMyCompany(token)]).then(
+      ([r, c]) => {
+        if (cancelled) return;
+        setRegions(r);
+        setCompany(c);
+        setState("ready");
+      },
+      () => {
+        if (!cancelled) setState("error");
+      }
+    );
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, attempt]);
 
-  if (loading) {
+  if (state === "error") {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+        <Card className="p-6">
+          <ErrorState onRetry={() => setAttempt((n) => n + 1)} />
+        </Card>
+      </div>
+    );
+  }
+
+  if (state === "loading") {
     return (
       <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         <Skeleton className="h-8 w-48" />

@@ -22,20 +22,35 @@
   --surface: 255 255 255; /* #FFFFFF */
   --surface-2: 238 243 251; /* #EEF3FB */
   --ink: 15 23 42; /* #0F172A */
-  --dusk: 90 106 133; /* #5A6A85 — paper'da 4.9:1 ✓ */
+  --dusk: 90 106 133; /* #5A6A85 — oq kartada 5.5:1, paper'da 5.1:1 ✓ (o'lchangan) */
   --line: 227 234 245; /* #E3EAF5 */
 
-  --signal: 79 70 229; /* #4F46E5 indigo tugma — oq matn 6:1 ✓ */
-  --signal-strong: 67 56 202; /* #4338CA hover */
+  --signal: 79 70 229; /* #4F46E5 indigo FON (tugma) — oq matn 6.3:1 ✓ */
+  --signal-strong: 67 56 202; /* #4338CA hover foni — oq matn 8.0:1 ✓ */
   --signal-soft: 238 241 254; /* #EEF1FE indigo tint */
+  /* audit R3, D-060 (a11y-ui-5): fon va MATN uchun alohida token.
+     Kunduzgi rejimda ikkalasi bir xil (#4F46E5 oq fonda 6.3:1 ✓). */
+  --signal-text: 79 70 229;
+  --signal-text-strong: 67 56 202;
 
   --gold: 245 158 11; /* #F59E0B logo amberi — "!" va yulduzlar */
-  --gold-deep: 180 83 9; /* #B45309 amber TEXT — oq fonda 4.6:1 ✓ */
-  --growth: 4 120 87; /* #047857 maosh — oq fonda 5.9:1 ✓ */
+  /* audit R3, D-060 (a11y-ui-7): #B45309 gold/20 tinti ustida 4.32:1 edi.
+     #9A4A08 — oq fonda 6.3:1, gold/15 da 5.6:1, gold/20 da 5.4:1 ✓ */
+  --gold-deep: 154 74 8;
+  /* audit R3, D-060 (a11y-ui-7): #047857 growth/10 + signal/[0.045] ustida
+     4.45:1 edi. #04704F — oq fonda 6.1:1, o'sha tint ustida 4.96:1 ✓ */
+  --growth: 4 112 79;
 
   --danger: 190 24 60; /* #BE123C xato matni — 5.9:1 ✓ */
   --scrollbar: 199 210 228;
   --focus: 79 70 229;
+
+  /* Diagramma ustunlari: har rang uchun TUB va UCH (gradient uchun).
+     Oq fonda ustun quyuq bo'lishi kerak, shuning uchun uchi ham to'yingan. */
+  --chart-a: 79 70 229; /* indigo tub */
+  --chart-a-top: 109 102 255; /* indigo uch */
+  --chart-b: 4 112 79; /* yashil tub */
+  --chart-b-top: 16 155 110; /* yashil uch */
 }
 
 .dark {
@@ -43,12 +58,16 @@
   --surface: 18 24 40; /* #121828 */
   --surface-2: 26 34 54; /* #1A2236 */
   --ink: 229 234 245; /* #E5EAF5 */
-  --dusk: 147 160 184; /* #93A0B8 — 6.5:1 ✓ */
+  --dusk: 147 160 184; /* #93A0B8 — surface'da 6.7:1 ✓ (o'lchangan) */
   --line: 35 46 69; /* #232E45 */
 
-  --signal: 99 102 241; /* #6366F1 indigo — oq matn 4.9:1 ✓ */
-  --signal-strong: 129 140 248; /* #818CF8 hover */
+  /* audit R3, D-060 (a11y-ui-5): #6366F1 da oq matn 4.47:1, hover #818CF8 da
+     2.98:1 edi — AA dan past. Endi FON quyuqroq, MATN yorqinroq token. */
+  --signal: 91 82 234; /* #5B52EA fon — oq matn 5.4:1 ✓, surface ustida 3.3:1 ✓ */
+  --signal-strong: 75 67 217; /* #4B43D9 hover foni — oq matn 6.8:1 ✓ */
   --signal-soft: 28 33 64; /* #1C2140 indigo tint */
+  --signal-text: 165 180 252; /* #A5B4FC matn — surface ustida 8.9:1 ✓ */
+  --signal-text-strong: 199 210 254; /* #C7D2FE hover matni — 11.9:1 ✓ */
 
   --gold: 245 184 46; /* #F5B82E */
   --gold-deep: 240 192 96; /* #F0C060 — 9:1 ✓ */
@@ -57,10 +76,22 @@
   --danger: 244 120 130; /* #F47882 — 6:1 ✓ */
   --scrollbar: 52 64 92;
   --focus: 129 140 248;
+
+  /* Tungi rejimda ustunlar YORQINROQ: to'q kartada #5B52EA deyarli fonga singib
+     ketardi. Uchi och, tubi to'yingan — ustun "yonib turgandek" ko'rinadi. */
+  --chart-a: 124 116 255; /* #7C74FF */
+  --chart-a-top: 191 186 255; /* #BFBAFF */
+  --chart-b: 47 215 154; /* #2FD79A */
+  --chart-b-top: 124 245 200; /* #7CF5C8 */
 }
 
 html {
   scroll-behavior: smooth;
+  /* audit R3, D-060 (a11y-ui-9): sticky header (~78px) fokuslangan elementni
+     yopib qo'ymasin — klaviatura bilan o'tishda brauzer shu joyni qoldiradi.
+     Aniq `scroll-mt-*` qo'yilgan bo'limlarda ikkalasi qo'shiladi (kattaroq
+     bo'shliq), lekin hech narsa header ostida qolmaydi. */
+  scroll-padding-top: 5.5rem;
 }
 
 body {
@@ -93,6 +124,43 @@ body {
 /* Bosh sahifa hero rasmi (shaffof webp) — qirqilgan qirralar fonga singiydi:
    chapda strelka dumi, o'ngda daraxtlar, pastda ko'l/ko'kalamzor.
    Tepa qirqim kichik — strelka uchi so'nmasligi kerak. */
+/* ============================================================
+   Diagramma ustunlari (admin "Oxirgi 14 kun").
+
+   Ilgari ustunlar oddiy `bg-signal/80` edi: tungi rejimda to'q kartada
+   ular xira ko'rinardi. Endi har ustun uchidan tubiga gradient bilan
+   chiziladi va tungi rejimda rangning o'zidan yorug'lik (glow) tushadi —
+   lampochka kabi. Kunduzgi rejimda yorug'lik yo'q: oq fonda u faqat
+   rangni yuvib yuborardi.
+   ============================================================ */
+.chart-bar {
+  border-radius: 6px 6px 2px 2px;
+  transition: filter 0.15s ease-out;
+}
+.chart-bar-a {
+  background: linear-gradient(180deg, rgb(var(--chart-a-top)) 0%, rgb(var(--chart-a)) 100%);
+}
+.chart-bar-b {
+  background: linear-gradient(180deg, rgb(var(--chart-b-top)) 0%, rgb(var(--chart-b)) 100%);
+}
+.dark .chart-bar-a {
+  box-shadow: 0 0 12px rgb(var(--chart-a-top) / 0.55), 0 0 26px rgb(var(--chart-a-top) / 0.32);
+}
+.dark .chart-bar-b {
+  box-shadow: 0 0 12px rgb(var(--chart-b-top) / 0.55), 0 0 26px rgb(var(--chart-b-top) / 0.32);
+}
+/* Ustun ustiga kelganda yorug'lik kuchayadi */
+.chart-bar:hover {
+  filter: brightness(1.12);
+}
+/* Izohdagi rangli kvadratchalar ustunlar bilan bir xil rangda */
+.chart-dot-a {
+  background: rgb(var(--chart-a-top));
+}
+.chart-dot-b {
+  background: rgb(var(--chart-b-top));
+}
+
 .hero-photo {
   -webkit-mask-image:
     linear-gradient(90deg, transparent 0, #000 110px, #000 calc(100% - 40px), transparent 100%),
@@ -416,8 +484,133 @@ body {
   }
 }
 
-/* Eslatma: brend talabi — jonli fon har doim harakatda bo'ladi,
-   shu sababli prefers-reduced-motion bilan animatsiya o'chirilmaydi. */
+/* ---------------------------------------------------------
+   Kontrast tuzatishlari (audit R3, D-060 — a11y-ui-5, a11y-ui-7).
+   Bu yerdagi qoidalar Tailwind utility'larining rangini almashtiradi:
+   sinf nomlari 400 ga yaqin faylda o'zgarmaydi, faqat token boshqacha.
+   `:root` prefiksi ATAYLAB: Tailwind variant utility'larini (`hover:`,
+   `placeholder:`, `marker:`) fayl oxiridan KEYIN chiqaradi, shuning uchun
+   faqat tartibga tayanib bo'lmaydi — spetsifiklik bir pog'ona yuqori.
+--------------------------------------------------------- */
+
+/* `text-signal` — MATN uchun alohida token (tungi rejimda fon quyuq,
+   matn yorqin). Fon/chegara/halqa utility'lari (`bg-signal`, `border-signal`,
+   `ring-signal`) o'zgarishsiz `--signal` dan oladi. */
+:root .text-signal,
+:root .hover\:text-signal:hover,
+:root .aria-pressed\:text-signal[aria-pressed="true"] {
+  color: rgb(var(--signal-text));
+}
+:root .group:hover .group-hover\:text-signal {
+  color: rgb(var(--signal-text));
+}
+:root .marker\:text-signal *::marker,
+:root .marker\:text-signal::marker {
+  color: rgb(var(--signal-text));
+}
+:root .text-signal\/70 {
+  color: rgb(var(--signal-text) / 0.7);
+}
+:root .hover\:text-signal-dark:hover {
+  color: rgb(var(--signal-text-strong));
+}
+/* ISTISNO (audit R3, D-060 — a11y-ui-5): mavzudan qat'i nazar OQ qolgan fon
+   ustida `text-signal` ishlatilsa (indigo karta ichidagi oq CTA tugmasi),
+   MATN tokeni tungi rejimda oq fonda 2.0:1 bo'lib qolardi. Bunday joyda
+   FON tokeni to'g'ri: #4F46E5 → 6.3:1, #5B52EA → 5.5:1 ✓ */
+:root .bg-white.text-signal,
+:root .bg-white.hover\:text-signal:hover {
+  color: rgb(var(--signal));
+}
+
+/* `text-dusk/80` va `/70` kunduzgi rejimda 3.59:1 / 2.95:1 edi — alpha
+   olib tashlanadi (to'liq `--dusk`: oq fonda 5.5:1, surface-2 da 4.9:1). */
+:root .text-dusk\/80,
+:root .text-dusk\/70 {
+  color: rgb(var(--dusk));
+}
+:root .placeholder\:text-dusk\/80::placeholder,
+:root .placeholder\:text-dusk\/70::placeholder {
+  color: rgb(var(--dusk));
+}
+
+/* `text-ink/55` — natijasi 0 bo'lgan filtr yorlig'i, kunduzgi 4.0:1 edi.
+   /65 → 5.6:1 (tungi rejimda `ink` yorug', shuning uchun faqat yaxshilanadi). */
+:root .text-ink\/55 {
+  color: rgb(var(--ink) / 0.65);
+}
+
+/* Indigo to'ldirilgan fon ustidagi oq matn: /80 (4.1:1) va /75 (3.2:1) —
+   ikkala joyda ham fon `bg-signal`, shuning uchun to'liq oq matn. */
+:root .text-white\/80,
+:root .text-white\/75 {
+  color: rgb(255 255 255);
+}
+
+/* Tungi rejimda `bg-growth` ustidagi oq matn 2.01:1 edi — quyuq matn. */
+.dark .bg-growth.text-white {
+  color: rgb(var(--paper));
+}
+
+/* Indigo tugma ichidagi sanoqchi: oq matn oq/20 tint ustida 3.18:1 edi.
+   Tint yorug'dan quyuqqa o'tadi — oq matn 8:1 dan yuqori bo'ladi. */
+.bg-white\/20.text-white {
+  background-color: rgb(0 0 0 / 0.18);
+}
+
+/* ---------------------------------------------------------
+   prefers-reduced-motion (audit R3, D-060 — a11y-ui-6, WCAG 2.2.2/2.3.3).
+   Avval brend talabi sifatida jonli fon HAR DOIM harakatda edi; owner'ning
+   Round 3 ko'rsatmasi shuni bekor qildi: OS sozlamasida "harakatni kamaytir"
+   yoqilgan bo'lsa cheksiz va katta dekorativ animatsiyalar hamda silliq
+   scroll o'chadi. Fon, ranglar va joylashuv o'zgarmaydi.
+--------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  /* Cheksiz dekorativ animatsiyalar */
+  .drift-a,
+  .drift-b,
+  .drift-c,
+  .breathe,
+  .pulse-ring,
+  .spin-slow,
+  .text-shine,
+  .shimmer::after,
+  /* Kirish animatsiyalari (tailwind.config.js) */
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-card-in,
+  .animate-pop,
+  .animate-slide-down,
+  .animate-sheet-in,
+  .animate-drawer-in,
+  .animate-bar-grow,
+  .animate-float {
+    animation: none !important;
+  }
+  /* Uchqunlar faqat harakat tufayli ko'rinadi — harakatsiz ular faqat
+     ekran pastidagi nuqtalar bo'lib qolardi. */
+  .particle {
+    display: none;
+  }
+  /* Scroll-reveal: yashirin holat qolib ketmasin */
+  .reveal-pending {
+    opacity: 1;
+    transform: none;
+  }
+  .reveal-in,
+  body,
+  .nav-underline::after,
+  .glow-signal,
+  .glow-signal::after {
+    transition: none !important;
+  }
+  .glow-signal:hover::after {
+    transform: translateX(-150%) skewX(-18deg);
+  }
+}
 
 /* Gorizontal aylanadigan qatorlar (mobil tab'lar) — aylanadi, lekin chiziq ko'rinmaydi */
 .scrollbar-none {
@@ -435,6 +628,13 @@ body {
 }
 
 :focus-visible {
+  outline: 2px solid rgb(var(--focus));
+  outline-offset: 2px;
+}
+/* audit R3, D-060 (a11y-ui-2): `focus:outline-none` utility'si global fokus
+   halqasini ham o'chirib yuborardi (sichqoncha uchun mo'ljallangan edi).
+   Klaviatura fokusi (`:focus-visible`) har doim ko'rinadi. */
+:root .focus\:outline-none:focus-visible {
   outline: 2px solid rgb(var(--focus));
   outline-offset: 2px;
 }

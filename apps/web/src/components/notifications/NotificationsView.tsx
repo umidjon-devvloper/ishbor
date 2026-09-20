@@ -18,6 +18,7 @@ import {
   NotificationsEmptyState,
   NotificationsErrorState,
   NotificationsFilterEmptyState,
+  NotificationsLoadMore,
   NotificationsMainSkeleton,
   NotificationsSidebarSkeleton,
 } from "./NotificationsStates.js";
@@ -180,9 +181,17 @@ export function NotificationsView({ center, role, token }: { center: Notificatio
                 }}
               />
             )}
-            {center.truncated && <p className="text-center text-[12.5px] text-dusk">{n.list.truncated(NOTIFICATIONS_LIMIT)}</p>}
           </>
         )}
+        {/* audit R3, D-078: eski bildirishnomalar kursor bilan yuklanadi — yuklanmoqda/xato/oxiri
+            holatlari ko'rinadi. Filtr natijasi bo'sh bo'lsa ham tugma qoladi: davomida mos qator bo'lishi mumkin. */}
+        <NotificationsLoadMore
+          hasMore={center.hasMore}
+          status={center.moreStatus}
+          reachedEnd={center.reachedEnd}
+          truncatedNote={center.truncated && !center.hasMore ? n.list.truncated(NOTIFICATIONS_LIMIT) : null}
+          onLoad={() => void center.loadMore()}
+        />
       </div>
     );
   }

@@ -4,8 +4,8 @@ import { z } from "zod";
 import { prisma } from "../../common/prisma.js";
 import { Errors } from "../../common/errors.js";
 import { requireAuth } from "../../common/auth-guard.js";
-import { boolish } from "../../common/validation.js";
-import { getVapidPublicKey } from "../../common/push.js";
+import { boolish, idParams, isObjectId, safeInternalPath } from "../../common/validation.js";
+import { getVapidPublicKey, isAllowedPushEndpoint } from "../../common/push.js";
 import { features } from "../../common/env.js";
 
 const NOTIFICATION_TYPES = [
@@ -17,10 +17,20 @@ const NOTIFICATION_TYPES = [
 
 const CHANNELS = ["email", "push", "in_app", "telegram"] as const;
 
+/**
+ * Ro'yxat so'rovi (audit R3, D-078).
+ *
+ * `before` — oldingi sahifaning OXIRGI bildirishnomasi ID'si (keyset kursor).
+ * `limit` sxemada 100 gacha qabul qilinadi (eski web 100 yuboradi — 400 bermasin),
+ * yangi klient 1..50 ishlatadi.
+ */
 const listQuerySchema = z.object({
   unreadOnly: boolish().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  before: z.string().trim().max(64).optional(),
 });
+
+const DEFAULT_LIMIT = 30;
 
 const prefSchema = z.object({
   items: z
@@ -42,41 +52,78 @@ const pushSubSchema = z.object({
 /**
  * Notification.payload ichidagi `url` ni xavfsiz o'qiydi (faqat ichki yo'l).
  * "//host" va "/\host" ham "/" bilan boshlanadi, lekin brauzer ularni boshqa saytga
- * ochadi — rad etiladi.
+ * ochadi — rad etiladi (`safeInternalPath`, notify() bilan bir xil qoida).
  */
 function urlFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
-  const url = (payload as { url?: unknown }).url;
-  if (typeof url !== "string" || !url.startsWith("/") || url.startsWith("//") || url.startsWith("/\\")) return null;
-  return url;
+  return safeInternalPath((payload as { url?: unknown }).url);
+}
+
+/**
+ * Javobga chiqadigan `payload` (audit R3, D-059): web `payload.i18n` ni joriy tilda chizadi.
+ * Ichidagi `url` xavfsiz tekshiruvdan o'tgan qiymatga almashtiriladi — tashqi manzil
+ * ("//host") klientga umuman yetmasin (yuqoridagi `urlFromPayload` bilan bir xil qoida).
+ */
+function payloadForClient(payload: unknown, url: string | null): Record<string, unknown> | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  return { ...(payload as Record<string, unknown>), url };
 }
 
 export async function notificationRoutes(app: FastifyInstance) {
   // Bildirishnomalar ro'yxati + o'qilmaganlar soni (qo'ng'iroq belgisi uchun)
   app.get("/api/notifications", { preHandler: [requireAuth] }, async (req) => {
-    const { unreadOnly, limit } = listQuerySchema.parse(req.query);
+    const { unreadOnly, limit, before } = listQuerySchema.parse(req.query);
     const userId = req.user!.sub;
+    const take = limit ?? DEFAULT_LIMIT;
+
+    // Kursor: o'sha yozuvdan ESKIROQLARI. `createdAt` bo'yicha tartiblanadi, shuning uchun
+    // kursor yozuvining vaqti o'qiladi (demo/seed ma'lumotda ID tartibi vaqt tartibiga teng emas).
+    // Yozuv o'chirilgan bo'lsa — ID bo'yicha zaxira taqqoslash (ObjectId vaqt bo'yicha o'sadi).
+    let cursorWhere: object = {};
+    if (before) {
+      if (!isObjectId(before)) throw Errors.badRequest("before noto'g'ri");
+      const anchor = await prisma.notification.findFirst({
+        where: { id: before, userId },
+        select: { createdAt: true },
+      });
+      cursorWhere = anchor
+        ? {
+            OR: [
+              { createdAt: { lt: anchor.createdAt } },
+              { createdAt: anchor.createdAt, id: { lt: before } },
+            ],
+          }
+        : { id: { lt: before } };
+    }
 
     const [rows, unreadCount] = await Promise.all([
       prisma.notification.findMany({
-        where: { userId, ...(unreadOnly ? { isRead: false } : {}) },
-        orderBy: { createdAt: "desc" },
-        take: limit ?? 30,
+        where: { userId, ...(unreadOnly ? { isRead: false } : {}), ...cursorWhere },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        // Bittasi ortiqcha: yana sahifa borligini shundan bilamiz (audit R3, D-078)
+        take: take + 1,
       }),
       prisma.notification.count({ where: { userId, isRead: false } }),
     ]);
 
+    const hasMore = rows.length > take;
+    const page = hasMore ? rows.slice(0, take) : rows;
+
     return {
-      items: rows.map((n: (typeof rows)[number]) => ({
+      items: page.map((n: (typeof rows)[number]) => ({
         id: n.id,
         type: n.type,
         title: n.title,
         body: n.body,
         url: urlFromPayload(n.payload),
+        // `payload.i18n` — web matnni joriy tilda chizadi (audit R3, D-059)
+        payload: payloadForClient(n.payload, urlFromPayload(n.payload)),
         isRead: n.isRead,
         createdAt: n.createdAt,
       })),
       unreadCount,
+      /** Keyingi sahifa uchun `?before=` qiymati; yana yozuv bo'lmasa `null`. */
+      nextCursor: hasMore ? page[page.length - 1]?.id ?? null : null,
     };
   });
 
@@ -89,7 +136,7 @@ export async function notificationRoutes(app: FastifyInstance) {
   });
 
   app.post("/api/notifications/:id/read", { preHandler: [requireAuth] }, async (req) => {
-    const { id } = req.params as { id: string };
+    const { id } = idParams.parse(req.params);
     const found = await prisma.notification.findUnique({ where: { id }, select: { userId: true } });
     if (!found) throw Errors.notFound();
     if (found.userId !== req.user!.sub) throw Errors.forbidden();
@@ -106,7 +153,7 @@ export async function notificationRoutes(app: FastifyInstance) {
   });
 
   app.delete("/api/notifications/:id", { preHandler: [requireAuth] }, async (req) => {
-    const { id } = req.params as { id: string };
+    const { id } = idParams.parse(req.params);
     const found = await prisma.notification.findUnique({ where: { id }, select: { userId: true } });
     if (!found) throw Errors.notFound();
     if (found.userId !== req.user!.sub) throw Errors.forbidden();
@@ -183,18 +230,26 @@ export async function notificationRoutes(app: FastifyInstance) {
   app.post("/api/push/subscribe", { preHandler: [requireAuth] }, async (req) => {
     if (!features.push) throw Errors.badRequest("Push xabarnomalar serverda sozlanmagan");
     const body = pushSubSchema.parse(req.body);
+    // Faqat ma'lum push xizmatlari (audit R3, gap2-5): aks holda server obunada ko'rsatilgan
+    // istalgan host:port ga chiquvchi so'rov yuborardi
+    if (!isAllowedPushEndpoint(body.endpoint)) {
+      throw Errors.badRequest("Push obunasi manzili qo'llab-quvvatlanmaydi");
+    }
+    const userId = req.user!.sub;
     const userAgent = String(req.headers["user-agent"] ?? "").slice(0, 255);
 
+    // Bir brauzer obunasi bitta foydalanuvchiga tegishli. Shu qurilmada boshqa hisob kirsa, eski
+    // egasining yozuvi o'chiriladi — yozuvni o'ziga "ko'chirib olish" o'rniga (audit ISSUE-084).
+    await prisma.pushSubscription.deleteMany({ where: { endpoint: body.endpoint, userId: { not: userId } } });
     await prisma.pushSubscription.upsert({
       where: { endpoint: body.endpoint },
       update: {
-        userId: req.user!.sub,
         p256dh: body.keys.p256dh,
         auth: body.keys.auth,
         userAgent,
       },
       create: {
-        userId: req.user!.sub,
+        userId,
         endpoint: body.endpoint,
         p256dh: body.keys.p256dh,
         auth: body.keys.auth,
@@ -206,9 +261,9 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   app.post("/api/push/unsubscribe", { preHandler: [requireAuth] }, async (req) => {
     const { endpoint } = z.object({ endpoint: z.string().max(1000) }).parse(req.body);
-    await prisma.pushSubscription
-      .deleteMany({ where: { endpoint, userId: req.user!.sub } })
-      .catch(() => undefined);
-    return { ok: true };
+    // Baza xatosi yutilmaydi (audit R3, api-errors-10): ilgari o'chirish amalga oshmasa ham
+    // javob `{ ok: true }` bo'lib, klient push'ni "o'chirildi" deb ko'rsatardi
+    const res = await prisma.pushSubscription.deleteMany({ where: { endpoint, userId: req.user!.sub } });
+    return { ok: true, removed: res.count };
   });
 }

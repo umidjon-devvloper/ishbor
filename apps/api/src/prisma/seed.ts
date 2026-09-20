@@ -1,5 +1,6 @@
-import { PrismaClient, type EmploymentType, type ExperienceRequired } from "@prisma/client";
+import { PrismaClient, type ArticleCategory, type EmploymentType, type ExperienceRequired } from "@prisma/client";
 import argon2 from "argon2";
+import { articleDerived } from "../modules/articles/articles.content.js";
 
 const prisma = new PrismaClient();
 
@@ -330,42 +331,57 @@ async function main() {
   }
 
   // ---- Maqolalar ----
-  const articleData = [
+  // Muallifsiz (ish beruvchi hisobi kontent jamoasi emas); to'liq demo — demo-seed.ts
+  const articleData: {
+    slug: string;
+    title: string;
+    excerpt: string;
+    category: ArticleCategory;
+    tags: string[];
+    content: string;
+  }[] = [
     {
-      slug: "rezyume-qanday-yoziladi",
+      slug: "rezyume-qanday-yoziladi-2026",
       title: "Rezyume qanday yoziladi: 2026-yil uchun to'liq qo'llanma",
+      excerpt: "Ish beruvchini birinchi 10 soniyada qiziqtiradigan rezyume tuzish bo'yicha amaliy qo'llanma.",
+      category: "resume",
+      tags: ["Rezyume", "Ish topish"],
       content:
-        "Ish beruvchini birinchi 10 soniyada qiziqtiradigan rezyume tuzish bo'yicha amaliy maslahatlar. Aniq tuzilma, kuchli yutuqlar va to'g'ri kalit so'zlar — muvaffaqiyatli rezyumening asosi. Ushbu qo'llanmada bosqichma-bosqich har bir bo'limni qanday to'ldirishni ko'rsatamiz.",
-      metaDescription:
-        "Ish beruvchini qiziqtiradigan kuchli rezyume tuzish bo'yicha amaliy qo'llanma.",
+        "Ish beruvchini birinchi 10 soniyada qiziqtiradigan rezyume tuzish bo'yicha amaliy maslahatlar.\n\n## Tuzilma\n\nAniq tuzilma, kuchli yutuqlar va to'g'ri kalit so'zlar — muvaffaqiyatli rezyumening asosi. Ushbu qo'llanmada bosqichma-bosqich har bir bo'limni qanday to'ldirishni ko'rsatamiz.",
     },
     {
       slug: "intervyuga-tayyorgarlik",
       title: "Intervyuga qanday tayyorlanish kerak",
+      excerpt: "Ish intervyusiga tayyorlanish bo'yicha amaliy maslahatlar va strategiyalar.",
+      category: "interview",
+      tags: ["Suhbat", "Intervyu"],
       content:
-        "Eng ko'p so'raladigan savollar va ularga ishonchli javob berish strategiyasi. Kompaniyani o'rganish, STAR metodi va o'zingizni ishonchli tutish — intervyuda ajralib turishning kalitidir.",
-      metaDescription: "Ish intervyusiga tayyorlanish bo'yicha amaliy maslahatlar va strategiyalar.",
+        "Eng ko'p so'raladigan savollar va ularga ishonchli javob berish strategiyasi.\n\n## STAR usuli\n\nKompaniyani o'rganish, STAR metodi va o'zingizni ishonchli tutish — intervyuda ajralib turishning kalitidir.",
     },
     {
       slug: "birinchi-ish-tajribasiz",
       title: "Tajribasiz birinchi ishni qanday topish mumkin",
+      excerpt: "Tajribasiz birinchi ishni topish bo'yicha amaliy yo'l xaritasi.",
+      category: "job_search",
+      tags: ["Ish topish", "Talabalar"],
       content:
-        "Talaba va fresh grad'lar uchun amaliy yo'l xaritasi. Amaliyot, ko'ngillilik, pet-loyihalar va to'g'ri networking orqali birinchi ishni topish yo'llari.",
-      metaDescription: "Tajribasiz birinchi ishni topish bo'yicha amaliy yo'l xaritasi.",
+        "Talaba va bitiruvchilar uchun amaliy yo'l xaritasi.\n\n- Amaliyot va stajirovka\n- Ko'ngillilik va pet-loyihalar\n- To'g'ri networking",
     },
   ];
   for (const a of articleData) {
+    const fields = {
+      title: a.title,
+      excerpt: a.excerpt,
+      content: a.content,
+      category: a.category,
+      tags: a.tags,
+      status: "published" as const,
+      ...articleDerived({ title: a.title, excerpt: a.excerpt, content: a.content, tags: a.tags, category: a.category }),
+    };
     await prisma.article.upsert({
       where: { slug: a.slug },
-      update: { title: a.title, content: a.content, metaDescription: a.metaDescription },
-      create: {
-        slug: a.slug,
-        title: a.title,
-        content: a.content,
-        metaDescription: a.metaDescription,
-        authorId: employerUser.id,
-        publishedAt: new Date(),
-      },
+      update: fields,
+      create: { slug: a.slug, ...fields, publishedAt: new Date() },
     });
   }
 

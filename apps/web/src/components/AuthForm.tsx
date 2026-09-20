@@ -41,7 +41,13 @@ export function AuthTabs({ active }: { active: "login" | "signup" }) {
   );
 }
 
-/** Chap tomonida ikonkasi bo'lgan matn maydoni. */
+/**
+ * Chap tomonida ikonkasi bo'lgan matn maydoni.
+ *
+ * `invalid` va `describedBy` — xato bilan bog'lash uchun (audit R3, a11y-ui-3):
+ * `aria-invalid` va `aria-describedby` DESIGN.md konvensiyasiga mos qo'yiladi.
+ * `inputRef` — xatodan keyin fokusni birinchi noto'g'ri maydonga ko'chirish uchun.
+ */
 export function AuthField({
   label,
   type = "text",
@@ -51,6 +57,11 @@ export function AuthField({
   required,
   autoComplete,
   icon,
+  invalid = false,
+  describedBy,
+  hint,
+  inputMode,
+  inputRef,
 }: {
   label: string;
   type?: string;
@@ -60,8 +71,15 @@ export function AuthField({
   required?: boolean;
   autoComplete?: string;
   icon: React.ReactNode;
+  invalid?: boolean;
+  describedBy?: string;
+  hint?: string;
+  inputMode?: "text" | "tel" | "email" | "numeric";
+  inputRef?: React.Ref<HTMLInputElement>;
 }) {
   const id = useId();
+  const hintId = `${id}-hint`;
+  const described = [hint ? hintId : null, describedBy ?? null].filter(Boolean).join(" ");
   return (
     <div>
       <label htmlFor={id} className="block text-[13px] font-semibold leading-tight text-ink">
@@ -73,15 +91,26 @@ export function AuthField({
         </span>
         <input
           id={id}
+          ref={inputRef}
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           required={required}
           autoComplete={autoComplete}
-          className="h-11 w-full rounded-xl border border-line bg-surface-2 pl-11 pr-3.5 text-sm text-ink transition-colors placeholder:text-dusk/80 focus:border-signal focus:bg-surface focus:outline-none"
+          inputMode={inputMode}
+          aria-invalid={invalid || undefined}
+          aria-describedby={described || undefined}
+          className={`h-11 w-full rounded-xl border bg-surface-2 pl-11 pr-3.5 text-sm text-ink transition-colors placeholder:text-dusk focus:bg-surface focus:outline-none ${
+            invalid ? "border-danger focus:border-danger" : "border-line focus:border-signal"
+          }`}
         />
       </div>
+      {hint && (
+        <p id={hintId} className="mt-1 text-[12.5px] leading-relaxed text-dusk">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -93,15 +122,25 @@ export function PasswordField({
   onChange,
   placeholder,
   autoComplete,
+  invalid = false,
+  describedBy,
+  hint,
+  inputRef,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   autoComplete?: string;
+  invalid?: boolean;
+  describedBy?: string;
+  hint?: string;
+  inputRef?: React.Ref<HTMLInputElement>;
 }) {
   const t = useT();
   const id = useId();
+  const hintId = `${id}-hint`;
+  const described = [hint ? hintId : null, describedBy ?? null].filter(Boolean).join(" ");
   const [shown, setShown] = useState(false);
 
   return (
@@ -115,13 +154,18 @@ export function PasswordField({
         </span>
         <input
           id={id}
+          ref={inputRef}
           type={shown ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           required
           autoComplete={autoComplete}
-          className="h-11 w-full rounded-xl border border-line bg-surface-2 pl-11 pr-12 text-sm text-ink transition-colors placeholder:text-dusk/80 focus:border-signal focus:bg-surface focus:outline-none"
+          aria-invalid={invalid || undefined}
+          aria-describedby={described || undefined}
+          className={`h-11 w-full rounded-xl border bg-surface-2 pl-11 pr-12 text-sm text-ink transition-colors placeholder:text-dusk focus:bg-surface focus:outline-none ${
+            invalid ? "border-danger focus:border-danger" : "border-line focus:border-signal"
+          }`}
         />
         <button
           type="button"
@@ -132,7 +176,31 @@ export function PasswordField({
           {shown ? <EyeOffIcon /> : <EyeIcon />}
         </button>
       </div>
+      {hint && (
+        <p id={hintId} className="mt-1 text-[12.5px] leading-relaxed text-dusk">
+          {hint}
+        </p>
+      )}
     </div>
+  );
+}
+
+/**
+ * Forma xatosi — `role="alert"` bilan e'lon qilinadi va maydonlarga
+ * `aria-describedby` orqali bog'lanadi (audit R3, a11y-ui-3).
+ */
+export function AuthError({ id, children }: { id: string; children: React.ReactNode }) {
+  const t = useT();
+  return (
+    <p
+      id={id}
+      role="alert"
+      data-testid="auth-error"
+      className="animate-fade-in rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger"
+    >
+      <span className="sr-only">{t.login.errorLabel}: </span>
+      {children}
+    </p>
   );
 }
 

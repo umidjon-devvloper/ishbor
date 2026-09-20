@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useT } from "../../lib/i18n/index.js";
 import type { ResumeData } from "../../lib/types.js";
-import { Field, SaveStatus, TextArea, TextInput, useSaveState } from "./ui.js";
+import { Field, SaveStatus, TextArea, TextInput, focusFirstInvalid, useSaveState } from "./ui.js";
 
 type Draft = { title: string; summary: string; desiredSalary: string };
 
@@ -31,6 +31,7 @@ export function ProfessionalInfo({
   const [draft, setDraft] = useState<Draft>(() => toDraft(resume));
   const [titleError, setTitleError] = useState<string | null>(null);
   const saver = useSaveState();
+  const formRef = useRef<HTMLFormElement>(null);
   const initial = toDraft(resume);
   const dirty =
     draft.title !== initial.title || draft.summary !== initial.summary || draft.desiredSalary !== initial.desiredSalary;
@@ -43,7 +44,9 @@ export function ProfessionalInfo({
 
   async function save(): Promise<boolean> {
     if (!draft.title.trim()) {
+      // Audit R3, gap5-2: xato e'lon qilinadi va fokus xato maydonga ko'chadi
       setTitleError(t.profileHub.states.required);
+      focusFirstInvalid(formRef.current);
       return false;
     }
     if (!dirty) return true;
@@ -60,6 +63,7 @@ export function ProfessionalInfo({
 
   return (
     <form
+      ref={formRef}
       onSubmit={(e) => {
         e.preventDefault();
         void save();
@@ -73,6 +77,7 @@ export function ProfessionalInfo({
               id={p.id}
               describedBy={p.describedBy}
               invalid={p.invalid}
+              required={p.required}
               value={draft.title}
               maxLength={140}
               onChange={(v) => {

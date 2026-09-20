@@ -8,7 +8,7 @@ import React, { useEffect, useRef } from "react";
 import Header from "./Header.js";
 import Footer from "./Footer.js";
 import { AuthProvider } from "./AuthContext.js";
-import { LocaleProvider } from "../lib/i18n/index.js";
+import { LocaleProvider, useT } from "../lib/i18n/index.js";
 import { ThemeProvider } from "../lib/theme.js";
 
 // Barcha kirish animatsiyalari CSS'da (animate-fade-up, useReveal) — hidratsiyani
@@ -19,15 +19,79 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <ThemeProvider>
         <AuthProvider>
           <div className="flex min-h-screen flex-col bg-paper font-body text-ink antialiased">
+            <SkipLink />
+            <ReducedMotionScroll />
             <ScrollProgress />
             <Header />
-            <main className="flex-1">{children}</main>
+            {/* audit R3, D-060 (a11y-ui-9): o'tish havolasining nishoni;
+                tabIndex=-1 — havoladan keyin fokus shu yerga ko'chadi */}
+            <main id="main-content" tabIndex={-1} className="flex-1">
+              {children}
+            </main>
             <Footer />
           </div>
         </AuthProvider>
       </ThemeProvider>
     </LocaleProvider>
   );
+}
+
+/**
+ * Klaviatura foydalanuvchisi uchun "asosiy kontentga o'tish" havolasi
+ * (audit R3, D-060 — a11y-ui-9, WCAG 2.4.1). Sahifadagi BIRINCHI fokuslanuvchi
+ * element; faqat fokusda ko'rinadi, layout o'zgarmaydi.
+ */
+function SkipLink() {
+  const t = useT();
+  return (
+    <a
+      href="#main-content"
+      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-signal focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:shadow-pop"
+    >
+      {t.ui.skipToContent}
+    </a>
+  );
+}
+
+/**
+ * `prefers-reduced-motion: reduce` bo'lsa JS bilan chaqirilgan silliq scroll
+ * ham darhol bo'ladi (audit R3, D-060 — a11y-ui-6). CSS'dagi
+ * `scroll-behavior: auto` scrollIntoView({behavior:"smooth"}) opsiyasini
+ * bosmaydi, shuning uchun opsiya chaqiruv paytida tekshiriladi.
+ */
+function ReducedMotionScroll() {
+  useEffect(() => {
+    const w = window as typeof window & { __ishReducedMotionScroll?: boolean };
+    if (w.__ishReducedMotionScroll) return;
+    w.__ishReducedMotionScroll = true;
+    const reduced = () => Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+    const plain = (options: unknown) =>
+      options && typeof options === "object" && (options as ScrollOptions).behavior === "smooth"
+        ? { ...(options as ScrollOptions), behavior: "auto" as ScrollBehavior }
+        : options;
+
+    const scrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (arg?: boolean | ScrollIntoViewOptions) {
+      return scrollIntoView.call(this, reduced() ? (plain(arg) as ScrollIntoViewOptions) : arg);
+    };
+    for (const name of ["scrollTo", "scrollBy"] as const) {
+      const target = Element.prototype as unknown as Record<string, (...args: unknown[]) => void>;
+      const original = target[name];
+      if (typeof original === "function") {
+        target[name] = function (this: Element, ...args: unknown[]) {
+          return original.apply(this, reduced() && args.length === 1 ? [plain(args[0])] : args);
+        };
+      }
+      const win = window as unknown as Record<string, (...args: unknown[]) => void>;
+      const originalWin = win[name];
+      if (typeof originalWin === "function") {
+        win[name] = function (...args: unknown[]) {
+          return originalWin.apply(window, reduced() && args.length === 1 ? [plain(args[0])] : args);
+        };
+      }
+    }
+  }, []);
+  return null;
 }
 
 /** Sahifa boshida o'qish jarayonini ko'rsatuvchi ingichka gradient chiziq.

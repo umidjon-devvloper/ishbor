@@ -18,7 +18,8 @@ export function CategoryCard({
 }: {
   name: string;
   slug: string;
-  count: number;
+  /** Haqiqiy son yuklanmagan bo'lsa — qator chizilmaydi (taxminiy raqam ko'rsatilmaydi). */
+  count?: number | null;
   index?: number;
 }) {
   const t = useT();
@@ -44,7 +45,9 @@ export function CategoryCard({
       <p className="mt-4 font-display text-[15px] font-semibold leading-snug text-ink transition-colors group-hover:text-signal">
         {name}
       </p>
-      <span className="mt-1 font-mono text-[13px] tabular-nums text-dusk">{t.fmt.vacanciesCount(count)}</span>
+      {typeof count === "number" && (
+        <span className="mt-1 font-mono text-[13px] tabular-nums text-dusk">{t.fmt.vacanciesCount(count)}</span>
+      )}
     </a>
   );
 }

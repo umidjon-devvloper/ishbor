@@ -107,6 +107,56 @@ export function NotificationsFilterEmptyState({ onClear }: { onClear: () => void
   );
 }
 
+/**
+ * Kursor sahifalash (audit R3, D-078): "Yana yuklash" tugmasi va uning holatlari.
+ * Yuklanmoqda, xato (qayta urinish) va ro'yxat oxiri — hammasi ko'rinib turadi;
+ * xato hech qachon bo'sh ro'yxatga aylanmaydi (eski qatorlar ekranda qoladi).
+ */
+export function NotificationsLoadMore({
+  hasMore,
+  status,
+  reachedEnd,
+  truncatedNote,
+  onLoad,
+}: {
+  hasMore: boolean;
+  status: "idle" | "loading" | "error";
+  reachedEnd: boolean;
+  /** Server kursorni qo'llab-quvvatlamasa — "oxirgi N ta ko'rsatilmoqda" izohi. */
+  truncatedNote: string | null;
+  onLoad: () => void;
+}) {
+  const n = useT().notificationsPage;
+  if (!hasMore) {
+    if (truncatedNote) return <p className="text-center text-[12.5px] text-dusk">{truncatedNote}</p>;
+    return reachedEnd ? <p className="text-center text-[12.5px] text-dusk">{n.list.end}</p> : null;
+  }
+  const loading = status === "loading";
+  return (
+    <div className="flex flex-col items-center gap-2">
+      {status === "error" && (
+        <p role="alert" className="text-center text-[13px] text-danger">
+          {n.list.loadMoreError}
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={onLoad}
+        disabled={loading}
+        aria-busy={loading}
+        className="inline-flex h-10 items-center rounded-xl border border-line bg-surface px-4 text-[13.5px] font-semibold text-ink transition-colors hover:border-signal/40 hover:text-signal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:opacity-60"
+      >
+        {loading ? n.list.loadingMore : status === "error" ? n.error.retry : n.list.loadMore}
+      </button>
+      {loading && (
+        <span role="status" className="sr-only">
+          {n.list.loadingMore}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** API xatosi — "Qayta urinish" haqiqiy so'rovni qayta yuboradi. */
 export function NotificationsErrorState({ onRetry }: { onRetry: () => void }) {
   const e = useT().notificationsPage.error;

@@ -3,6 +3,7 @@ import type { CompanyDetailVM } from "../../../lib/companies/detail.js";
 import { useHref, useT } from "../../../lib/i18n/index.js";
 import { useAuth } from "../../AuthContext.js";
 import { useSavedCompanies } from "../../../lib/companies/useSavedCompanies.js";
+import { loginHrefWithReturn } from "../../../lib/auth/returnTo.js";
 import { startConversation } from "../../../lib/api.js";
 import { PhoneGateNotice, isPhoneGateError } from "../../PhoneGateNotice.js";
 import { OUTLINE_BUTTON } from "./styles.js";
@@ -32,7 +33,8 @@ export function CompanyActions({ company, onShare }: { company: CompanyDetailVM;
   function onFollow() {
     if (status === "loading") return;
     if (!saved.enabled) {
-      window.location.assign(l("/login"));
+      // Audit R3, candidate-flows-12: kirishdan keyin shu kompaniya sahifasiga qaytadi
+      window.location.assign(loginHrefWithReturn(l("/login")));
       return;
     }
     void saved.toggle(company.id);

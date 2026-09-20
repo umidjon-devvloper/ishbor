@@ -3,6 +3,8 @@
 export type EmploymentType = "full_time" | "part_time" | "remote" | "shift";
 export type ExperienceLevel = "none" | "one_to_three" | "three_to_six" | "six_plus";
 export type ScheduleType = "five_two" | "two_two" | "vahta" | "gibkiy" | "smenniy";
+/** Ish joylashuvi. Masofaviy bo'lsa hudud ixtiyoriy. */
+export type WorkplaceType = "office" | "hybrid" | "remote";
 
 export interface Vacancy {
   id: string;
@@ -26,6 +28,8 @@ export interface Vacancy {
   regionSlug?: string | null;
   categoryName?: string | null;
   scheduleType?: ScheduleType | null;
+  /** Noma'lum (eski e'lon) bo'lsa `null` — ko'rsatilmaydi. */
+  workplaceType?: WorkplaceType | null;
   /** Talablar matnidan ajratilgan ma'lum ko'nikmalar (lib/vacancies/skills.ts). */
   skills?: string[];
 }
@@ -63,13 +67,6 @@ export interface Company {
   activeVacancyCount: number;
 }
 
-export interface Article {
-  slug: string;
-  title: string;
-  excerpt: string;
-  readMinutes: number;
-}
-
 export interface CompanyReviewItem {
   id: string;
   rating: number;
@@ -78,6 +75,8 @@ export interface CompanyReviewItem {
   authorName: string;
   userId?: string;
   mine?: boolean;
+  /** `pending` — moderatsiyada (ochiq ro'yxatda ko'rinmaydi). */
+  status?: "pending" | "approved" | "rejected";
 }
 
 export interface Stats {
@@ -86,7 +85,8 @@ export interface Stats {
   applicationsToday: number;
 }
 
-export type UserRole = "job_seeker" | "employer" | "admin";
+/** `admin` — SUPER_ADMIN; kontent rollari faqat taklif orqali ochiladi (lib/admin/roles.ts). */
+export type UserRole = "job_seeker" | "employer" | "admin" | "content_editor" | "content_author";
 
 export interface CurrentUser {
   id: string;
@@ -235,6 +235,8 @@ export interface EmployerVacancy {
   /** Moderator rad etgan bo'lsa — sababi. */
   rejectionReason?: string | null;
   employmentType: EmploymentType;
+  scheduleType?: ScheduleType | null;
+  workplaceType?: WorkplaceType | null;
   experienceRequired: ExperienceLevel;
   salaryMin: number | null;
   salaryMax: number | null;
@@ -258,16 +260,25 @@ export interface VacancyCreateInput {
   description: string;
   requirements?: string;
   conditions?: string;
-  categoryId?: string;
-  regionId?: string;
+  /** Majburiy. */
+  categoryId: string;
+  /** Masofaviy bo'lmasa majburiy; `null` — tahrirlashda hududni olib tashlash (masofaviy). */
+  regionId?: string | null;
+  workplaceType: WorkplaceType;
   employmentType: EmploymentType;
+  /** `null` — tahrirlashda grafikni olib tashlash. */
+  scheduleType?: ScheduleType | null;
   experienceRequired?: ExperienceLevel;
-  salaryMin?: number;
-  salaryMax?: number;
+  /** `null` — tahrirlashda maoshni olib tashlash. */
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  isSalaryHidden?: boolean;
   applyWithoutResume?: boolean;
   contactEmail?: string;
   contactTelegram?: string;
   contactPhone?: string;
+  /** Faqat yaratishda: "draft" — qoralama (saytda ko'rinmaydi). */
+  status?: "active" | "draft";
 }
 
 export interface ApplicantResume {
@@ -315,7 +326,8 @@ export interface EmployerApplication {
 
 export interface Conversation {
   id: string;
-  title: string;
+  /** `null` — nom yo'q: server email qaytarmaydi (audit PHASE 6, V1). */
+  title: string | null;
   subtitle: string | null;
   companySlug: string | null;
   otherUserId: string | null;
@@ -336,7 +348,8 @@ export interface ConversationRating {
 /** Suhbatdoshning qisqa profili (chat'dagi modal uchun). */
 export interface UserSummary {
   role: UserRole;
-  name: string;
+  /** Ism yoki kompaniya nomi; `null` — nom yo'q (email qaytarilmaydi, audit PHASE 6, V1). */
+  name: string | null;
   headline: string | null;
   regionName: string | null;
   ratingAvg: number | null;
@@ -362,12 +375,23 @@ export interface TelegramStatus {
   linked: boolean;
   phoneVerified: boolean;
   phone: string | null;
+  /** Zaxira raqam (audit R3, D-047). Eski API javobida bo'lmasligi mumkin. */
+  backupPhone?: string | null;
+  /** Rule K (audit R3, D-051): bot ishlayaptimi. Maydon kelmasa "mavjud" deb hisoblanadi. */
+  available?: boolean;
   botUsername: string | null;
+}
+
+/** Telegram deep-link javobi: havola va amal qilish muddati (audit R3, D-042). */
+export interface TelegramLink {
+  link: string;
+  expiresAt: string | null;
 }
 
 export interface Candidate {
   userId: string;
-  email: string;
+  /** Faqat shu kompaniyaga ariza yuborgan nomzodda keladi (audit ISSUE-008); aks holda `null`. */
+  email: string | null;
   phone: string | null;
   firstName: string;
   lastName: string;

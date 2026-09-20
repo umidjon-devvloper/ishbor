@@ -5,26 +5,28 @@ export default {
   theme: {
     extend: {
       colors: {
-        // "Amber siyoh" identiteti — barcha ranglar CSS o'zgaruvchilardan
-        // (global.css) keladi va light/dark'da flip bo'ladi. Palitra logodagi
-        // oltin-sariqdan o'sadi: neytrallarga iliq (sarg'ish) ohang berilgan,
-        // sovuq slate emas.
+        // "Osmon indigo" identiteti — barcha ranglar CSS o'zgaruvchilardan
+        // (global.css) keladi va light/dark'da flip bo'ladi. Havorang-oq
+        // osmon foni, indigo aksentlar; logo oltini faqat "!" va yulduzlarda.
         paper: "rgb(var(--paper) / <alpha-value>)", // sahifa foni (fil suyagi / ko'mir)
         surface: "rgb(var(--surface) / <alpha-value>)", // kartochka foni
         "surface-2": "rgb(var(--surface-2) / <alpha-value>)", // ko'tarilgan/muted fon
         ink: "rgb(var(--ink) / <alpha-value>)", // asosiy matn
         dusk: "rgb(var(--dusk) / <alpha-value>)", // so'nuq matn
         line: "rgb(var(--line) / <alpha-value>)", // chegara (border)
-        // ASOSIY harakat rangi. Kunduzgi: siyoh-qora tugma + oq matn (14:1).
-        // Tungi: brend amberi + qora matn (global.css .dark .bg-signal ga qarang).
-        // Shu flip tufayli 36 fayldagi bg/border/ring-signal o'z-o'zidan moslashadi.
+        // ASOSIY harakat rangi — indigo FON (tugma, chegara, halqa) + oq matn:
+        // kunduzgi #4F46E5 (6.3:1), tungi #5B52EA (5.4:1).
+        // DIQQAT (audit R3, D-060): `text-signal` bu tokendan EMAS,
+        // `--signal-text` dan oladi (global.css oxiridagi override bloki) —
+        // bitta qiymat fon va matn uchun bir vaqtda AA bera olmaydi.
         signal: {
           DEFAULT: "rgb(var(--signal) / <alpha-value>)",
           dark: "rgb(var(--signal-strong) / <alpha-value>)", // hover holati
           bright: "rgb(var(--signal) / <alpha-value>)", // eski nom — endi asosiy bilan bir xil
           soft: "rgb(var(--signal-soft) / <alpha-value>)", // yumshoq fon tint
         },
-        growth: "rgb(var(--growth) / <alpha-value>)", // maosh/success — iliq yashil
+        growth: "rgb(var(--growth) / <alpha-value>)", // maosh/success — yashil
+        // (tungi `bg-growth` ustida oq matn 2:1 edi — global.css quyuq matnga o'tkazadi)
         danger: "rgb(var(--danger) / <alpha-value>)", // xato holatlari
         gold: {
           DEFAULT: "rgb(var(--gold) / <alpha-value>)", // brend amberi (logo sarig'i)

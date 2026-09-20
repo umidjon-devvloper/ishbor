@@ -1,6 +1,6 @@
 import React from "react";
-import { useT, useHref } from "../../lib/i18n/index.js";
-import { formatSalary } from "../../lib/format.js";
+import { useT, useHref, useLocale } from "../../lib/i18n/index.js";
+import { formatSalary, regionDisplayName } from "../../lib/format.js";
 import { removeFavorite } from "../../lib/apiExtra.js";
 import type { FavoriteVacancy } from "../../lib/types.js";
 import type { RemoteList } from "../../lib/profile/useProfileData.js";
@@ -20,6 +20,7 @@ export function SavedJobs({
   variant: "recent" | "full";
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const l = useHref();
   const nav = useProfileNav();
   const s = t.profileHub.saved;
@@ -132,11 +133,11 @@ export function SavedJobs({
                       {vacancy.title}
                     </p>
                     <p className="mt-0.5 truncate text-[13px] text-dusk">
-                      {[vacancy.companyName, vacancy.regionName].filter(Boolean).join(" · ")}
+                      {[vacancy.companyName, regionDisplayName(locale, vacancy.regionName, vacancy.regionSlug)].filter(Boolean).join(" · ")}
                     </p>
                     <p className="mt-2 flex items-center justify-between gap-2">
                       <span className="truncate text-[13px] font-semibold text-growth">
-                        {formatSalary(vacancy.salaryMin, vacancy.salaryMax, t.fmt, vacancy.isSalaryHidden)}
+                        {formatSalary(vacancy.salaryMin, vacancy.salaryMax, t.fmt, vacancy.isSalaryHidden, locale)}
                       </span>
                       {vacancy.isClosed ? (
                         <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-dusk">

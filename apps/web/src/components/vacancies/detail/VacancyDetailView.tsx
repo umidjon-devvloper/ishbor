@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Vacancy } from "../../../lib/types.js";
 import type { VacancyDetailVM } from "../../../lib/vacancies/detail.js";
 import { useHref, useT } from "../../../lib/i18n/index.js";
+import { loginHrefWithReturn } from "../../../lib/auth/returnTo.js";
 import { useAuth } from "../../AuthContext.js";
 import { useFavorites } from "../../../lib/useFavorites.js";
 import { useShare } from "../../../lib/useShare.js";
@@ -43,14 +44,26 @@ export function VacancyDetailView({ vacancy, similar }: { vacancy: VacancyDetail
   const favorites = useFavorites();
   const { share, copy, notice } = useShare();
 
+  /**
+   * Audit R3, candidate-flows-12: mehmon "Ariza yuborish" yoki "Saqlash" ni
+   * bosgach kirishdan keyin shu vakansiyaga qaytadi. `returnTo` faqat brauzerda
+   * qo'shiladi — SSR va birinchi render bir xil bo'lsin (hydration).
+   */
+  const loginHref = l("/login");
+  const signupHref = l("/signup");
+  const [authLinks, setAuthLinks] = useState({ login: loginHref, signup: signupHref });
+  useEffect(() => {
+    setAuthLinks({ login: loginHrefWithReturn(loginHref), signup: loginHrefWithReturn(signupHref) });
+  }, [loginHref, signupHref]);
+
   const links: ApplyLinks = useMemo(
     () => ({
-      login: l("/login"),
-      signup: l("/signup"),
+      login: authLinks.login,
+      signup: authLinks.signup,
       resume: l("/profile?tab=resume"),
       applications: l("/applications"),
     }),
-    [l]
+    [l, authLinks]
   );
   const apply = useApplication(vacancy.id, links.login);
 

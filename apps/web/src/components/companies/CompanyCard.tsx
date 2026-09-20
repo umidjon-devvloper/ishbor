@@ -1,6 +1,7 @@
 import React, { memo } from "react";
 import type { Company } from "../../lib/types.js";
-import { useT, useHref } from "../../lib/i18n/index.js";
+import { useT, useHref, useLocale } from "../../lib/i18n/index.js";
+import { regionDisplayName } from "../../lib/format.js";
 import { CompanyLogo } from "./CompanyLogo.js";
 import { IconArrowRight, IconBriefcase, IconHeart, IconPin, IconStar, IconUsers, IconVerified } from "./icons.js";
 
@@ -29,9 +30,12 @@ interface CardProps {
 export const CompanyCard = memo(function CompanyCard({ company, view = "grid", saved, onToggleSave }: CardProps) {
   const t = useT();
   const l = useHref();
+  const { locale } = useLocale();
   const p = t.companiesPage.card;
   const href = l(`/companies/${company.slug}`);
   const meta = company.industry ?? "";
+  // Audit R3, i18n-4: katalog kartasida hudud nomi joriy tilda
+  const region = regionDisplayName(locale, company.regionName);
 
   const title = (
     <h3 className="min-w-0 font-display text-[16px] font-bold leading-snug text-ink">
@@ -93,12 +97,12 @@ export const CompanyCard = memo(function CompanyCard({ company, view = "grid", s
 
   // Hudud va xodimlar soni alohida bo'laklar — tor kartada kesilmasdan keyingi qatorga o'tadi
   const location =
-    company.regionName || company.employeeCount ? (
+    region || company.employeeCount ? (
       <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[13px] text-dusk">
-        {company.regionName && (
+        {region && (
           <span className="inline-flex items-center gap-1 whitespace-nowrap">
             <IconPin size={14} className="shrink-0" />
-            {company.regionName}
+            {region}
           </span>
         )}
         {company.employeeCount && (

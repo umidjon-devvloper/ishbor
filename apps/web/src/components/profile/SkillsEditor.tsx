@@ -30,6 +30,8 @@ export function SkillsEditor({
   const [error, setError] = useState<string | null>(null);
   const saver = useSaveState();
   const timerRef = useRef<number | null>(null);
+  // Audit R3, gap5-3: chip o'chirilganda uning tugmasi yo'qoladi — fokus kiritish maydoniga qaytadi
+  const inputRef = useRef<HTMLInputElement>(null);
   const pendingRef = useRef<string[] | null>(null);
   const saveRef = useRef(saveResume);
   saveRef.current = saveResume;
@@ -79,8 +81,9 @@ export function SkillsEditor({
     schedule([...items, value]);
   }
 
-  function remove(skill: string) {
+  function remove(skill: string, returnFocus = false) {
     schedule(items.filter((x) => x !== skill));
+    if (returnFocus) inputRef.current?.focus();
   }
 
   const query = input.trim().toLowerCase();
@@ -110,6 +113,7 @@ export function SkillsEditor({
         <div className="mt-1.5 flex gap-2">
           <input
             id={inputId}
+            ref={inputRef}
             value={input}
             maxLength={MAX_LEN + 10}
             onChange={(e) => {
@@ -166,7 +170,7 @@ export function SkillsEditor({
                 {skill}
                 <button
                   type="button"
-                  onClick={() => remove(skill)}
+                  onClick={() => remove(skill, true)}
                   aria-label={s.removeLabel(skill)}
                   className="flex h-7 w-7 items-center justify-center rounded-full text-signal/70 transition-colors hover:bg-signal/15 hover:text-signal"
                 >

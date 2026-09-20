@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { addFavorite, fetchFavoriteIds, removeFavorite } from "./apiExtra.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { addFavorite, fetchFavoriteIdsStrict, removeFavorite } from "./apiExtra.js";
 import { useAuth } from "../components/AuthContext.js";
 
 /**
@@ -8,12 +8,19 @@ import { useAuth } from "../components/AuthContext.js";
  * Ro'yxat va qidiruv sahifalarida yuraklarni bo'yash uchun bir marta yuklanadi.
  * Bosilganda UI darrov o'zgaradi (optimistik), server javobi kelmasa oldingi
  * holatga qaytadi — sekin internetda ham tugma "o'lik" bo'lib qolmaydi.
+ *
+ * Audit ISSUE-022: ID'lar yuklanmasa bu "saqlanganlar yo'q" degani emas — `ready` false qoladi va
+ * bosilganda avval haqiqiy holat so'raladi (aks holda saqlangan e'lon qayta "qo'shilgan" bo'lib ko'rinardi).
  */
 export function useFavorites() {
   const { status, user, accessToken } = useAuth();
   const enabled = status === "authed" && user?.role === "job_seeker" && Boolean(accessToken);
   const [ids, setIds] = useState<Set<string>>(new Set());
   const [ready, setReady] = useState(false);
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
 
   useEffect(() => {
     if (!enabled || !accessToken) {
@@ -22,14 +29,16 @@ export function useFavorites() {
       return;
     }
     let cancelled = false;
-    fetchFavoriteIds(accessToken)
+    fetchFavoriteIdsStrict(accessToken)
       .then((list) => {
         if (!cancelled) {
           setIds(new Set(list));
           setReady(true);
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setReady(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -38,7 +47,19 @@ export function useFavorites() {
   const toggle = useCallback(
     async (vacancyId: string) => {
       if (!enabled || !accessToken) return false;
-      const wasFavorite = ids.has(vacancyId);
+      let current = idsRef.current;
+      if (!readyRef.current) {
+        try {
+          current = new Set(await fetchFavoriteIdsStrict(accessToken));
+          idsRef.current = current;
+          setIds(current);
+          setReady(true);
+        } catch {
+          // Haqiqiy holat noma'lum — noto'g'ri yo'nalishda o'zgartirmaymiz
+          return false;
+        }
+      }
+      const wasFavorite = current.has(vacancyId);
 
       setIds((prev) => {
         const next = new Set(prev);
@@ -62,7 +83,7 @@ export function useFavorites() {
         return wasFavorite;
       }
     },
-    [enabled, accessToken, ids]
+    [enabled, accessToken]
   );
 
   return {

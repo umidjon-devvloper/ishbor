@@ -122,7 +122,7 @@ export function FavoritesSidebar({
     <aside className="flex min-w-0 flex-col gap-5 lg:self-start">
       {total > 0 && <FavoritesStats total={total} closed={closed} />}
       {total > 0 && <FavoritesQuickFilters types={types} counts={counts} active={activeType} onSelect={onType} />}
-      <TipsCard id="favorites-tips-title" title={s.tipsTitle} allLabel={s.tipsAll} allHref="/article" tips={tips} />
+      <TipsCard id="favorites-tips-title" title={s.tipsTitle} allLabel={s.tipsAll} allHref="/articles" tips={tips} />
       <HelpCard id="favorites-help-title" title={s.help.title} text={s.help.text} cta={s.help.cta} />
     </aside>
   );

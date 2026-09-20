@@ -164,18 +164,8 @@ export async function getSubscriptionState(companyId: string): Promise<Subscript
   };
 }
 
-/** Yangi vakansiya joylashdan oldin limitni tekshiradi. */
-export async function assertCanPostVacancy(companyId: string): Promise<void> {
-  const state = await getSubscriptionState(companyId);
-  if (!state.canPostMore) {
-    throw new AppError(
-      402,
-      "PLAN_LIMIT_REACHED",
-      `"${state.name}" rejasida ${state.maxActiveVacancies} ta faol vakansiya joylash mumkin. ` +
-        `Ko'proq joylash uchun tarifni oshiring yoki eski vakansiyani arxivlang.`
-    );
-  }
-}
+// Faol vakansiyalar limiti (`assertCanPostVacancy`, 402 PLAN_LIMIT_REACHED) olib tashlandi:
+// platforma hozircha bepul, ish beruvchi cheklanmagan sonda faol vakansiya joylaydi.
 
 /** Nomzodlar bazasidan qidirish huquqi (Standart va yuqori rejalarda). */
 export async function assertCanSearchCandidates(companyId: string): Promise<void> {
@@ -230,7 +220,7 @@ export async function createCheckout(
   const configured = provider === "payme" ? features.payme : features.click;
   const checkoutUrl = configured
     ? buildProviderUrl(provider, transactionId, plan.price)
-    : `${env.WEB_ORIGIN}/pricing?pending=${transactionId}`;
+    : `${env.WEB_ORIGIN}/profile?pending=${transactionId}`;
 
   return {
     paymentId: payment.id,
@@ -246,7 +236,7 @@ export async function createCheckout(
 function buildProviderUrl(provider: PaymentProvider, transactionId: string, amountSum: number) {
   const amountTiyin = amountSum * 100;
   if (provider === "payme") {
-    const params = `m=${env.PAYME_MERCHANT_ID};ac.order_id=${transactionId};a=${amountTiyin};c=${env.WEB_ORIGIN}/pricing`;
+    const params = `m=${env.PAYME_MERCHANT_ID};ac.order_id=${transactionId};a=${amountTiyin};c=${env.WEB_ORIGIN}/profile`;
     return `https://checkout.paycom.uz/${Buffer.from(params).toString("base64")}`;
   }
   const qs = new URLSearchParams({
@@ -254,7 +244,7 @@ function buildProviderUrl(provider: PaymentProvider, transactionId: string, amou
     merchant_id: env.CLICK_MERCHANT_ID,
     amount: String(amountSum),
     transaction_param: transactionId,
-    return_url: `${env.WEB_ORIGIN}/pricing`,
+    return_url: `${env.WEB_ORIGIN}/profile`,
   });
   return `https://my.click.uz/services/pay?${qs.toString()}`;
 }

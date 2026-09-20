@@ -1,26 +1,62 @@
-import React, { useState } from "react";
+import React, { useId, useRef, useState } from "react";
+import { usePageContext } from "vike-react/usePageContext";
 import { loginUser, ApiError } from "../../lib/api.js";
 import { useAuth } from "../../components/AuthContext.js";
 import { AuthShell } from "../../components/AuthShell.js";
 import {
   AuthTabs,
   AuthField,
+  AuthError,
   PasswordField,
   AuthSubmit,
   MailIcon,
 } from "../../components/AuthForm.js";
 import { SocialLogin } from "../../components/SocialLogin.js";
+import { RecoveryPanel } from "../../components/auth/RecoveryPanel.js";
+import { recoveryModeFrom, type RecoveryMode } from "../../lib/auth/recovery.js";
 import { useT, useHref } from "../../lib/i18n/index.js";
+import { returnTargetOr } from "../../lib/auth/returnTo.js";
 
 export default function Page() {
+  const pageContext = usePageContext();
+  const search = (pageContext.urlParsed?.search ?? {}) as Record<string, string | undefined>;
+  // Rejim va reset tokeni URL'dan olinadi. `history.replaceState` bilan token
+  // manzil qatoridan olib tashlanganda `pageContext` o'zgarmaydi — shuning uchun
+  // forma joyida qoladi, sahifalar orasida o'tishda esa rejim yangilanadi (audit R3, D-063).
+  const mode: RecoveryMode = recoveryModeFrom(search);
+  const resetToken = search.reset ?? "";
+
+  if (mode) {
+    return (
+      <AuthShell active="login">
+        <RecoveryPanel mode={mode} resetToken={resetToken} />
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell active="login">
+      <LoginForm returnTo={search.returnTo ?? null} />
+    </AuthShell>
+  );
+}
+
+function LoginForm({ returnTo }: { returnTo: string | null }) {
   const { login } = useAuth();
   const t = useT();
   const l = useHref();
+  const errorId = useId();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const emailRef = useRef<HTMLInputElement>(null);
+
+  // Ro'yxatdan o'tishga o'tganda ham qaytish manzili saqlanadi (audit R3, auth-core-17).
+  // Manzil URL'dan (SSR va brauzerda bir xil) olinadi, xavfsizligi signup sahifasida tekshiriladi.
+  const signupHref = returnTo
+    ? `${l("/signup")}?returnTo=${encodeURIComponent(returnTo)}`
+    : l("/signup");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,16 +65,19 @@ export default function Page() {
     try {
       const { accessToken } = await loginUser({ email, password });
       await login(accessToken);
-      window.location.assign(l("/"));
+      // Kirishdan oldingi sahifaga qaytiladi (faqat sayt ichidagi yo'l; audit ISSUE-066)
+      window.location.assign(returnTargetOr(l("/")));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t.login.connError);
+      // Xato e'lon qilinadi va fokus birinchi maydonga qaytadi (audit R3, a11y-ui-3)
+      emailRef.current?.focus();
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <AuthShell active="login">
+    <>
       <h1 className="font-display text-[1.85rem] font-extrabold leading-tight tracking-tight text-ink sm:text-[2rem]">
         {t.login.title} <span className="text-shine">{t.login.titleAccent}</span>
       </h1>
@@ -58,6 +97,9 @@ export default function Page() {
           autoComplete="username"
           required
           icon={<MailIcon />}
+          invalid={Boolean(error)}
+          describedBy={error ? errorId : undefined}
+          inputRef={emailRef}
         />
         <PasswordField
           label={t.login.password}
@@ -65,39 +107,32 @@ export default function Page() {
           onChange={setPassword}
           placeholder={t.login.passwordPlaceholder}
           autoComplete="current-password"
+          invalid={Boolean(error)}
+          describedBy={error ? errorId : undefined}
         />
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <label className="flex cursor-pointer items-center gap-2.5 text-[13.5px] font-medium text-ink/85">
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={(e) => setRemember(e.target.checked)}
-              className="h-[18px] w-[18px] cursor-pointer rounded-md border-line text-signal accent-signal focus:ring-signal"
-            />
-            {t.login.remember}
-          </label>
+        {/* «Meni eslab qolish» olib tashlandi: server har doim 30 kunlik refresh
+            cookie beradi — ishlamaydigan xavfsizlik nazorati (audit R3, auth-core-16) */}
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <a
-            href={l("/support")}
+            href={l("/login?recover=1")}
             className="text-[13.5px] font-semibold text-signal transition-colors hover:text-signal-dark"
           >
             {t.login.forgot}
           </a>
         </div>
 
-        {error && (
-          <p className="animate-fade-in rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
-        )}
+        {error && <AuthError id={errorId}>{error}</AuthError>}
 
         <AuthSubmit loading={loading} label={t.login.submit} loadingLabel={t.login.submitting} />
       </form>
 
-      <SocialLogin onDone={() => window.location.assign(l("/"))} />
+      <SocialLogin onDone={() => window.location.assign(returnTargetOr(l("/")))} />
 
       <p className="mt-4 text-center text-[13.5px] text-dusk">
         {t.login.noAccount}{" "}
         <a
-          href={l("/signup")}
+          href={signupHref}
           className="group inline-flex items-center gap-1 font-bold text-signal transition-colors hover:text-signal-dark"
         >
           {t.login.signupLink}
@@ -106,6 +141,6 @@ export default function Page() {
           </svg>
         </a>
       </p>
-    </AuthShell>
+    </>
   );
 }

@@ -15,6 +15,9 @@ screenshots/
 /apps/web/.vike
 /apps/api/uploads
 
+# Mahalliy vosita fayllari (loyihaga aloqasi yo'q)
+.freebuff/
+
 # Deploy vositalari
 .vercel
 .railway

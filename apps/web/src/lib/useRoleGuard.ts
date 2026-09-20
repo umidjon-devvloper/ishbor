@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useAuth } from "../components/AuthContext.js";
 import { useHref } from "./i18n/index.js";
+import { loginHrefWithReturn } from "./auth/returnTo.js";
 import type { UserRole } from "./types.js";
 
 /**
@@ -15,7 +16,7 @@ export function useRequireRole(role: UserRole, wrongRoleRedirect: string) {
   useEffect(() => {
     if (status === "loading") return;
     if (status === "guest") {
-      window.location.assign(l("/login"));
+      window.location.assign(loginHrefWithReturn(l("/login")));
       return;
     }
     if (user?.role !== role) {

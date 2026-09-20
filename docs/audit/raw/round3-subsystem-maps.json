@@ -1,0 +1,1698 @@
+[
+ {
+  "dimension": "telegram",
+  "subsystem": "Telegram bot core (long-polling client and update dispatcher)",
+  "purpose": "A dependency-free Bot API client `tg()` with a 15 s timeout and one retry on 429 (waits up to 30 s). A getMe backoff at startup, then a single in-process getUpdates loop. `handleUpdate` routes to handlers for contact, /start, /myid, admin reply, support and callback_query.",
+  "dependencies": "env TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_CHAT_ID; Prisma User.telegramChatId, phone and isPhoneVerified; server.ts bootstrap (startTelegramBot/stopTelegramBot); railway.json numReplicas 1.",
+  "risks": "Availability flag set once and never cleared; one sequential loop, so a 429 sleep stalls every flow; offset kept in memory; no chat.type check; identity keyed by chat.id; no per-chat throttling.",
+  "ownership": "Backend API: apps/api/src/modules/telegram/telegram.service.ts. No explicit owner declared."
+ },
+ {
+  "dimension": "telegram",
+  "subsystem": "Telegram account linking and phone verification",
+  "purpose": "POST /api/telegram/link creates a 30-min in-memory token and returns a t.me deep link. `/start <token>` links the chat to the account immediately; a contact share sets phone and isPhoneVerified. GET /api/telegram/status; DELETE /api/telegram/link. `requirePhoneVerified` gates apply, vacancy create, conversation start and reviews. Web side: TelegramConnect, PersonalInfo, AccountSettings, PhoneGateNotice.",
+  "dependencies": "telegram.routes.ts, telegram.service.ts, auth-guard.ts, profile.routes.ts, schema User (phone not unique), web lib/api.ts (fetchTelegramStatus, requestTelegramLink).",
+  "risks": "No confirmation or account binding (link CSRF); silent re-linking; no phone uniqueness; silent phone overwrite; no audit or notification; no unlink UI; hard dependency on a bot documented as optional.",
+  "ownership": "Backend API (telegram, profile, auth-guard) plus web profile components."
+ },
+ {
+  "dimension": "telegram",
+  "subsystem": "Telegram login (Rule A forbids it)",
+  "purpose": "POST /api/auth/telegram/start (no auth) creates an `lg` token; the bot shows the account email with confirm/reject buttons; POST /api/auth/telegram/poll issues access and refresh tokens. SocialLogin shows a Telegram button on /login, and the FAQ recommends it as password recovery.",
+  "dependencies": "auth.routes.ts, auth.service.ts telegramLogin, telegram.service.ts loginTokens/handleLoginStart/handleCallbackQuery, web SocialLogin.tsx, i18n login.tg* and FAQ.",
+  "risks": "Product-rule violation; passwordless backdoor that survives the tokenVersion bump; in-memory tokens; unauthenticated token minting.",
+  "ownership": "Backend auth module plus web auth components."
+ },
+ {
+  "dimension": "telegram",
+  "subsystem": "Support relay (bot and web contact form)",
+  "purpose": "Any text sent to the bot is relayed to TELEGRAM_ADMIN_CHAT_ID with a `#u<chatId>` tag; an admin reply is routed back by regex-parsing that tag. POST /api/support forwards the web form (honeypot, 5/min per IP). GET /api/support/contacts lists the configured channels.",
+  "dependencies": "telegram.service.ts handleSupport/handleAdminReply, support.routes.ts, tgEscape, env SUPPORT_*.",
+  "risks": "`#u` tag spoofable via first_name; no per-chat rate limit; send results ignored; the 4096-char limit silently drops messages; admin flood stalls the polling loop.",
+  "ownership": "Backend support/telegram modules."
+ },
+ {
+  "dimension": "telegram",
+  "subsystem": "Telegram notification channel",
+  "purpose": "`notify()` sends title, body and link to the linked chat, respecting NotificationPreference. `deliverMessage` sends the first 200 chars of private chat messages to offline receivers directly. Admin broadcast awaits channels with a 40 ms gap.",
+  "dependencies": "notifications.service.ts, chat.routes.ts deliverMessage, admin.routes.ts broadcast, realtime.isOnline.",
+  "risks": "Chat previews bypass preferences; groups linked as a chat receive private content; 429 handling shares the polling-loop sleep path.",
+  "ownership": "Backend notifications/chat modules."
+ },
+ {
+  "dimension": "telegram",
+  "subsystem": "Account recovery, audit and admin user management (mostly absent)",
+  "purpose": "Should implement Rules B/F/G/H/I/J/L. Current state: 'Forgot password' and the settings password row link to /support; no reset, change-password, recovery-token, manual-recovery or audit models; admin can only list, block and change role.",
+  "dependencies": "auth.routes.ts, admin.routes.ts, schema.prisma, web login/AccountSettings/admin users pages, i18n FAQ.",
+  "risks": "No self-service or manual recovery; no security event trail; Google-created accounts can never set a password.",
+  "ownership": "Backend auth/admin modules plus product owner decision (docs/audit D-010)."
+ },
+ {
+  "dimension": "telegram",
+  "subsystem": "Telegram configuration and deploy",
+  "purpose": "env.ts TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_CHAT_ID (optional, default empty); .env.example, README 'Ixtiyoriy xizmatlar' (optional services) and DEPLOY.md single-replica note.",
+  "dependencies": "env.ts features.telegram, railway.json, TRUST_PROXY.",
+  "risks": "Docs say the site works fully without Telegram, but the phone gate blocks core flows; no production check; TRUST_PROXY=true by default lets clients spoof per-IP limits via X-Forwarded-For.",
+  "ownership": "DevOps/backend config."
+ },
+ {
+  "dimension": "files-xss",
+  "subsystem": "Upload ingestion (saveUpload + upload routes)",
+  "purpose": "Accepts company logos (PNG/JPG/WebP), article covers (staff) and candidate PDF resumes over multipart. It detects the file type from the first bytes, writes the file under a random name <prefix><32hex>.<ext> in UPLOAD_DIR, and deletes the old file on replace or delete.",
+  "dependencies": "apps/api/src/common/uploads.ts; profile.routes.ts:95-136; companies.routes.ts:146-180; articles.admin.routes.ts:280-292; @fastify/multipart 8.3.1 (server.ts:140: fileSize 5MB, files 1); UPLOAD_DIR volume (env.ts); rate limit 20/min per upload route.",
+  "risks": "Verified sound: magic-byte check, SVG and HTML rejected, random names, path.basename on delete. Remaining: non-file multipart fields are buffered without a limit before the file part; orphan files (upload races, unsaved covers, .part temp files) stay publicly reachable; images are stored byte-for-byte (EXIF kept, no pixel-dimension check).",
+  "ownership": "API common layer plus the profile, companies and articles modules."
+ },
+ {
+  "dimension": "files-xss",
+  "subsystem": "Static /uploads serving and API security headers",
+  "purpose": "@fastify/static serves UPLOAD_DIR from the API origin under /uploads/. An onSend hook adds nosniff, plus a sandbox CSP to every response whose Content-Type is not application/pdf. Global helmet CSP applies to all API responses.",
+  "dependencies": "apps/api/src/server.ts:80-109 (helmet: CSP script-src 'self' 'unsafe-inline', CORP cross-origin) and :142-174 (isUploadsRequest, onSend, fastifyStatic); @fastify/static 7.0.4 and @fastify/send defaults (Cache-Control public, max-age=0); e2e-check.mjs [ISSUE-002], [ISSUE-029/043], [PHASE6-V3].",
+  "risks": "Resume PDFs are unauthenticated bearer URLs: no authz, cacheable as public, embeddable cross-origin, full URL written to request logs. The API origin, which holds the refresh cookie, still allows inline scripts. The sandbox depends on the served Content-Type (the ;.pdf bypass is closed).",
+  "ownership": "API platform (server.ts)."
+ },
+ {
+  "dimension": "files-xss",
+  "subsystem": "Web rendering of user content",
+  "purpose": "Renders article markdown (own parser, output as React elements), vacancy and company text (plainText tag-stripping, output as text), chat message linkification, company website links, notification links and FAQ answers. There is no HTML injection except JSON-LD and the static theme script.",
+  "dependencies": "apps/web/src/lib/articles/content.ts (safeHref/safeImageSrc); components/articles/detail/ArticleContent.tsx; lib/vacancies/detail.ts (plainText, websiteUrl); lib/messages/adapter.ts:194-220 (http/https only); lib/notifications/adapter.ts (safeInternalUrl); components/JsonLd.tsx (serializeJsonLd escapes < > & U+2028/9); HeadDefault.tsx (THEME_INIT_SCRIPT).",
+  "risks": "Verified sound: no javascript:, data: or //host hrefs reach anchors; every target=_blank has rel=noopener noreferrer; JSON-LD is escaped; OG images are built as a satori object tree, not parsed HTML; sitemaps are xmlEscaped with generated slugs. Defense-in-depth gap: the web origin has no CSP while the access token sits in localStorage.",
+  "ownership": "Web frontend (apps/web/src/lib/*, components/*)."
+ },
+ {
+  "dimension": "files-xss",
+  "subsystem": "Web deploy security headers",
+  "purpose": "Sets security headers for SSR pages on Vercel, the self-hosted Fastify server and the Vite dev server.",
+  "dependencies": "apps/web/vercel.json:20-33; apps/web/server/index.mjs SECURITY_HEADERS; apps/web/api/ssr.js:15-20; apps/web/vite.config.ts:8-13.",
+  "risks": "Only nosniff, X-Frame-Options, COOP, Referrer-Policy (and HSTS on Vercel) are set. No Content-Security-Policy anywhere (ISSUE-078 still NOT FIXED).",
+  "ownership": "Web infra / deploy."
+ },
+ {
+  "dimension": "files-xss",
+  "subsystem": "Out-of-band output channels (Telegram HTML, email HTML)",
+  "purpose": "Sends notifications, chat alerts and support messages via the Telegram Bot API with parse_mode HTML, and email via renderEmail. User text is escaped with tgEscape or escapeHtml.",
+  "dependencies": "apps/api/src/modules/telegram/telegram.service.ts (tgEscape, handleSupport, handleAdminReply); support.routes.ts:124-145; notifications.service.ts:133-183; alerts.service.ts:206-225; applications.routes.ts:367-372; common/mailer.ts (esc, renderEmail); common/validation.ts safeInternalPath.",
+  "risks": "Verified sound: vacancy titles, chat bodies and reasons are escaped in both Telegram and email. Minor: the support reply router parses the first #u<id> from user-influenced text; email esc() does not escape quotes but is used inside href attributes.",
+  "ownership": "API telegram, notifications and mailer modules."
+ },
+ {
+  "dimension": "realtime",
+  "subsystem": "WebSocket gateway /ws/chat",
+  "purpose": "Authenticates the socket with the access token from the query string, checks the account (blocked/tokenVersion) at connect, closes the socket when the token expires, and handles 'read' and 'message' frames. Each connection has a token bucket (about 20 frames per 10 s).",
+  "dependencies": "apps/api/src/modules/chat/chat.routes.ts:184-291; common/jwt.ts verifyAccessToken; prisma User(isBlocked,tokenVersion); common/realtime.ts; deliverMessage; @fastify/websocket 8.3.1 (maxPayload 64KB, server.ts:176); ws 8.21; server.ts redactUrl (token removed from logs)",
+  "risks": "Session is checked only at connect (later revocation depends on closeUserSockets); no phone-verification check; limits are per connection, not per user; frames processed concurrently (no ordering); socket is registered before the DB check finishes; token is in the query string",
+  "ownership": "apps/api chat module"
+ },
+ {
+  "dimension": "realtime",
+  "subsystem": "Realtime socket registry",
+  "purpose": "In-memory map of userId to open sockets. Provides sendToUser/isOnline (isOnline decides the Telegram fallback), closeUserSockets for logout/block/role change, and a 30 s ping/terminate heartbeat.",
+  "dependencies": "apps/api/src/common/realtime.ts; server.ts:284 startHeartbeat, :305 stopHeartbeat; called from auth.routes.ts:118, admin.routes.ts:201,224, team.routes.ts:213",
+  "risks": "Works in a single process only (numReplicas 1; DEPLOY.md does not mention this for WS); isOnline is true for any socket, including background tabs and sockets not yet verified; no per-user socket cap",
+  "ownership": "apps/api common"
+ },
+ {
+  "dimension": "realtime",
+  "subsystem": "Chat REST and message delivery",
+  "purpose": "Starting conversations (employer to candidate, seeker to company), conversation list with vacancy context, history (newest 1000), marking read, peer ratings, partner summary, header inbox summary. deliverMessage saves the message, sends it over WS, and sends a Telegram alert when the receiver has no open socket.",
+  "dependencies": "chat.routes.ts:15-696; prisma Conversation/Message (indexes [conversationId,createdAt], [conversationId,isRead]); common/ownership.ts; telegram.service notifyUserViaTelegram; applications.routes.ts:349-352 (status reason becomes a chat message)",
+  "risks": "No pagination on the list; history capped at 1000 with no cursor; Telegram chat alert skips notification preferences and has no throttle; no server-side dedupe on clientId",
+  "ownership": "apps/api chat module"
+ },
+ {
+  "dimension": "realtime",
+  "subsystem": "Notification service (notify)",
+  "purpose": "Single entry point. Checks per-type/channel preferences (default on), writes the in-app row and pushes it over WS, then Telegram, Web Push and email. Never throws; awaitChannels is used for broadcasts.",
+  "dependencies": "notifications.service.ts; common/push.ts (web-push VAPID, 404/410 cleanup); common/mailer.ts (nodemailer); telegram.service.ts tg() (15 s timeout, one 429 retry); callers: applications.routes.ts:105,359; admin.routes.ts:315,385,511,574 (broadcast); alerts.service.ts:217; billing.routes.ts:150 (behind flag)",
+  "risks": "Texts are fixed Uzbek strings and User has no locale; links have no locale prefix; Telegram/email run even when not configured (email addresses logged); 'system' type is overloaded; no retention; no retry queue",
+  "ownership": "apps/api notifications module"
+ },
+ {
+  "dimension": "realtime",
+  "subsystem": "Notification REST and push subscription",
+  "purpose": "List (limit up to 100) with unread count, unread-count, mark read, read-all, delete, preference matrix (4 types x 4 channels with availability flags), VAPID key, push subscribe/unsubscribe (endpoint ownership handled per ISSUE-084)",
+  "dependencies": "notifications.routes.ts; prisma Notification ([userId,isRead], [userId,createdAt]), NotificationPreference, PushSubscription",
+  "risks": "Users can mute the 'system' type on every channel, including in_app; no separate category for security or moderation notices",
+  "ownership": "apps/api notifications module"
+ },
+ {
+  "dimension": "realtime",
+  "subsystem": "Web chat client",
+  "purpose": "useChatSocket opens one WS on /messages: backoff 1-30 s, refresh and reconnect on 4401, stop on 4403, reset counters after 10 s stable. useMessenger handles optimistic send with clientId and a 10 s ack timeout, retry/discard, list/thread state, reload on reconnect, and read receipts. components/messages render bubbles (links limited to http/https, rel=noopener).",
+  "dependencies": "apps/web/src/lib/useChatSocket.ts; lib/messages/useMessenger.ts, api.ts, adapter.ts, events.ts; lib/auth/session.ts refreshSession/expireSession; components/messages/*",
+  "risks": "No jitter; read receipts sent from hidden tabs; failed copy kept next to the server copy (retry duplicates); full reload on every reconnect (including the forced 15 min token-expiry reconnect); thread cache never trimmed; client cannot detect a half-open socket",
+  "ownership": "apps/web messages feature"
+ },
+ {
+  "dimension": "realtime",
+  "subsystem": "Web notifications and inbox client",
+  "purpose": "NotificationBell/useNotifications opens a second WS in every authenticated tab and polls every 45 s. The /notifications center (useNotificationCenter) is synced through window events. useInboxSummary polls every 20 s. public/sw.js shows push notifications and handles clicks.",
+  "dependencies": "apps/web/src/lib/useNotifications.ts; components/NotificationBell.tsx (mounted via Header.tsx:163); lib/notifications/*; lib/useInboxSummary.ts; public/sw.js; lib/usePush.ts",
+  "risks": "Polling keeps running in hidden tabs even though a WS is open; up to 2 sockets per tab, each receiving every payload; SW navigate() can reject on uncontrolled clients",
+  "ownership": "apps/web notifications feature"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "Prisma schema and MongoDB indexes",
+  "purpose": "Defines 28 models and indexes, applied with `prisma db push` on every start (apps/api/prisma/schema.prisma). Critical collections: vacancies, applications, notifications, messages, users, job_seeker_profiles.",
+  "dependencies": "MongoDB replica set; Prisma 5.22 Mongo connector (relation filters run as $lookup pipelines, includes run as separate batched `in` queries); `prestart` runs db push (ISSUE-028).",
+  "risks": "The Vacancy sort indexes leave out the `id` tiebreaker the code sorts by. No unique or partial index on phone or telegramChatId (rules E/F). No TTL or retention on notifications or messages. No Vacancy.createdAt index for the admin list. No denormalized counters (company rating and vacancy counts, conversation lastMessageAt, application companyId), so several lists need $lookup or ID fan-out.",
+  "ownership": "apps/api (backend)"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "Public vacancy search, list and facets",
+  "purpose": "GET /api/vacancies (pageSize at most 50, page at most 1000), /api/vacancies/facets, detail, similar. Meilisearch is used when configured, otherwise a MongoDB regex fallback.",
+  "dependencies": "vacancies.service.ts, search.service.ts, common/cache.ts (only unfiltered facets cached), web pages/vacancies/+data.ts and useVacancyResults.ts (list and facets fetched together).",
+  "risks": "Sorts are not index-backed (id tiebreaker). Every request runs a count. Filtered facets run 7 uncached aggregations. Regex text search scans all active vacancies when Meili is off. Cards carry `requirements` up to 10k chars.",
+  "ownership": "apps/api vacancies and search modules"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "Employer dashboards: applications and vacancies",
+  "purpose": "GET /api/employer/applications (Murojaatlar), /api/vacancies/:id/applications (not used by web), GET /api/employer/vacancies (dashboard and edit form), PATCH application status.",
+  "dependencies": "common/ownership.ts (ownedCompanyIds/ownedVacancyIds), web lib/employer/applications (filters in the client), VacancyFormView (loads the whole list to edit one record).",
+  "risks": "No server-side pagination. Hard caps of 2000 applications and 1000 vacancies hide older records. Full resumes and full vacancy documents in list payloads (2.6 MB / 987 KB measured). Unbounded vacancy-ID `$in` fan-out.",
+  "ownership": "apps/api applications and vacancies modules; apps/web employer pages"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "Candidate database search",
+  "purpose": "GET /api/candidates for employers and admins: open-to-work profiles with a published resume, text and region filter, page at most 200, pageSize at most 50; contact data only for applicants to the employer's own vacancies.",
+  "dependencies": "JobSeekerProfile, User, Resume, ResumeSkill/Experience/Education, PeerRating; ownedVacancyIds.",
+  "risks": "Relation filters (user, resumes.some, resumes.some.skills.some) turn into per-profile $lookup before sort and skip: about 2 s at 8,000 candidates. Full resume sub-collections are returned per row.",
+  "ownership": "apps/api candidates module"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "Companies catalog and company page",
+  "purpose": "GET /api/companies (aggregateRaw with a cursor, limit at most 50, keyed 60 s cache), /api/companies/:slug (100 vacancy cards, 200 reviews), similar companies.",
+  "dependencies": "companies.list.ts pipeline with 2 $lookup per matching company; common/cache.ts global data version.",
+  "risks": "Cold catalog about 0.75 s. The cache is invalidated globally by any vacancy, company or review write. Duplicate review counts on the detail page.",
+  "ownership": "apps/api companies module"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "Chat, conversations and inbox badge",
+  "purpose": "WS /ws/chat, GET /api/conversations (unpaginated), /api/conversations/:id/messages (latest 1000), /api/inbox/summary (web polls every 20 s and on each incoming message), ratings, user summary.",
+  "dependencies": "Message indexes [conversationId, createdAt] and [conversationId, isRead]; aggregateRaw for last messages; ownedVacancyIds; web useMessenger (reloads the list on WS reconnect and new conversation) and useInboxSummary.",
+  "risks": "The list grows with conversation count (523 ms / 498 KB at 500). No message or conversation cursor. Company description repeated in every row. ID fan-out in the inbox summary.",
+  "ownership": "apps/api chat module; apps/web lib/messages"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "Notifications, broadcast and saved-search alerts",
+  "purpose": "In-app, Telegram, push and email notify(); GET /api/notifications (limit at most 100, no cursor); admin broadcast (background, keyset batches of 500); alerts sweep every N minutes over saved searches.",
+  "dependencies": "Notification [userId, createdAt] and [userId, isRead]; listVacancies reused by the alerts sweep; Telegram and SMTP.",
+  "risks": "Notifications have no retention or TTL, and a broadcast adds a document per user. Notifications beyond the newest 100 are unreachable. The alerts sweep runs a count per subscription that it never uses.",
+  "ownership": "apps/api notifications, alerts and admin modules"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "Admin and CMS lists",
+  "purpose": "Admin users, vacancies, companies, reviews and payments (pageSize at most 100, page at most 10,000), overview counters, articles CMS (pageSize at most 50), team.",
+  "dependencies": "requireStaff checks role in the DB; Prisma count and _count per row.",
+  "risks": "Relation-filter text search (company.name, jobSeekerProfile names) runs $lookup over whole collections. Vacancy admin sort by createdAt has no index. Deep skip is allowed.",
+  "ownership": "apps/api admin, articles and team modules"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "SEO sitemaps and public stats",
+  "purpose": "robots.txt, sitemap index and sub-sitemaps (up to 50,000 URLs, uncached), /api/stats (60 s cache), /api/stats/salary (5 min cache over the newest 20k active vacancies).",
+  "dependencies": "seo.routes.ts, stats.routes.ts, salary.stats.ts, common/cache.ts.",
+  "risks": "7.2 MB vacancy sitemap built on every crawl. The employer sitemap uses relation filters. Salary stats are silently truncated above 20k active vacancies and reload 20k rows after each cache bump.",
+  "ownership": "apps/api seo and stats modules"
+ },
+ {
+  "dimension": "db-perf",
+  "subsystem": "Auth guard and response hygiene",
+  "purpose": "requireAuth loads role, block status and tokenVersion by _id on every authenticated request. List endpoints use explicit select whitelists.",
+  "dependencies": "User _id index; jwt.ts.",
+  "risks": "One extra indexed read per request (acceptable). No password hash, telegramChatId or token found in current list responses (ISSUE-001 fix holds). No response compression is registered on the API.",
+  "ownership": "apps/api common"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "common/auth-guard + jwt + ownership",
+  "purpose": "Shared authz primitives: requireAuth, requireRole, requireStaff, requirePhoneVerified; ownedCompanyIds / ownedVacancyIds / primaryCompany.",
+  "dependencies": "jsonwebtoken HS256 with typed access/refresh tokens and separate secrets; prisma User/Company/Vacancy.",
+  "risks": "requireAuth loads role, isBlocked and tokenVersion from the DB on every request, which is good. requirePhoneVerified is only a boolean, and verified phones are not unique. Ownership is keyed only on Company.ownerUserId; the CompanyMember (recruiter) model is unused, so any future team feature must extend every check.",
+  "ownership": "apps/api/src/common/auth-guard.ts, jwt.ts, ownership.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "auth",
+  "purpose": "Register, login, refresh, logout (bumps tokenVersion so all sessions end), /me, Google login, Telegram login start/poll.",
+  "dependencies": "argon2, login-guard (in-memory), telegram.service login tokens, Google tokeninfo, refresh cookie on path /api/auth.",
+  "risks": "Telegram login still exists (rule A). Google merges into unverified password accounts (ISSUE-042). There is no password recovery (D-010) and no manual recovery (rule H). In-memory state is single-instance only.",
+  "ownership": "apps/api/src/modules/auth/auth.routes.ts, auth.service.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "telegram",
+  "purpose": "GET status, POST link (deep-link token), DELETE link; bot long-poll handles /start link, contact share (phone verify), support relay and login confirm.",
+  "dependencies": "In-memory Map tokens (link 30 min, login 5 min), User.telegramChatId (not unique, uniqueness enforced in code), TELEGRAM_ADMIN_CHAT_ID.",
+  "risks": "A chat is bound without confirmation and silently taken from its old account. Phone verification is not unique and survives relink/unlink. Plain /start sends no site link (rule C). There are no security events.",
+  "ownership": "apps/api/src/modules/telegram/telegram.routes.ts, telegram.service.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "admin",
+  "purpose": "Overview, users (block/role), vacancy moderation, company verify, reviews, payments, reindex, alerts run, broadcast.",
+  "dependencies": "adminOnly = requireAuth + requireStaff('admin') from the DB role; revokeUserSessions; notify; search index.",
+  "risks": "An admin 'archived' takedown can be reversed by the employer. There is no audit log. There is no manual-recovery flow (rule H). The payment confirm endpoint is registered even with billing off.",
+  "ownership": "apps/api/src/modules/admin/admin.routes.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "team",
+  "purpose": "Staff list, invites, role/block changes (admin only); public invite lookup and accept by token.",
+  "dependencies": "requireStaff('admin'); SHA-256 hashed invite token, 7-day expiry, single use, 10/min rate limit; issueTokens.",
+  "risks": "The raw invite link is returned to the admin. There is no last-admin guard and no audit log.",
+  "ownership": "apps/api/src/modules/team/team.routes.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "articles (public + admin)",
+  "purpose": "Public published articles and feedback; CMS for staff.",
+  "dependencies": "staffOnly / editorsOnly via requireStaff; articlePermissions / canViewArticle (an author sees only own drafts; delete is admin only).",
+  "risks": "Per-article checks are correct. coverImageUrl accepts any /uploads/ path or external https URL (low risk).",
+  "ownership": "apps/api/src/modules/articles/*.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "vacancies",
+  "purpose": "Public list/facets/detail/similar (active only); employer list, create, edit, status change, delete.",
+  "dependencies": "ownedVacancy (company.ownerUserId === sub or admin); create requires phone verification plus primaryCompany; assertVacancyPlacement; search index.",
+  "risks": "Admin archive is reversible by the owner. Publishing is post-moderation (create goes active immediately). Editing an active vacancy triggers no re-review.",
+  "ownership": "apps/api/src/modules/vacancies/vacancies.routes.ts, vacancies.service.ts, vacancies.rules.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "applications",
+  "purpose": "Seeker applies and lists own applications; employer lists all applications, lists per vacancy, changes status.",
+  "dependencies": "Apply: job_seeker + phone verified + resume ownership check. Employer: ownedVacancyIds, or vacancy.company.ownerUserId, or admin.",
+  "risks": "The IDOR checks hold. resumeUrl points to a public static file. source='telegram' is client-controlled. Unverified phone numbers are shown to employers.",
+  "ownership": "apps/api/src/modules/applications/applications.routes.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "companies",
+  "purpose": "Public catalog, slug page and similar companies; employer's own company get/put/logo; POST company.",
+  "dependencies": "PUBLIC_COMPANY_SELECT whitelist; primaryCompany / ownerUserId; one company per owner; saveUpload magic-byte check.",
+  "risks": "The verified badge survives rename, logo or website changes. Reviewer userId is public (accepted in D-017).",
+  "ownership": "apps/api/src/modules/companies/companies.routes.ts, companies.list.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "candidates",
+  "purpose": "Employer candidate search.",
+  "dependencies": "requireAuth + requireRole('employer','admin') + primaryCompany; contacts only for applicants to the employer's own vacancies (admin sees all); peerRating groupBy.",
+  "risks": "No phone or company verification is required. Names and full CVs can be bulk-harvested (200x50 pages). Visibility is default opt-in.",
+  "ownership": "apps/api/src/modules/candidates/candidates.routes.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "chat",
+  "purpose": "WebSocket /ws/chat; conversations start/list/messages/rating; user summary; inbox summary.",
+  "dependencies": "WS token in the query string, blocked and tokenVersion checked at connect, participant check on every event. REST scoped to employerUserId/seekerUserId. Start: employer may open only to a discoverable candidate, an applicant or an existing chat; seeker may open to any company by slug.",
+  "risks": "Participant checks are correct. Seekers can open chats with every company, with no per-account throttle. The raw owner userId is exposed. WS sends do not re-check phone verification.",
+  "ownership": "apps/api/src/modules/chat/chat.routes.ts, common/realtime.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "reviews",
+  "purpose": "Seeker company review (upsert); delete by author or admin.",
+  "dependencies": "job_seeker + phone verified + has applied to the company; DB role for delete.",
+  "risks": "New reviews auto-approve (D-020). Combined with reusable phone verification this allows fake-review farming.",
+  "ownership": "apps/api/src/modules/reviews/reviews.routes.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "favorites",
+  "purpose": "Saved vacancies and saved companies.",
+  "dependencies": "job_seeker; every query scoped by req.user.sub; saving requires an active vacancy.",
+  "risks": "Low.",
+  "ownership": "apps/api/src/modules/favorites/favorites.routes.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "alerts",
+  "purpose": "Saved searches CRUD plus the alert sweep.",
+  "dependencies": "job_seeker; PATCH/DELETE check found.userId === sub; max 20 per user.",
+  "risks": "Low; the id is not validated as an ObjectId, but P2023 is mapped to 404.",
+  "ownership": "apps/api/src/modules/alerts/alerts.routes.ts, alerts.service.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "notifications + push",
+  "purpose": "In-app notification list/read/delete, preferences, push subscribe/unsubscribe.",
+  "dependencies": "requireAuth; userId scoping and ownership checks on :id; a subscription endpoint belongs to a single user (ISSUE-084).",
+  "risks": "Low.",
+  "ownership": "apps/api/src/modules/notifications/*.ts, common/push.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "profile",
+  "purpose": "Seeker profile get/patch; resume PDF upload/delete.",
+  "dependencies": "job_seeker; keyed by req.user.sub; saveUpload.",
+  "risks": "Unverified primary phone and backup phone are free text. The resume PDF is publicly served.",
+  "ownership": "apps/api/src/modules/profile/profile.routes.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "resume",
+  "purpose": "Seeker structured resume get/put.",
+  "dependencies": "job_seeker; keyed by the user's own JobSeekerProfile.",
+  "risks": "PUT always sets status 'published', so the candidate has no private-resume option.",
+  "ownership": "apps/api/src/modules/resume/resume.routes.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "billing (flag off)",
+  "purpose": "Legacy plans, subscription, payments, checkout, provider webhooks.",
+  "dependencies": "Registered only when features.billing; employer endpoints scoped by ownerUserId; verifyWebhookAuth.",
+  "risks": "Legacy; the admin payments endpoints stay registered regardless of the flag.",
+  "ownership": "apps/api/src/modules/billing/*.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "support",
+  "purpose": "Public contact channels and contact form relayed to the admin Telegram chat.",
+  "dependencies": "Optional bearer token used only to label the sender; 5/min rate limit; honeypot.",
+  "risks": "Low.",
+  "ownership": "apps/api/src/modules/support/support.routes.ts"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "catalog / stats / seo / og / search",
+  "purpose": "Public regions and categories, home and salary stats, sitemaps and robots, vacancy OG image, Meilisearch index.",
+  "dependencies": "Public, no auth; active or published filters; Meilisearch key kept server-side; reindex is admin only.",
+  "risks": "Low; OG and sitemaps filter to active vacancies.",
+  "ownership": "apps/api/src/modules/catalog, stats, seo, og, search"
+ },
+ {
+  "dimension": "authz-idor",
+  "subsystem": "uploads/static",
+  "purpose": "Serves /uploads/ (logos, article covers, resume PDFs).",
+  "dependencies": "@fastify/static on UPLOAD_DIR; random file names; magic-byte type check; CSP sandbox plus nosniff on responses.",
+  "risks": "No authorization on private files such as resume PDFs.",
+  "ownership": "apps/api/src/server.ts:142-174, common/uploads.ts"
+ },
+ {
+  "dimension": "api-errors",
+  "subsystem": "API global error handler and error contract",
+  "purpose": "Maps thrown errors to an HTTP status plus a {error, message} body: AppError, ZodError, Prisma P2002/P2025/P2023, plugin 4xx pass-through, everything else 500. The rate-limit errorResponseBuilder uses the same shape.",
+  "dependencies": "apps/api/src/server.ts:178-216, common/errors.ts, common/auth-guard.ts (UNAUTHORIZED, USER_BLOCKED, PHONE_NOT_VERIFIED), @fastify/rate-limit, Prisma client",
+  "risks": "No setNotFoundHandler, so unknown routes return Fastify's default body. DB outages and Mongo write conflicts become a generic 500. Internal FST_* codes and English or Uzbek-only messages reach the UI.",
+  "ownership": "apps/api backend (no owner recorded in repo or audit docs)"
+ },
+ {
+  "dimension": "api-errors",
+  "subsystem": "API route-level failure handling",
+  "purpose": "Per-route choice between 200/empty and an error: refresh returns 200 {accessToken:null} for guests, support returns 503/502, telegram link returns 503 BOT_OFFLINE, telegram status, push subscribe/unsubscribe, companies saved=1 requires auth.",
+  "dependencies": "modules/auth/auth.routes.ts, support/support.routes.ts, telegram/telegram.routes.ts, notifications/notifications.routes.ts, companies/companies.routes.ts",
+  "risks": "Push unsubscribe hides DB errors behind {ok:true}. Bot availability is only implied by botUsername=null, with no explicit contract.",
+  "ownership": "apps/api backend"
+ },
+ {
+  "dimension": "api-errors",
+  "subsystem": "Chat WebSocket protocol (/ws/chat)",
+  "purpose": "Real-time message send/read. Close codes 4401/4403/1011; the server echoes clientId to acknowledge a sent bubble.",
+  "dependencies": "apps/api/src/modules/chat/chat.routes.ts, common/realtime.ts, apps/web/src/lib/useChatSocket.ts, lib/messages/useMessenger.ts",
+  "risks": "No error/nack frame: rate-limited, forbidden and DB-failed sends are dropped silently and the client relies on a 10 s timeout. The WS send path has no phone-verified check.",
+  "ownership": "apps/api + apps/web messaging"
+ },
+ {
+  "dimension": "api-errors",
+  "subsystem": "Telegram bot update loop",
+  "purpose": "Long-polling bot: /start link and login payloads, contact-based phone verification, support relay.",
+  "dependencies": "apps/api/src/modules/telegram/telegram.service.ts (tg helper, handleStart, handleContact, handleCallbackQuery), Prisma User, TELEGRAM_BOT_TOKEN",
+  "risks": "tg() returns null on every failure and callers ignore it. Handler exceptions are only logged, so the user gets no reply.",
+  "ownership": "apps/api integrations"
+ },
+ {
+  "dimension": "api-errors",
+  "subsystem": "Web fetch layer",
+  "purpose": "Typed API clients in lib/api.ts, lib/apiExtra.ts, lib/admin/http.ts and lib/{articles,messages,notifications,favorites,support,employer/*}/api.ts. They mix strict helpers (throw ApiError) with lenient ones (return a fallback).",
+  "dependencies": "global fetch + auth interceptor (lib/auth/session.ts), withServerTimeout (api.ts:64), ApiError",
+  "risks": "Lenient get/authGet/tryFetch helpers and many dead fallback exports remain. Mutation helpers don't normalize network or non-JSON errors. The SSR timeout is applied only inside api.ts.",
+  "ownership": "apps/web frontend"
+ },
+ {
+  "dimension": "api-errors",
+  "subsystem": "Web auth session interceptor",
+  "purpose": "Wraps window.fetch for API Bearer requests: injects the latest token, refreshes once on 401, keeps a tri-state refresh result (token/null/undefined) so transient errors don't log the user out, and sends USER_BLOCKED 403 to guest.",
+  "dependencies": "apps/web/src/lib/auth/session.ts, components/AuthContext.tsx, POST /api/auth/refresh, GET /api/auth/me",
+  "risks": "Semantics are correct. The dead refreshAccessToken in api.ts:161 (returns null on 5xx) contradicts them if reused.",
+  "ownership": "apps/web frontend"
+ },
+ {
+  "dimension": "api-errors",
+  "subsystem": "Web SSR data loaders, heads and SSR servers",
+  "purpose": "+data.ts loaders fetch primary and secondary data server-side and pass null/[] on failure. +Head.tsx emits SEO/noindex. api/ssr.js and server/index.mjs forward Vike's status code.",
+  "dependencies": "vike ^0.4.196 abort helpers (render/redirect), pages/_error, lib/api.ts and apiExtra.ts fetchers",
+  "risks": "An API failure renders 200 + noindex on detail pages and 200 indexable on list pages. [] fallbacks disable the client retry. The salaries, articles and contact loaders have no SSR timeout.",
+  "ownership": "apps/web frontend"
+ },
+ {
+  "dimension": "api-errors",
+  "subsystem": "Web data hooks and optimistic mutations",
+  "purpose": "Loading/error/ready state and optimistic updates: useNotifications, useNotificationCenter, useFavorites, useSavedCompanies, useMessenger, usePush, useProfileData, useSalaryStats, useAdminResource, support hooks.",
+  "dependencies": "Fetch layer; consumers NotificationBell, TelegramConnect, EmployerCompanyForm, SaveSearchButton, RatingDialog",
+  "risks": "Bell mutations don't roll back on failure. Failures of saved-company IDs and the push key show as real states. A rating load error hides the Rate action. Components render raw err.message.",
+  "ownership": "apps/web frontend"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "README.md (product overview and quickstart)",
+  "purpose": "Product pitch; quickstart (Atlas or Docker replica set, prisma push/seed, dev servers, ADMIN_EMAIL bootstrap); features per role (seeker, employer, admin); SEO list; optional-services table; search and notify() design; deploy summary; self-hosted web server; command list; tech and security summary (argon2, JWT access plus httpOnly refresh, phone-verification gates).",
+  "dependencies": "DEPLOY.md, tizim-arxitekturasi.md, apps/api/.env.example, root and app package.json scripts, docker-compose.yml, scripts/*.py",
+  "risks": "Lists Telegram as a login method (README.md:92,137). Says the app works fully without Telegram (:132), but phone verification gates core flows. Sitemap list omits sitemap-articles.xml. No db:demo or test:unit commands. scripts/ Playwright checks are stale.",
+  "ownership": "Repo owner (Diyorbek). File has uncommitted edits; git history shows only the initial commits."
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "DEPLOY.md (deploy procedure)",
+  "purpose": "Deploy steps: Atlas M0, then Railway API (railway.json, numReplicas 1 because of Telegram long-polling and in-process alerts, Volume UPLOAD_DIR, prestart db push), then Vercel web (VITE_API_URL, VITE_SITE_URL). Security env: TRUST_PROXY, CORS_PREVIEW_ORIGIN_REGEX, BILLING_ENABLED, JWT secrets of at least 32 characters. Pre-deploy e2e must run against a DB whose name contains 'test'. Also a manual checklist and a troubleshooting section.",
+  "dependencies": "apps/api/railway.json, apps/web/vercel.json, api/ssr.js, api/seo.js, apps/api/scripts/e2e-check.mjs, .env.example files",
+  "risks": "Minimum variables omit TELEGRAM_BOT_TOKEN, although phone verification and future recovery depend on it. Deploy from GitHub would build a HEAD missing untracked modules (ISSUE-026). TRUST_PROXY defaults to true. The checklist has no phone-verification or recovery step.",
+  "ownership": "Repo owner; uncommitted edits"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "CHANGELOG.md (release history)",
+  "purpose": "0.2.0: notify() channels, favorites, alerts, Meilisearch, billing, admin, salary stats. 0.2.1: fonts, i18n split, production web server. 0.3.0: PostgreSQL to MongoDB, deploy files, IDOR/cookie/trustProxy/health fixes. Notes that telegramChatId uniqueness is enforced in code.",
+  "dependencies": "DEPLOY.md, schema.prisma",
+  "risks": "Stops at 0.3.0 (2026-08-29); none of the September security, auth or product changes are recorded. Describes tariff limits and e2e '~20 flows' that no longer apply.",
+  "ownership": "Repo owner"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "tizim-arxitekturasi.md (historical design document)",
+  "purpose": "Pre-coding design: hh.uz analysis; planned stack (PostgreSQL, Redis/BullMQ, Socket.io, S3); roles table; phased features (including Telegram-native apply); DB schema; API sketch; SEO strategy; notification design; security basics (JWT 15 min / refresh 30 days); monetization deferred; roadmap. Section 19 is an 'implemented state' table dated 2026-08-25.",
+  "dependencies": "README links it as the full design document; D-004 classifies it as historical",
+  "risks": "Section 19 reads as current status but is wrong: auth 'Email+password, Telegram, Google', monetization marked done with limits, Redis in container, PostgreSQL search default, hardcoded SITE_URL domain.",
+  "ownership": "Repo owner; left untouched by audit decision D-004"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "apps/web/DESIGN.md (design system and page specs)",
+  "purpose": "Design system 'Osmon indigo v3': palette tokens, typography, signature elements, contrast claims. Global UI rules: font-medium/semibold naming, formatDate instead of toLocaleDateString, grid-cols-1, sr-only traps, header breakpoints. Per-page specs (routes, API contracts, URL state, skeleton/empty/filter-empty/error states, responsive layout) for employer vacancies/applications/vacancy form (category and workplaceType required; region required unless remote), support/contact (FAQ facts), auth pages, profile, applications, articles CMS (roles, one-time SHA-256-hashed 7-day invites), messages (WS), notifications, favorites, companies, salaries, vacancies and details. Motion decision: backdrop always animated, reduced motion not honoured.",
+  "dependencies": "i18n messages.*.ts, lib/* adapters, API routes, global.css",
+  "risks": "Auth section documents a Google/Apple/Telegram login row (rule A) and FAQ facts point to Telegram login for password recovery. Several sections are stale (marketing numbers, workplace 'not in DB', no hybrid data). Contrast claims contradict the audit measurements.",
+  "ownership": "Frontend owner; newest frontend source of truth per D-004; uncommitted edits"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "docs/audit/ARCHITECTURE_AUDIT.md",
+  "purpose": "Phase 0/1 discovery. Extracted product rules (free platform, no vacancy limit, placement rules, vacancies active immediately, requirePhoneVerified on apply/post/chat/review, reviews approved immediately, invite-only content team). Doc-to-code conflicts C1-C5, test instructions, dev environment. Session model (tokenVersion, DB-checked access token), WS close codes 4401/4403/1011/1009, in-process caches, query strategy, single-instance risk.",
+  "dependencies": "maps/*.md, ISSUES.md, DECISIONS.md, FINAL_AUDIT.md",
+  "risks": "Auth description includes Telegram bot login (:113). No design for password recovery, phone model or security audit log. Whole docs/ tree is untracked in git.",
+  "ownership": "Audit lead (2026-09-14/15); untracked"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "docs/audit/DECISIONS.md (D-001..D-039)",
+  "purpose": "Decision log. D-004 doc precedence; D-006 CORS; D-007 TRUST_PROXY plus email lockout; D-008 JWT HS256/typ/32+ chars; D-009 tokenVersion logout-all; D-010 no password reset; D-011 Google merge kept; D-012 candidate contact privacy; D-013 uploads; D-014 billing flag; D-015 vacancy lifecycle; D-016 hidden salary; D-018 and D-032-D-035 scale; D-036 DB-checked auth; D-039 Telegram login untested.",
+  "dependencies": "ISSUES.md IDs, e2e-check.mjs",
+  "risks": "D-007, D-010, D-011 and D-039 conflict with the new auth rules. There is no decision recording the owner's Telegram-only recovery / no-Telegram-login model.",
+  "ownership": "Audit lead; untracked"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "docs/audit/ISSUES.md (ISSUE-001..146 tracker)",
+  "purpose": "Issue tracker with severity, status, file, root cause, impact, evidence, recommended fix and test evidence. Totals: FIXED 101, PARTIAL 21, NOT FIXED 19, WONT FIX 4, NOT REPRODUCIBLE 1. Open auth items: ISSUE-012 (no reset), ISSUE-011 (IP limit bypass), ISSUE-042 (Google merge), ISSUE-122 (Telegram login test), ISSUE-026 (untracked files).",
+  "dependencies": "raw findings json (referenced, not in repo), DECISIONS.md",
+  "risks": "ISSUE-012's recommended fix is email-based. ISSUE-010 counts hardening of Telegram login as the fix. File:line evidence has drifted since fixes.",
+  "ownership": "Audit lead; untracked"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "docs/audit/FINAL_AUDIT.md",
+  "purpose": "Final report. Readiness verdicts: auth WARN, production FAIL. Security, DB, performance and 10K synthetic benchmark tables; candidate/employer flow status; routing, SEO, i18n, responsive, dark mode, a11y results; regression (e2e 94/94, web unit 3/3, browser checks); remaining issues; how product rules are enforced; recommendations.",
+  "dependencies": "ISSUES.md, DECISIONS.md, scratchpad benchmark and browser scripts (not in repo)",
+  "risks": "Recommends choosing email or Telegram for recovery. Lists Telegram, Google and SMTP flows as NOT RUN. Browser regression scripts are not versioned.",
+  "ownership": "Audit lead; untracked"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "docs/audit/maps/API_MAP.md and ROUTE_MAP.md",
+  "purpose": "API_MAP: per-endpoint auth, role, zod input, ownership, pagination, index and error contract across 123 routes, plus a role matrix. ROUTE_MAP: 43 web routes with guards, +data API dependencies, canonical/noindex, redirects, and an internal link audit.",
+  "dependencies": "Code snapshot of 2026-09-14",
+  "risks": "Pre-fix snapshot with no banner: logout, CORS, requireRole, SVG uploads, candidates 402, /api/plans and returnTo rows are now wrong. Telegram login endpoints are documented as contracts.",
+  "ownership": "Audit lead; untracked"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "docs/audit/maps/DB_MAP.md and DATA_INTEGRITY.md",
+  "purpose": "DB_MAP: 28 Prisma models, relation and cascade emulation, real queries matched to indexes, unbounded query list, index proposals I1-I8. DATA_INTEGRITY: read-only run of 103 checks on the dev DB (DI-1: 83 demo vacancies lack workplace_type) and code-level risks DI-R1..R6.",
+  "dependencies": "schema.prisma, dev DB snapshot",
+  "risks": "Index tables predate the indexes added later. User.phone is non-unique and telegramChatId uniqueness is described as 'enforced in code'; neither doc covers the new phone rules.",
+  "ownership": "Audit lead; untracked"
+ },
+ {
+  "dimension": "docs",
+  "subsystem": "Inline config and help content (apps/api/.env.example, i18n FAQ, telegram.service.ts header)",
+  "purpose": "Env contract with operator guidance (JWT, TRUST_PROXY, CORS preview regex, BILLING_ENABLED, Telegram, SUPPORT_*, Google, SMTP, VAPID, Meili). User-facing support FAQ in uz/ru/en. Bot duties comment block.",
+  "dependencies": "env.ts, SupportView, bot long-polling",
+  "risks": ".env.example calls Telegram 'login' and optional. The FAQ password answer tells users to log in via Telegram or contact support. The bot header lists login as a bot duty. Plain /start is not documented.",
+  "ownership": "Repo owner"
+ },
+ {
+  "dimension": "seo",
+  "subsystem": "Web head/meta layer",
+  "purpose": "Per-page <title> (+title.ts), meta description, canonical, og:*, robots noindex (Seo.tsx), global defaults and hreflang alternates (HeadDefault.tsx), canonical/alternate URL builder (lib/i18n/head.ts, config.ts SITE_ORIGIN).",
+  "dependencies": "vike 0.4.260 + vike-react 0.5.13 (Head is cumulative and inherited by subdirectories, most specific first); VITE_SITE_URL at build time; pageContext.localePathname from +onBeforeRoute.ts",
+  "risks": "List-page +Head.tsx files at vacancies/ and companies/ are inherited by their @slug detail pages, which duplicates meta. Canonical always drops the query string. The origin silently falls back to localhost. Every private page is noindex, either directly or through inheritance (admin/+Head, employer subpages); no gaps found.",
+  "ownership": "apps/web/src/components/{HeadDefault,Seo,JsonLd}.tsx, apps/web/src/lib/i18n/head.ts, apps/web/src/pages/**/+Head.tsx and +title.ts (frontend)"
+ },
+ {
+  "dimension": "seo",
+  "subsystem": "Structured data (JSON-LD)",
+  "purpose": "Emits JobPosting and BreadcrumbList on vacancy detail, Organization with aggregateRating on company detail, Article on articles, WebSite/Organization on home, ItemList on /vacancies, FAQPage on /support. serializeJsonLd escapes <, >, & (fix for ISSUE-005).",
+  "dependencies": "Vacancy/company/article view models (lib/vacancies/detail.ts, lib/companies/detail.ts, lib/articles/adapter.ts); API fields publishedAt/expiresAt/currency/workplaceType",
+  "risks": "validThrough depends on Vacancy.expiresAt, which the API never writes. Legacy employmentType 'remote' is mapped to FULL_TIME. directApply is always true. Article inLanguage comes from the URL locale, not from the content.",
+  "ownership": "apps/web/src/pages/vacancies/@slug/+Head.tsx, companies/@slug/+Head.tsx, articles/@slug/+Head.tsx, index/+Head.tsx, support/+Head.tsx"
+ },
+ {
+  "dimension": "seo",
+  "subsystem": "SSR data hooks and HTTP status semantics",
+  "purpose": "+data.ts fetches from the API server-side with an 8s timeout (withServerTimeout). A missing entity throws render(404) with an abortReason and the _error page draws it. API failures return null data and a retry UI.",
+  "dependencies": "apps/web/src/lib/api.ts (ApiError, fetch*), vike/abort, _error/+Page.tsx and +Head.tsx and +title.ts, api/ssr.js (Vercel), server/index.mjs (self-hosted)",
+  "risks": "An API outage renders 200: detail pages add noindex, list and home pages stay indexable with error content. No 503 path exists. _error head does not tell 404 from 500 or cover articles.",
+  "ownership": "apps/web/src/pages/*/+data.ts, apps/web/src/pages/_error, apps/web/api/ssr.js, apps/web/server/index.mjs"
+ },
+ {
+  "dimension": "seo",
+  "subsystem": "Legacy redirect guards",
+  "purpose": "301 redirects: /vacancy/:slug to /vacancies/:slug, /article(/:slug) to /articles, /employer/:slug to /companies/:slug, /search/vacancy to /vacancies. /pricing gets a 302 to /employer.",
+  "dependencies": "+guard.ts, localizeHref, pageLocale",
+  "risks": "/pricing uses a temporary 302 even though the product rule says the platform is permanently free.",
+  "ownership": "apps/web/src/pages/{vacancy,article,employer/@slug,search/vacancy,pricing}/+guard.ts"
+ },
+ {
+  "dimension": "seo",
+  "subsystem": "API robots.txt and sitemaps",
+  "purpose": "Generates robots.txt (disallows private paths in 3 locales) and a sitemap index with static, vacancy, employer and article sitemaps; each URL carries uz/ru/en/x-default xhtml:link alternates built from env.WEB_ORIGIN.",
+  "dependencies": "Prisma/Mongo (vacancy, company with owner and vacancies relation filters, article, category, region), env.WEB_ORIGIN, Vercel rewrites to api/seo.js",
+  "risks": "No origin cache; up to 50k rows per request; relation filters cost $lookup on Mongo; silent 50k cap. Salary URLs with query params contradict their canonical. The API host serves the same robots.txt, and its Disallow: /api blocks the OG image path. WEB_ORIGIN has no production guard.",
+  "ownership": "apps/api/src/modules/seo/seo.routes.ts (backend)"
+ },
+ {
+  "dimension": "seo",
+  "subsystem": "Vercel SEO proxy",
+  "purpose": "Serves /robots.txt and /sitemap*.xml on the site domain by proxying to the API, with s-maxage=3600.",
+  "dependencies": "apps/web/vercel.json rewrites, VITE_API_URL/API_URL runtime env, API availability",
+  "risks": "Upstream fetch has no timeout. A failure returns 502 with a robots body, including on sitemap paths. With API_URL unset, /sitemap.xml returns 200 with robots text. The self-hosted server has no equivalent route, so robots.txt and sitemaps are missing there.",
+  "ownership": "apps/web/api/seo.js, apps/web/vercel.json"
+ },
+ {
+  "dimension": "seo",
+  "subsystem": "API OG image service",
+  "purpose": "GET /api/og/vacancy/:slug draws a 1200x630 PNG with satori and resvg for active vacancies; og:image on vacancy detail points to it.",
+  "dependencies": "satori, @resvg/resvg-js, @fontsource inter/space-grotesk (latin subsets only), Prisma",
+  "risks": "Latin-only fonts, so Cyrillic titles lose their glyphs. The path sits under /api on a host whose robots.txt disallows /api. Every request re-renders (CPU) with no server-side cache.",
+  "ownership": "apps/api/src/modules/og/og.routes.ts, og.service.ts (backend)"
+ },
+ {
+  "dimension": "auth-core",
+  "subsystem": "API auth endpoints (modules/auth)",
+  "purpose": "Email and password register/login, refresh, logout (revokes all sessions), /me, Google ID-token login and signup, and Telegram login start/poll.",
+  "dependencies": "Prisma User (email unique, passwordHash, tokenVersion, isBlocked, telegramChatId); argon2 0.40.3 with defaults (argon2id m=64MiB t=3 p=4); common/jwt; common/login-guard; in-memory login tokens in telegram.service; Google tokeninfo over HTTP; @fastify/cookie; @fastify/rate-limit 9.1.",
+  "risks": "Telegram login channel (breaks rule A). Google login merges by email. No password recovery or change. Register 409 reveals which emails exist. Refresh tokens are never rotated.",
+  "ownership": "apps/api/src/modules/auth/auth.routes.ts, apps/api/src/modules/auth/auth.service.ts"
+ },
+ {
+  "dimension": "auth-core",
+  "subsystem": "Token and guard layer (common/jwt, auth-guard, env, errors)",
+  "purpose": "HS256 JWTs: access token 15m {sub, role, v, typ=access}, refresh token 30d {sub, v, typ=refresh}. requireAuth reads role, isBlocked, tokenVersion and isPhoneVerified from the DB on every request. Also provides requireRole, requireStaff and requirePhoneVerified. Env validation in production: secrets at least 32 chars, different from each other, not placeholders.",
+  "dependencies": "jsonwebtoken 9; Prisma user.findUnique by _id; env TRUST_PROXY and JWT_* variables.",
+  "risks": "Tokens without typ or v are still accepted (legacy path). TRUST_PROXY defaults to true. One indexed DB read per authenticated request (fine at 10k users).",
+  "ownership": "apps/api/src/common/jwt.ts, auth-guard.ts, env.ts, errors.ts"
+ },
+ {
+  "dimension": "auth-core",
+  "subsystem": "Brute-force protection and rate limiting",
+  "purpose": "Per-IP limits: 10/min on login, register, google and telegram/start; 60/min on refresh and telegram/poll; 600/min global. Login also has an in-memory per-email failure counter (10 failures per 15 min, up to 50k keys).",
+  "dependencies": "@fastify/rate-limit in-memory store; Fastify trustProxy; a single API replica (railway.json numReplicas 1).",
+  "risks": "An attacker can lock a victim out. X-Forwarded-For can be spoofed. Counters reset on restart and are not shared across replicas. Every attempt costs a full argon2 hash.",
+  "ownership": "apps/api/src/common/login-guard.ts, apps/api/src/server.ts, strictRateLimit in auth.routes.ts"
+ },
+ {
+  "dimension": "auth-core",
+  "subsystem": "Refresh cookie, CORS and CSRF surface",
+  "purpose": "refreshToken cookie: httpOnly, path=/api/auth, 30 days; Secure and SameSite=None in production, Lax in dev. CORS allowlist (WEB_ORIGIN, CORS_EXTRA_ORIGINS, exact preview regex) runs in onRequest and returns 403, so cross-site form or no-cors POSTs to login, refresh and logout never reach the handler (ISSUE-097 confirmed this).",
+  "dependencies": "@fastify/cors 9.0.1 (onRequest hook); @fastify/cookie; the documented topology (web on Vercel, API on Railway).",
+  "risks": "In the documented topology the cookie is third-party, so Safari/ITP likely blocks it (inference). Requests with no Origin header (non-browser clients) are allowed by design.",
+  "ownership": "REFRESH_COOKIE in auth.routes.ts; cors and helmet in server.ts; DEPLOY.md"
+ },
+ {
+  "dimension": "auth-core",
+  "subsystem": "Session revocation, account blocking and role management",
+  "purpose": "revokeUserSessions increments User.tokenVersion on logout (only with a current-version cookie), block and role change. closeUserSockets closes WebSockets with 4403/4401. /ws/chat re-checks isBlocked and v on connect and closes when the token expires. An admin block also archives the employer's vacancies.",
+  "dependencies": "admin.routes.ts (/api/admin/users/:id/block and /role); team.routes.ts PATCH; common/realtime.ts; WebSocket auth in chat.routes.ts; ensure-admin.ts at boot.",
+  "risks": "No audit trail. One-click admin grant, and admins can block each other. Nothing stops removing the last admin. ensureAdminUser promotes the ADMIN_EMAIL account on every boot.",
+  "ownership": "apps/api/src/modules/admin/admin.routes.ts, apps/api/src/modules/team/team.routes.ts, apps/api/src/common/ensure-admin.ts, apps/api/src/common/realtime.ts"
+ },
+ {
+  "dimension": "auth-core",
+  "subsystem": "Staff invites (content team onboarding)",
+  "purpose": "An admin creates an invite: 32-byte random token, stored as a sha256 hash, valid 7 days, claimed once via updateMany; a new invite revokes the old one. The public accept endpoint creates the staff user with an argon2 password and opens a session.",
+  "dependencies": "StaffInvite model; mailer; issueTokens and setRefreshCookie from auth.",
+  "risks": "Low. Password minimum is only 8 chars. The token pattern can be reused for recovery tokens (rule I).",
+  "ownership": "apps/api/src/modules/team/team.routes.ts"
+ },
+ {
+  "dimension": "auth-core",
+  "subsystem": "Telegram bot auth-related flows",
+  "purpose": "Account linking with a one-time in-memory link token (30 min); phone verification by sharing your own contact; Telegram login (lg token, 5 min, confirm/deny inline buttons); support message relay.",
+  "dependencies": "Telegram Bot API long-polling inside the API process; User.telegramChatId (not unique); in-memory Maps (needs a single replica).",
+  "risks": "The login channel is forbidden by rule A. Linking has no confirmation and moves a chat from another account. Phones are not unique. No security events. Tokens are lost on restart.",
+  "ownership": "apps/api/src/modules/telegram/telegram.service.ts, telegram.routes.ts"
+ },
+ {
+  "dimension": "auth-core",
+  "subsystem": "Web session client",
+  "purpose": "Keeps the access token in memory and localStorage. A global fetch wrapper adds the latest Bearer token to API calls, does one shared refresh on 401 and retries once. A session epoch drops stale refresh results. Syncs across tabs and reloads when the account changes. Refreshes in the background every 12 min; USER_BLOCKED switches to guest.",
+  "dependencies": "/api/auth/refresh, /me and /logout with credentials: include; AuthContext provider; lib/api.ts.",
+  "risks": "Token in localStorage while the web origin has no CSP. Depends on the cross-site refresh cookie.",
+  "ownership": "apps/web/src/lib/auth/session.ts, apps/web/src/components/AuthContext.tsx, apps/web/src/lib/api.ts"
+ },
+ {
+  "dimension": "auth-core",
+  "subsystem": "Web auth pages and social login",
+  "purpose": "Login and signup forms; Google GIS button (sends role on signup); Telegram login button on the login page; Apple placeholder; 'forgot password' links to /support; returnTo accepts only relative paths and rejects //, /\\ and control characters.",
+  "dependencies": "Auth calls in lib/api.ts; i18n messages (uz/ru/en); useRoleGuard and the profile page use loginHrefWithReturn.",
+  "risks": "Telegram login UI and FAQ text break rule A. No recovery UI. 'Remember me' does nothing. Signup drops returnTo. The returnTo open-redirect check itself is sound.",
+  "ownership": "apps/web/src/pages/login, apps/web/src/pages/signup, apps/web/src/components/SocialLogin.tsx, apps/web/src/lib/auth/returnTo.ts"
+ },
+ {
+  "dimension": "headers-infra",
+  "subsystem": "API HTTP edge (Fastify bootstrap)",
+  "purpose": "Registers helmet (CSP, HSTS in prod, COOP, CORP cross-origin) and credentialed CORS with an origin allowlist (403 for anything else). Also cookie parsing, an in-memory global rate limit (600/min per req.ip), multipart (5MB), /uploads static files with sandbox CSP and nosniff, WebSocket (64KB frames), error mapping, and /health with a DB ping. Background bootstrap runs after listen; SIGINT/SIGTERM shutdown has a 10s forced exit.",
+  "dependencies": "env.ts (allowedOrigins, TRUST_PROXY, RATE_LIMIT_MAX); prisma; realtime.ts; telegram.service; alerts.service; ensure-admin.ts; uploads.ts; the Railway edge proxy (X-Forwarded-For)",
+  "risks": "Trusts every proxy by default. Preflight responses are not cached. SSR egress IPs share per-IP buckets. API CSP keeps 'unsafe-inline' although the API serves no HTML. Correctness depends on a single process.",
+  "ownership": "apps/api/src/server.ts"
+ },
+ {
+  "dimension": "headers-infra",
+  "subsystem": "Env/config validation and secrets",
+  "purpose": "Zod schema for all API env vars: Mongo URL prefix check; JWT secrets (32+ chars, distinct, non-placeholder, enforced only when NODE_ENV=production); CORS lists and preview regex; TRUST_PROXY parsing; feature flags (billing off by default); admin bootstrap credentials.",
+  "dependencies": "process.env via dotenv; consumed by server.ts, jwt.ts, auth.routes.ts (isProd cookie flags), ensure-admin.ts, telegram/mailer",
+  "risks": "All hardening depends on NODE_ENV, which defaults to development. WEB_ORIGIN defaults to localhost and is not validated. ADMIN_EMAIL auto-promotes an existing account. .env.example still describes Telegram login.",
+  "ownership": "apps/api/src/common/env.ts, apps/api/.env.example, apps/api/src/common/ensure-admin.ts"
+ },
+ {
+  "dimension": "headers-infra",
+  "subsystem": "Session transport, cookies and CSRF posture",
+  "purpose": "Refresh JWT sits in an HttpOnly cookie (prod: SameSite=None; Secure; Path=/api/auth; 30 days), rotated on /api/auth/refresh. The 15-minute access JWT is kept in localStorage and sent as Bearer; logout bumps tokenVersion. CSRF: only /api/auth/* reads the cookie, and a browser request with a non-allowlisted Origin gets 403 from the CORS origin callback before any handler (verified in @fastify/cors 9.0.1). WebSocket auth uses a ?token query param, not a cookie, so cross-site WebSocket hijacking does not apply.",
+  "dependencies": "auth.routes.ts, jwt.ts, auth-guard.ts, apps/web/src/lib/auth/session.ts, CORS allowlist",
+  "risks": "The cookie is third-party in the documented Vercel+Railway setup, so Safari and Brave block it. Token in localStorage with no web CSP. WS token in the URL relies on log redaction.",
+  "ownership": "apps/api/src/modules/auth/auth.routes.ts, apps/web/src/lib/auth/session.ts"
+ },
+ {
+  "dimension": "headers-infra",
+  "subsystem": "In-process state (single-instance assumptions)",
+  "purpose": "Per-process state: Telegram link/login token Maps and the getUpdates offset, the email-keyed login failure counter, the rate-limit memory store, the WS socket registry and heartbeat, keyed response caches, and the alert sweep running flag.",
+  "dependencies": "railway.json numReplicas 1; single-replica section in DEPLOY.md",
+  "risks": "Lost on every restart or deploy. Login-token Map has no size cap and is swept O(n) on each create. Login lockout can be abused for DoS. Cannot back one-time, replay-protected, hashed recovery tokens (rule I). No horizontal scaling.",
+  "ownership": "apps/api/src/modules/telegram/telegram.service.ts, apps/api/src/common/login-guard.ts, apps/api/src/common/cache.ts, apps/api/src/common/realtime.ts, apps/api/src/modules/alerts/alerts.service.ts"
+ },
+ {
+  "dimension": "headers-infra",
+  "subsystem": "API deploy pipeline (Railway)",
+  "purpose": "Nixpacks build (prisma generate + tsc). Start is `npm run start`, whose prestart runs `prisma db push`. /health healthcheck with 120s timeout, restart ON_FAILURE up to 10 times, one replica, Volume for UPLOAD_DIR.",
+  "dependencies": "MongoDB Atlas replica set, Prisma schema, DEPLOY.md runbook",
+  "risks": "Schema changes are applied on every boot, before listen. The planned unique phone/Telegram indexes will fail on existing duplicates or nulls and crash-loop. Index builds on large collections run inside the healthcheck window.",
+  "ownership": "apps/api/package.json, apps/api/railway.json, DEPLOY.md"
+ },
+ {
+  "dimension": "headers-infra",
+  "subsystem": "Web delivery (Vercel serverless SSR / self-hosted Fastify)",
+  "purpose": "Vike SSR via api/ssr.js (Vercel rewrites) or server/index.mjs (static files, compression, SSR). robots.txt and sitemaps are proxied from the API by api/seo.js (Vercel only). Headers: nosniff, X-Frame-Options SAMEORIGIN, COOP same-origin, Referrer-Policy, plus HSTS preload on Vercel only. Inline theme init script; Google GIS script on login/signup.",
+  "dependencies": "VITE_API_URL (build and runtime), VITE_SITE_URL, VITE_GOOGLE_CLIENT_ID; API CORS allowlist; accounts.google.com",
+  "risks": "No CSP on any target. No Permissions-Policy. COOP same-origin may break the GIS popup. Self-hosted server logs full URLs (invite tokens) and has no HSTS. Header lists duplicated in 4 places. SSR API calls share per-IP limits.",
+  "ownership": "apps/web/vercel.json, apps/web/api/ssr.js, apps/web/api/seo.js, apps/web/server/index.mjs, apps/web/vite.config.ts, apps/web/src/components/HeadDefault.tsx"
+ },
+ {
+  "dimension": "headers-infra",
+  "subsystem": "Local dev services",
+  "purpose": "docker-compose runs a single-node Mongo replica set (rs0) and an optional Meilisearch profile. Per the project memory, local dev actually runs Mongo manually on 27018 without Docker.",
+  "dependencies": "Docker; DATABASE_URL and MEILI_HOST in the API .env",
+  "risks": "Both services are published on all host interfaces with no auth and no Meilisearch master key.",
+  "ownership": "docker-compose.yml"
+ },
+ {
+  "dimension": "i18n",
+  "subsystem": "Web i18n core (apps/web/src/lib/i18n/*)",
+  "purpose": "Picks the locale from the URL prefix (uz has no prefix, /ru, /en). Loads one typed dictionary per locale as a lazy chunk (messages.ts). Also holds hreflang/canonical helpers (head.ts), static region and category name maps keyed by slug (regions.ts, categories.ts), and pageLocale fallback for error pages.",
+  "dependencies": "Vike hooks: +onBeforeRoute.ts (locale, localePathname), +lang.ts (html lang), +onBeforeRenderHtml/+onBeforeRenderClient (loadMessages). types.ts BaseMessages & ExtraMessages mean a missing key fails typecheck. The slug maps must match the slugs seeded by apps/api/src/common/ensure-catalog.ts.",
+  "risks": "No missing-key risk while dictionaries stay typed. grp() in types.ts:2397 formats every locale as ru-RU. The locale cookie helpers (config.ts:60,68) are dead code. LanguageSwitcher.tsx:19 ignores pageLocale(). The static category map covers only the 6 seeded slugs; a new category falls back to its Uzbek DB name.",
+  "ownership": "apps/web frontend. No CODEOWNERS file in the repo."
+ },
+ {
+  "dimension": "i18n",
+  "subsystem": "Web formatting helpers",
+  "purpose": "Number, salary, date and relative-time formatting: lib/format.ts (formatNumber, formatSalary, formatDate, formatRelativeDays), lib/messages/format.ts (chat clock and day labels), lib/profile/format.ts, lib/salaries/format.ts.",
+  "dependencies": "Messages['fmt'] templates; Intl. Uzbek month names are hand-written because Chrome ICU lacks them.",
+  "risks": "Numbers use ru-RU in EN. Chat uses browser timezone and en-GB, while formatDate uses Asia/Tashkent and en-US. Admin pages and the alerts page call toLocaleDateString() with no locale.",
+  "ownership": "apps/web frontend"
+ },
+ {
+  "dimension": "i18n",
+  "subsystem": "Web error presentation",
+  "purpose": "Turns API failures into UI text. ApiError (lib/api.ts) carries the server message and code. errorText (lib/admin/useNotice.ts:30) shows the server text only in uz. Component catch blocks set error state.",
+  "dependencies": "API error shape {error: CODE, message: Uzbek text}. Zod errors are reduced to 'field: message'.",
+  "risks": "Many catch blocks show err.message in every locale, so RU/EN users see Uzbek AppError text or English zod defaults. Some code compares against the literal sentinel 'Xatolik'.",
+  "ownership": "apps/web frontend"
+ },
+ {
+  "dimension": "i18n",
+  "subsystem": "API user-visible text producers",
+  "purpose": "Error messages (common/errors.ts, server.ts error handler, rate-limit builder), zod schema messages, and auth.service/auth-guard messages returned to clients.",
+  "dependencies": "Fastify error handler; zod. Nothing reads Accept-Language, and no locale is stored per user.",
+  "risks": "All text is Uzbek or zod English. Validation errors carry no structured field/rule, so the client cannot translate them.",
+  "ownership": "apps/api backend"
+ },
+ {
+  "dimension": "i18n",
+  "subsystem": "API notification pipeline",
+  "purpose": "notify() in notifications.service.ts saves the Notification row with title and body, pushes it over WebSocket, and fans out to Telegram, web push (public/sw.js) and email (mailer.ts renderEmail). Callers: applications.routes.ts, alerts.service.ts, admin.routes.ts, billing.routes.ts. chat.routes.ts sends its own Telegram message.",
+  "dependencies": "Prisma Notification model; User has no locale field. env.WEB_ORIGIN for links; telegram.service; push; nodemailer.",
+  "risks": "Title, body, CTA and email template are built on the server in Uzbek and stored as final strings, so RU/EN users get Uzbek in-app, push, Telegram and email. Links have no locale prefix (ISSUE-103).",
+  "ownership": "apps/api backend"
+ },
+ {
+  "dimension": "i18n",
+  "subsystem": "Telegram bot (telegram.service.ts, telegram.routes.ts)",
+  "purpose": "Deep-link account linking, phone verification via the contact button, the Telegram login confirmation flow, support relay, and notification delivery. It will also host the new recovery and phone-change flows (rules B-G).",
+  "dependencies": "In-memory link and login token maps (userId only); long-polling getUpdates; prisma user.telegramChatId.",
+  "risks": "Every bot text and keyboard label is hard-coded Uzbek, and the token carries no locale. A 503 BOT_OFFLINE Uzbek message is shown raw on the web. The site copy still advertises Telegram login, which rule A forbids.",
+  "ownership": "apps/api backend"
+ },
+ {
+  "dimension": "i18n",
+  "subsystem": "OG image service (og.routes.ts, og.service.ts, common/format.ts)",
+  "purpose": "Renders the dynamic 1200x630 share image for vacancies. The web references it from vacancies/@slug/+Head.tsx.",
+  "dependencies": "satori and fonts; vacancy region name; formatSalaryLabel",
+  "risks": "The image is Uzbek-only ('so'm', 'Maosh ko'rsatilmagan', region fallback \"O'zbekiston\") and its URL has no locale parameter.",
+  "ownership": "apps/api backend"
+ },
+ {
+  "dimension": "i18n",
+  "subsystem": "Catalog data (ensure-catalog.ts) and region/category consumers",
+  "purpose": "Seeds 14 regions and 6 categories with Uzbek names. The web localizes them by slug with REGION_NAMES / CATEGORY_NAMES / regionName().",
+  "dependencies": "API responses must include the slug. Several endpoints (profile, candidates, chat) return only regionName.",
+  "risks": "Views without a slug, or that ignore it, show Uzbek region and category names on RU/EN pages.",
+  "ownership": "apps/api (catalog) and apps/web (rendering)"
+ },
+ {
+  "dimension": "monetization",
+  "subsystem": "Legacy billing backend (apps/api/src/modules/billing/*)",
+  "purpose": "Legacy plans catalogue (ensurePlans/DEFAULT_PLANS), subscription state, checkout and the Payme/Click webhook. Only registered when BILLING_ENABLED=true (server.ts:253, ensurePlans at :270).",
+  "dependencies": "Prisma SubscriptionPlan/Payment/Company.subscriptionPlanId (schema.prisma:322-339, 749-787); env BILLING_ENABLED/PAYME_*/CLICK_* (env.ts:83-88,128-129,191-193); notify().",
+  "risks": "Currently off (class b). Unsafe to switch back on: the plans still describe a 3-vacancy free cap and paid candidate search, an unused 402 helper remains, the webhook does not check method or amount, and pending payments are unbounded.",
+  "ownership": "API backend (billing module); flag owner: deploy config"
+ },
+ {
+  "dimension": "monetization",
+  "subsystem": "Monetization feature flag and e2e guard",
+  "purpose": "BILLING_ENABLED (default false) gates billing routes and plan seeding. The e2e checks assert /api/plans and the webhook return 404, the candidate base has no 402, and active vacancies are unlimited.",
+  "dependencies": "env.ts:128-129,193; server.ts:252-253,270; .env.example:111-119; e2e-check.mjs:93-94,191-196,569-572,623-639",
+  "risks": "Two paths ignore the flag: admin payment routes and demo-seed. No e2e check covers admin payment confirm.",
+  "ownership": "API platform/infra"
+ },
+ {
+  "dimension": "monetization",
+  "subsystem": "Admin legacy billing views (API + web)",
+  "purpose": "Admin overview payment/revenue totals, the companies plan column, the /admin/payments list and manual confirm.",
+  "dependencies": "admin.routes.ts:85,99-101,127,347,361-362,461-520 (imports markPaymentPaid); web AdminShell.tsx:50, pages/admin/+Page.tsx:107-112, admin/companies/+Page.tsx:112,121-127, admin/payments/+Page.tsx; i18n admin.payments, pricingExtra.status*",
+  "risks": "Class c, but not gated: confirm writes a plan to the company and sends the employer a 'tariff activated' notification. A revenue card and tariff column show on a free platform.",
+  "ownership": "API admin module + web admin pages"
+ },
+ {
+  "dimension": "monetization",
+  "subsystem": "Web /pricing legacy page and billing client layer",
+  "purpose": "None at runtime: +guard.ts always returns 302 to /employer. The page, data loader, head, title, billing fetchers, types and i18n are leftovers.",
+  "dependencies": "pages/pricing/*; apiExtra.ts:287-316; types.ts:471-521; api.ts:34; i18n pricing/pricingExtra/footer.employersPricing/notifications.open.pricing/support.categories.payments/meta.pricing (uz/ru/en/types.ts)",
+  "risks": "Dead code with two conflicting price catalogues (i18n 499 000 'Biznes' vs DEFAULT_PLANS 490 000 'Standart'). Admin pages reuse pricingExtra labels.",
+  "ownership": "Web frontend"
+ },
+ {
+  "dimension": "monetization",
+  "subsystem": "Vacancy isPremium highlight",
+  "purpose": "Admin-only manual highlight. Shows a public badge, a premium-only filter and chip, premium-first default sort, and a premium param in saved searches.",
+  "dependencies": "schema.prisma:426,442; admin.routes.ts:287-307; vacancies.service.ts:217,276-285,325; search.service.ts:59,261; alerts.service.ts:45,71,94; VacancyCard.tsx, VacancyDetailHeader.tsx, VacancyFilters.tsx:242, VacancyToolbar.tsx:130",
+  "risks": "Not purchasable, so no product-rule breach in logic. But the 'Premium' name and premium-only filter in the candidate core flow suggest a paid tier.",
+  "ownership": "API vacancies/search + web vacancies UI"
+ },
+ {
+  "dimension": "monetization",
+  "subsystem": "Demo seed billing data",
+  "purpose": "Showcase data for the @demo.ish.top accounts.",
+  "dependencies": "demo-seed.ts:54,92,120-121,183-184,1296-1300,1571,1620-1625,1672-1673,1821-1850,1927; ensurePlans from billing.service",
+  "risks": "Ignores BILLING_ENABLED: seeds plans, attaches paid plans to companies, creates 11 payments, and gives the demo HR a 'Premium tariff' notification that mentions a vacancy cap. Production is protected (refuses without --force, :2049).",
+  "ownership": "API seed scripts (demo data)"
+ },
+ {
+  "dimension": "monetization",
+  "subsystem": "Core employer/candidate flows (monetization check)",
+  "purpose": "Checked that vacancy posting, the employer vacancy list, applications, candidate search and chat have no tariff gating.",
+  "dependencies": "candidates.routes.ts:24; vacancies.routes.ts:118; EmployerVacanciesView.tsx:47; EmployerApplicationsView.tsx:65; employer/vacancies/adapter.ts:6; employer/candidates/+Page.tsx:29; Header.tsx:110; Footer.tsx:21",
+  "risks": "No live 402, PLAN_ or subscription data found in core API responses or web flows. assertCanSearchCandidates has no caller. Clean.",
+  "ownership": "API + web core flows"
+ },
+ {
+  "dimension": "monetization",
+  "subsystem": "Monetization documentation",
+  "purpose": "README, DEPLOY, .env.example, DESIGN.md, tizim-arxitekturasi.md, CHANGELOG.md, docs/audit/*",
+  "dependencies": "README.md:108-110,118,142; DEPLOY.md:72,169-170; DESIGN.md:73-75; tizim-arxitekturasi.md:161,197-198,494,638-639,651-652; CHANGELOG.md:78-81,324-330,360,385; docs/audit/maps/*",
+  "risks": "README, DEPLOY, .env.example and DESIGN are accurate. tizim-arxitekturasi §19, CHANGELOG and the PHASE-1 audit maps still describe tariffs, limits and the 402 gate as current.",
+  "ownership": "Project docs / audit docs"
+ },
+ {
+  "dimension": "candidate-flows",
+  "subsystem": "Public discovery (home, vacancy search/detail, companies, salaries, articles)",
+  "purpose": "SSR public pages for guests and candidates: stats, vacancy list/facets, vacancy detail with apply card, company catalog/detail, salary stats, articles.",
+  "dependencies": "web pages/index,vacancies,vacancies/@slug,companies,salaries,articles (+data.ts SSR); api vacancies.routes/service (withPublicSalary, active-only detail), companies.routes/list, stats/salary.stats, articles.routes (published only)",
+  "risks": "Guest login from detail/save-search loses return target; vacancy detail pulls all of candidate's applications; hidden salary and draft visibility are correctly enforced server-side (withPublicSalary, status active checks).",
+  "ownership": "No CODEOWNERS seen (inference). Frontend apps/web/src, backend apps/api/src/modules/vacancies|companies|stats|articles"
+ },
+ {
+  "dimension": "candidate-flows",
+  "subsystem": "Auth entry (login, signup, social login)",
+  "purpose": "Email+password login/register, Google GIS login, Telegram deep-link login, refresh/logout sessions (tokenVersion).",
+  "dependencies": "web pages/login, pages/signup, components/SocialLogin.tsx, AuthForm.tsx, lib/auth/returnTo.ts; api modules/auth/auth.routes.ts, auth.service.ts, common/jwt.ts, login-guard.ts",
+  "risks": "Telegram login still live (rule A); no password recovery/change (rule B); forgot link goes to /support; Google auto-merges into unverified email accounts; no-op remember-me.",
+  "ownership": "Not declared (inference). apps/web/src/pages/login|signup, apps/api/src/modules/auth"
+ },
+ {
+  "dimension": "candidate-flows",
+  "subsystem": "Telegram bot, linking and phone verification gate",
+  "purpose": "Link site account to Telegram chat via /start token, verify phone by contact share, support relay, notifications; requirePhoneVerified gates apply, company chat, reviews.",
+  "dependencies": "api modules/telegram/telegram.service.ts (in-memory token maps, long-polling), telegram.routes.ts, common/auth-guard.ts requirePhoneVerified; web components/TelegramConnect.tsx, PhoneGateNotice.tsx, profile tab 'telegram'",
+  "risks": "Link binds on click without confirmation (phishing), phone not unique, unlink keeps verified phone, no phone change/backup phone, no audit log, plain /start lacks site link, bot outage dead-ends applying.",
+  "ownership": "Not declared (inference). apps/api/src/modules/telegram, apps/web/src/components"
+ },
+ {
+  "dimension": "candidate-flows",
+  "subsystem": "Candidate profile, resume wizard and PDF resume",
+  "purpose": "Personal info, contact phones, open-to-work toggle, multi-section resume (PUT replaces whole doc), PDF upload, account settings.",
+  "dependencies": "web pages/profile/+Page.tsx, components/profile/* (PersonalInfo, ResumeWizard, ResumeFile, AccountSettings), lib/profile/useProfileData.ts; api profile.routes.ts, resume.routes.ts, common/uploads.ts, server.ts static /uploads",
+  "risks": "Any resume save publishes it and candidate is open-to-work by default (listed to all employers); PDF served publicly without auth; verified phone locked forever; additionalPhone unverified; password/delete only via support.",
+  "ownership": "Not declared (inference). apps/web/src/components/profile, apps/api/src/modules/profile|resume"
+ },
+ {
+  "dimension": "candidate-flows",
+  "subsystem": "Applications (candidate side)",
+  "purpose": "Apply to active vacancy (auto-attach resume), list own applications with status history, applications page.",
+  "dependencies": "web lib/vacancies/useApplication.ts, components/vacancies/detail/ApplyCard.tsx, pages/applications, components/applications/*; api applications.routes.ts, notifications.service notify()",
+  "risks": "Unbounded GET /api/applications loaded on every vacancy view; phone gate only discovered after click; gate link loses context.",
+  "ownership": "Not declared (inference). apps/api/src/modules/applications, apps/web/src/components/applications"
+ },
+ {
+  "dimension": "candidate-flows",
+  "subsystem": "Favorites, saved companies, saved searches/alerts",
+  "purpose": "Save vacancies/companies, subscribe to searches with instant/daily alert sweep.",
+  "dependencies": "api favorites.routes.ts (active/archived only), alerts.routes.ts, alerts.service.ts (keyset sweep, optimistic claim), companies saved=1; web pages/favorites, pages/alerts, SaveSearchButton.tsx",
+  "risks": "No blocking issues found; guest save-search login loses return target.",
+  "ownership": "Not declared (inference). apps/api/src/modules/favorites|alerts"
+ },
+ {
+  "dimension": "candidate-flows",
+  "subsystem": "Notifications and messages",
+  "purpose": "In-app notification center with channel prefs/push, candidate-employer chat over WS with ratings and partner summary.",
+  "dependencies": "api notifications.routes.ts/service.ts, chat.routes.ts (WS /ws/chat, conversations/start gated by phone), common/realtime.ts; web pages/notifications, pages/messages, lib/notifications/*, lib/messages/*",
+  "risks": "Notification center capped at latest 100 without pagination; texts Uzbek-only (ISSUE-073); links lack locale prefix (ISSUE-103).",
+  "ownership": "Not declared (inference). apps/api/src/modules/notifications|chat"
+ },
+ {
+  "dimension": "candidate-flows",
+  "subsystem": "Support, contact and (missing) manual recovery",
+  "purpose": "FAQ/help center, contact form and vacancy reports relayed to admin Telegram chat.",
+  "dependencies": "api support.routes.ts (POST /api/support -> TELEGRAM_ADMIN_CHAT_ID), telegram.service sendTelegramMessage; web pages/support, pages/contact, lib/support/faq.ts, i18n faq entries",
+  "risks": "Only recovery channel for locked-out users; nothing persisted; unavailable when Telegram is down/unconfigured; FAQ instructs Telegram login contrary to rule A.",
+  "ownership": "Not declared (inference). apps/api/src/modules/support, apps/web/src/components/support|contact"
+ },
+ {
+  "dimension": "candidate-flows",
+  "subsystem": "Candidate data exposure to employers",
+  "purpose": "Employer candidate DB search, applicant lists with contacts, chat partner summary.",
+  "dependencies": "api candidates.routes.ts, applications.routes.ts (employer endpoints), chat.routes.ts /api/users/:id/summary, common/ownership.ts",
+  "risks": "Contacts limited to applicants (D-012), but names and full resumes of all open candidates are pageable by any employer with a company and no phone verification; candidate is opted in by default.",
+  "ownership": "Not declared (inference). apps/api/src/modules/candidates|applications|chat"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "Prisma schema and MongoDB referential model",
+  "purpose": "Defines the 28 collections, unique indexes and relation actions. Referential integrity exists only as Prisma client emulation (no DB foreign keys). Applied with prisma db push.",
+  "dependencies": "Prisma 5 MongoDB connector (relationMode prisma, replica set for transactions), apps/api/prisma/schema.prisma, prestart db push",
+  "risks": "Uniqueness exists only where @unique is declared, and a unique index treats nulls as equal, so optional identity fields (phone, telegramChatId) have no DB constraint. Vacancy.categoryId and workplaceType are optional. There are no models for recovery, audit or Telegram identity. The app has no delete path for User, Company or Conversation, so app code cannot orphan them. Vacancy delete cascades applications, history and favorites.",
+  "ownership": "apps/api backend"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "User identity and sessions (email/password, Google, tokenVersion)",
+  "purpose": "Registration, login, Google sign-in, refresh, logout. Every authenticated request re-reads role, block state and tokenVersion from the DB.",
+  "dependencies": "auth.service.ts, auth.routes.ts, common/auth-guard.ts, common/jwt.ts, common/login-guard.ts (in-memory), argon2",
+  "risks": "Google sign-in auto-merges into any unverified existing email account. Email is never verified for password accounts. There is no password recovery and no audit log of auth events. The login failure counter is in memory.",
+  "ownership": "apps/api auth module"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "Telegram bot: account link, phone verification, Telegram login, support relay",
+  "purpose": "Deep-link /start token links a chat to a user. A shared contact sets phone and isPhoneVerified. The bot also confirms Telegram logins and relays support messages.",
+  "dependencies": "telegram.service.ts (long polling, in-memory linkTokens and loginTokens Maps), telegram.routes.ts, auth.routes.ts /api/auth/telegram/*, web lib/api.ts",
+  "risks": "The link key is the chat id, not the Telegram user id, and has no unique index. Relinking is non-transactional. There is no private-chat check. Lookups use findFirst. Verified phone has no uniqueness and is overwritten silently. Telegram is still a login channel (rule A). Tokens are lost on restart and split across instances.",
+  "ownership": "apps/api telegram module"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "Profile phone fields",
+  "purpose": "PATCH /api/profile stores the manual primary phone while unverified, plus additionalPhone on JobSeekerProfile.",
+  "dependencies": "profile.routes.ts, web components/profile/PersonalInfo.tsx",
+  "risks": "Phone is free text and unnormalized. additionalPhone is unverified, has no uniqueness and exists only for job seekers, so it cannot serve as the rule F backup phone. App code cannot produce isPhoneVerified=true with a null phone (handleContact writes both fields); only e2e-check.mjs mass updates do.",
+  "ownership": "apps/api profile module and apps/web profile"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "Vacancy lifecycle and moderation",
+  "purpose": "Create (active or draft), edit (a rejected vacancy returns to moderation), owner status toggle, admin moderate, admin block archive, delete.",
+  "dependencies": "vacancies.routes.ts, vacancies.rules.ts (assertVacancyPlacement, effectiveWorkplaceType), vacancies.service.ts, admin.routes.ts, search index sync",
+  "risks": "Nothing records who archived a vacancy, so the owner can re-activate an admin-archived one. Admin approve skips the placement rule and the owner-block check. Legacy and seeded rows have no workplaceType. Admin hard delete cascades applications.",
+  "ownership": "apps/api vacancies and admin modules"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "Applications and status history",
+  "purpose": "One application per (vacancy, seeker) under a unique index with P2002 idempotency. Owner or admin status changes write history in a transaction.",
+  "dependencies": "applications.routes.ts, chat deliverMessage, notifications.service notify",
+  "risks": "No transition rules (any state to any state). Applying writes no initial history row, while the demo seed writes one. Status can change on closed vacancies. Blocked seekers stay visible with contact data.",
+  "ownership": "apps/api applications module"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "Chat (conversations, messages, peer ratings)",
+  "purpose": "One conversation per (employerUserId, seekerUserId) under a unique index with P2002 fallback. WS and REST delivery. Ratings are allowed only for mutual conversations, one per rater.",
+  "dependencies": "chat.routes.ts, common/realtime.ts, telegram notify",
+  "risks": "A seeker can start a conversation with, and message, a blocked employer. companyId is SetNull and stays null for admin-started conversations. No other orphan path, since conversations and users are never deleted.",
+  "ownership": "apps/api chat module"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "Companies, reviews, favorites, ownership helpers",
+  "purpose": "One company per owner, enforced only by a code check. Reviews require a prior application and are auto-approved. Favorites and saved companies are upserts on unique pairs.",
+  "dependencies": "companies.routes.ts, companies.list.ts, reviews.routes.ts, favorites.routes.ts, common/ownership.ts",
+  "risks": "Check-then-create race can produce a second company or resume. The catalog does not filter blocked owners, although the sitemap does. Reviews from blocked users and self-reviews after a role change count in ratings.",
+  "ownership": "apps/api companies, reviews and favorites modules"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "Admin user management (block, role) and staff team",
+  "purpose": "Block revokes sessions and archives active vacancies. Role change revokes sessions. Staff invites use hashed tokens.",
+  "dependencies": "admin.routes.ts, team.routes.ts, auth.service revokeUserSessions",
+  "risks": "Role change does no cleanup, leaving companies, applications and articles under the wrong role. Block does not cover moderation or draft vacancies, and unblock has no record of what the block archived.",
+  "ownership": "apps/api admin and team modules"
+ },
+ {
+  "dimension": "data-integrity",
+  "subsystem": "Seeds and integrity tooling",
+  "purpose": "seed.ts (basic data), demo-seed.ts (demo accounts, --for, --reset in child-first delete order), DATA_INTEGRITY.md read-only checks, e2e-check.mjs",
+  "dependencies": "Prisma client, a scratchpad data_integrity.mjs kept outside the repo, local Mongo rs0",
+  "risks": "Seeds still omit workplaceType. The integrity script is not versioned and its index table is stale. No checks cover phone, Telegram identity or recovery invariants. e2e sets isPhoneVerified for every user, so the phone invariants are untested.",
+  "ownership": "apps/api prisma scripts and docs/audit"
+ },
+ {
+  "dimension": "admin-staff",
+  "subsystem": "Admin API (moderation, users, companies, reviews, payments, broadcast, maintenance)",
+  "purpose": "Platform operator panel backend: overview counters, user block/role, vacancy moderation, company verification, review moderation, legacy payment confirm, search reindex, alert sweep, mass notification",
+  "dependencies": "apps/api/src/modules/admin/admin.routes.ts; common/auth-guard.ts (requireAuth + requireStaff('admin'), role read from DB); auth.service revokeUserSessions (tokenVersion); realtime closeUserSockets; notifications.service notify; search.service reindexAll/syncVacancyIndex; alerts.service runAlertSweep; billing.service markPaymentPaid",
+  "risks": "No audit trail for any action; no manual recovery / phone reset / standalone session revoke; role grant/block without last-admin guard or step-up; moderate endpoint can publish drafts and skips placement rules; broadcast not durable; relation-filter regex search at 10k+ scale; legacy payments not behind billing flag",
+  "ownership": "Super admin (role=admin) only"
+ },
+ {
+  "dimension": "admin-staff",
+  "subsystem": "Team / staff management and invites",
+  "purpose": "Content team (admin, content_editor, content_author): list members, invite by email (32-byte token, SHA-256 at rest, 7-day, one-time), change role, deactivate, edit profile; public invite accept creates account",
+  "dependencies": "apps/api/src/modules/team/team.routes.ts; StaffInvite/StaffProfile models; mailer; issueTokens/setRefreshCookie; web components/admin/team/* (TeamView, TeamList, TeamInvite, InviteAccept)",
+  "risks": "Staff accounts are created with no phone, so Telegram-only recovery can never work for them; no audit of invites or role changes; admin can demote or deactivate other admins with no last-admin guard; raw invite link shown to the admin once (by design)",
+  "ownership": "Super admin; the invite accept endpoint is public and rate-limited"
+ },
+ {
+  "dimension": "admin-staff",
+  "subsystem": "Article CMS admin",
+  "purpose": "Article CRUD and workflow (submit/return/publish/unpublish/archive/restore/delete), cover upload, author picker",
+  "dependencies": "articles.admin.routes.ts; articles.permissions.ts (single permission source); requireStaff(STAFF_ROLES/EDITOR_ROLES); uploads.saveUpload; web components/admin/articles/*",
+  "risks": "Permission model is sound and server-enforced; transitions and deletes are not audited; delete/unpublish/archive have name-specific confirms",
+  "ownership": "admin (all + delete), content_editor (all except delete), content_author (own drafts)"
+ },
+ {
+  "dimension": "admin-staff",
+  "subsystem": "Admin web shell and pages",
+  "purpose": "Vike pages /admin, /admin/users, /admin/vacancies, /admin/companies, /admin/reviews, /admin/payments, /admin/articles, /admin/team, /admin/invite; client-side role gate and navigation",
+  "dependencies": "components/AdminShell.tsx, components/admin/AdminStates.tsx, lib/admin/useAdminResource, lib/apiExtra admin fetchers, i18n contentAdmin/admin strings",
+  "risks": "UI gating is cosmetic (server enforces). Confirms are generic or missing on role grant, unverify, archive, premium, reindex. No UI for recovery requests or session invalidation. Payments tab and revenue card always visible. Staff roles are not modelled in the users table.",
+  "ownership": "Frontend; admin/staff audience"
+ },
+ {
+  "dimension": "admin-staff",
+  "subsystem": "Support intake (web form + Telegram bot relay)",
+  "purpose": "Contact form and bot free text are forwarded to TELEGRAM_ADMIN_CHAT_ID; admin replies in that chat are relayed back to the user",
+  "dependencies": "support.routes.ts (POST /api/support), telegram.service.ts handleSupport/handleAdminReply, env TELEGRAM_BOT_TOKEN/TELEGRAM_ADMIN_CHAT_ID",
+  "risks": "Messages are not stored in the DB (no queue, status or audit). Access is controlled only by membership of the Telegram group, outside panel RBAC and blocking. It is the only existing channel a locked-out user can use, yet it has no recovery subject and no ownership-verification workflow.",
+  "ownership": "Ops/support staff in the Telegram admin chat"
+ },
+ {
+  "dimension": "admin-staff",
+  "subsystem": "Admin bootstrap (ensure-admin)",
+  "purpose": "On every boot, create the ADMIN_EMAIL admin, or promote an existing account with that email to admin",
+  "dependencies": "common/ensure-admin.ts, server.ts bootstrap(), env ADMIN_EMAIL/ADMIN_PASSWORD, public register (no email ownership check)",
+  "risks": "Any account registered with ADMIN_EMAIL is auto-promoted at the next restart. A panel demotion is reverted on restart. The code comment says to recover a lost admin password by deleting the user from the DB, which cascades.",
+  "ownership": "Deploy/ops"
+ },
+ {
+  "dimension": "a11y-ui",
+  "subsystem": "Design tokens and theming",
+  "purpose": "Light/dark color tokens as CSS RGB variables mapped to Tailwind colors, class-based dark mode, pre-paint theme init script, design documentation.",
+  "dependencies": "apps/web/tailwind.config.js, src/styles/global.css (:root/.dark tokens), src/lib/theme.tsx (THEME_INIT_SCRIPT, applyTheme), src/components/HeadDefault.tsx, apps/web/DESIGN.md",
+  "risks": "In dark mode the signal token fails AA both as a fill under white text (4.47:1, hover 2.98:1) and as text (3.51-3.96:1). Contrast claims in the comments and DESIGN.md are stale. No global color-scheme, so native pickers stay light in dark mode. Alpha modifiers (dusk/80) push light-mode text below AA.",
+  "ownership": "Web frontend / design system (apps/web)"
+ },
+ {
+  "dimension": "a11y-ui",
+  "subsystem": "Motion and decorative effects",
+  "purpose": "Hero backdrop blobs and particles, gradient text shine, logo breathe, skeleton shimmer, entrance and scroll-reveal animations.",
+  "dependencies": "global.css keyframes (drift, rise, shine-move, breathe, shimmer), tailwind.config.js animations, HeroBackdrop.tsx, BrandLogo.tsx, useReveal.ts, pages index/employer/login/signup",
+  "risks": "prefers-reduced-motion is deliberately ignored (global.css:419) and there is no pause control. Smooth scrolling is always on. pulse-ring, spin-slow and float are dead CSS.",
+  "ownership": "Web frontend / design system"
+ },
+ {
+  "dimension": "a11y-ui",
+  "subsystem": "App shell and navigation",
+  "purpose": "Layout wrapper, sticky header with desktop nav, mobile menu, account menu, notification bell, language and theme switchers, footer, profile section nav.",
+  "dependencies": "Layout.tsx, Header.tsx, NotificationBell.tsx, LanguageSwitcher.tsx, ThemeToggle.tsx, Footer.tsx, profile/ProfileNav.tsx, lib/useClickOutside.ts, lib/useInboxSummary.ts",
+  "risks": "No skip link. Primary nav landmarks are unlabeled. The mobile menu inside the sticky header has no max-height. The bell popover is clipped on the left at 360-390px. Escape closes popovers but drops focus. Stacked sticky bars (header plus ProfileNav) can hide focused elements.",
+  "ownership": "Web frontend"
+ },
+ {
+  "dimension": "a11y-ui",
+  "subsystem": "Overlay and widget primitives",
+  "purpose": "Modal focus trap and Escape handling, click-outside popovers, kebab action menu, custom Select, filter drawers, confirm/status/rating/report dialogs, lightbox, tabs.",
+  "dependencies": "lib/useDialog.ts, lib/useClickOutside.ts, ActionsMenu.tsx, Select.tsx, CompanyFilterDrawer.tsx, VacancyFilterDrawer.tsx, ConfirmDialog.tsx, ApplicationStatusDialog.tsx, RatingDialog.tsx, TeamList.tsx, ReportDialog.tsx, the *Tabs.tsx components",
+  "risks": "The custom Select has no visible focus and no arrow-key support. Centered dialogs have no max-height or scroll. The filter drawers carry their own copy of the focus trap. Tabs and ActionsMenu are implemented correctly.",
+  "ownership": "Web frontend"
+ },
+ {
+  "dimension": "a11y-ui",
+  "subsystem": "Forms and validation UI",
+  "purpose": "Auth fields, phone input, vacancy/profile/contact form controls, error display, star rating input, Telegram connect status.",
+  "dependencies": "AuthForm.tsx, pages/login, pages/signup, PhoneInput.tsx, employer/vacancies/form/FormControls.tsx, profile/ui.tsx, contact/ContactField.tsx, StarRating.tsx, TelegramConnect.tsx, admin/AdminStates.tsx",
+  "risks": "Login and signup errors are neither announced nor linked to their fields. StarInput exposes no selected state and relies on color at 1.77:1. Placeholders are at 3.3-3.6:1. The vacancy, contact, profile and admin forms do follow the aria-invalid/aria-describedby pattern.",
+  "ownership": "Web frontend (auth UI shared with auth/Telegram recovery work)"
+ },
+ {
+  "dimension": "a11y-ui",
+  "subsystem": "Responsive layout and data display",
+  "purpose": "Page grids, sticky sidebars, messenger heights, admin/salary tables, cards with stretched links, illustrations.",
+  "dependencies": "pages/vacancies, pages/companies, VacancyForm.tsx, messages/MessagesStates.tsx (dvh clamp), AdminShell.tsx AdminTable (overflow-x-auto), salaries/SalaryTables.tsx, VacancyCard.tsx, header illustration components",
+  "risks": "Tables are correctly wrapped in overflow containers. Sticky sidebars still use 100vh. Some illustrations have no dark variant. A nowrap sidebar title can overflow. Long unbroken titles are clipped in cards.",
+  "ownership": "Web frontend"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Vacancy lifecycle API",
+  "purpose": "Employer create/edit/status/delete of vacancies; placement rules (category, workplaceType, region), phone-verification gate, search index sync, public list/detail.",
+  "dependencies": "Prisma Vacancy/Company/VacancyCategory/Region; common/ownership.ts; auth-guard requirePhoneVerified; search.service (Meilisearch); cache bumpDataVersion.",
+  "risks": "'archived' is shared by employer close and admin takedown (reversible); post-moderation only (rejections not binding); PUT lacks phone gate; vacancies never expire; /api/employer/vacancies silently capped at 1000 with per-row _count.",
+  "ownership": "apps/api/src/modules/vacancies (vacancies.routes.ts, vacancies.rules.ts, vacancies.service.ts)"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Employer vacancies dashboard and form (web)",
+  "purpose": "/employer/vacancies list with client-side filters/stats/pagination; /employer/vacancies/new and /:id/edit multi-step form mirroring backend validation; close/activate/delete actions.",
+  "dependencies": "GET /api/employer/vacancies, GET /api/employer/company, POST/PUT /api/vacancies, PATCH /status, DELETE; categories/regions catalogs; useHistoryQuery.",
+  "risks": "Whole vacancy list downloaded for dashboard and to edit a single vacancy; remote vacancies always lose region; employer cannot close rejected/moderation vacancies.",
+  "ownership": "apps/web/src/components/employer/vacancies, apps/web/src/lib/employer/vacancies, apps/web/src/pages/employer/vacancies"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Applications (employer side) API and workspace",
+  "purpose": "List of applications to own vacancies with resume/history/contacts, status changes with optional reason delivered as chat message, candidate notifications; 3-pane workspace UI.",
+  "dependencies": "ownedVacancyIds; Application/ApplicationStatusHistory/Resume; chat deliverMessage/getOrCreateConversation; notifications.notify; web EmployerApplicationsView + adapter/query.",
+  "risks": "Newest 2000 only with full resumes; filters/search/counts client-side; per-vacancy endpoint unused by web; unrestricted status transitions; reason path bypasses phone gate. Ownership checks (owner or admin) are present.",
+  "ownership": "apps/api/src/modules/applications; apps/web/src/components/employer/applications; apps/web/src/lib/employer/applications"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Company profile management",
+  "purpose": "Employer company upsert (PUT /api/employer/company), logo upload/remove with magic-byte validation, admin verification flag.",
+  "dependencies": "Company model; common/uploads.ts; primaryCompany; cache; web EmployerCompanyForm on /profile; admin verify endpoint.",
+  "risks": "Verified badge not bound to verified name/logo; web never captures legalName/STIR; no verification request flow; file picker still offers SVG.",
+  "ownership": "apps/api/src/modules/companies/companies.routes.ts; apps/web/src/components/EmployerCompanyForm.tsx"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Public company page and reviews",
+  "purpose": "/companies/:slug public profile (100 active vacancies, 200 approved reviews, rating summary); job seekers who applied post/edit/delete reviews; admin review moderation.",
+  "dependencies": "companies.routes GET /api/companies/:slug; reviews.routes; admin reviews endpoints; CompanyReviews.tsx; SSR +data.ts.",
+  "risks": "Reviewer full name and userId are public, revealing that the person applied; new reviews auto-approved by product decision.",
+  "ownership": "apps/api/src/modules/companies, apps/api/src/modules/reviews; apps/web/src/components/companies/detail; apps/web/src/pages/companies/@slug"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Candidates database",
+  "purpose": "Employer search over open-to-work seekers with published resumes; contacts only for own applicants; start chat.",
+  "dependencies": "JobSeekerProfile/Resume/User relation filters; ownedVacancyIds; PeerRating groupBy; web pages/employer/candidates/+Page.tsx; chat start.",
+  "risks": "Access gate is only 'has any company' (no phone/company verification, no quota) while full names and resumes are returned; relation-filter $lookup and offset paging at ~10k profiles.",
+  "ownership": "apps/api/src/modules/candidates; apps/web/src/pages/employer/candidates"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Employer messaging",
+  "purpose": "Employer-seeker conversations over WS /ws/chat and REST; start rules; partner summary; peer rating; inbox badge counts.",
+  "dependencies": "Conversation/Message/PeerRating; common/realtime.ts; telegram notifyUserViaTelegram; ownership helpers.",
+  "risks": "Conversation list unbounded and aggregates the full message history on every load; participant checks present on REST and WS.",
+  "ownership": "apps/api/src/modules/chat; apps/web/src/components/messages; apps/web/src/lib/messages"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Admin moderation interplay",
+  "purpose": "Vacancy moderation (active/rejected/archived/premium), company verification, review moderation, user block and role change.",
+  "dependencies": "admin.routes.ts with requireStaff('admin'); revokeUserSessions; syncVacancyIndex; notify; admin pages vacancies/companies/reviews/users.",
+  "risks": "Admin archive can be undone by the employer; admin activation skips placement rules and can publish drafts; role change leaves vacancies live; company relation filter in admin search; no moderation audit trail.",
+  "ownership": "apps/api/src/modules/admin; apps/web/src/pages/admin/{vacancies,companies,reviews,users}"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Ownership and auth guards",
+  "purpose": "Resolve owner -> company -> vacancy IDs via indexes; DB-backed role/blocked/token-version checks; phone verification gate.",
+  "dependencies": "Prisma User/Company/Vacancy; common/ownership.ts; common/auth-guard.ts.",
+  "risks": "Phone gate applied inconsistently (PUT vacancy, status reason, candidates DB). No cross-company IDOR found in the employer endpoints reviewed.",
+  "ownership": "apps/api/src/common/ownership.ts, apps/api/src/common/auth-guard.ts"
+ },
+ {
+  "dimension": "employer-flows",
+  "subsystem": "Employer landing and routing",
+  "purpose": "/employer marketing page with real stats; logged-in employer redirected to /profile; legacy /employer/:slug redirect; client role guards on employer pages.",
+  "dependencies": "/api/stats; useRedirectRole/useRequireRole; i18n messages.",
+  "risks": "Catch-all permanent 301 for any /employer/<segment>; no pricing or limits shown (compliant with free-platform rule).",
+  "ownership": "apps/web/src/pages/employer/+Page.tsx, apps/web/src/pages/employer/@slug/+guard.ts, apps/web/src/lib/useRoleGuard"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Public vacancy search and facets",
+  "purpose": "GET /api/vacancies (sorts, filters, text search, pagination) and GET /api/vacancies/facets. Used by /vacancies SSR, the home page SSR and the saved-search alerts sweep.",
+  "dependencies": "vacancies.service.ts (resolveFilterIds, buildFilters, textFilter, listBySalary, computeFacets), Prisma on MongoDB, optional Meilisearch (MEILI_HOST is empty by default), common/cache.ts (60 s cache for unfiltered facets only), web pages/vacancies/+data.ts and pages/index/+data.ts",
+  "risks": "Text search runs a regex over descriptions, and count() repeats the scan. Filtered and text facets are not cached (7 aggregations each). No Vacancy index contains the id tiebreaker. Popular and salary sorts have no index. skip can reach page 1000. Any vacancy or company write clears the cache.",
+  "ownership": "apps/api/src/modules/vacancies, apps/api/src/modules/search, apps/web/src/lib/vacancies"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Public vacancy detail, similar vacancies, OG image",
+  "purpose": "Vacancy detail page data (detail plus similar, fetched in parallel on every SSR render) and the share image.",
+  "dependencies": "getVacancyBySlug, similarVacancies, companyReviewSummary (vacancies.service.ts), og.routes.ts, web pages/vacancies/@slug/+data.ts",
+  "risks": "The similar-vacancies query only has a [categoryId] index, so it sorts in memory. Every SSR render makes 2 API calls, and crawlers can request all ~14k active detail URLs. Detail itself measured 9 ms; /similar was not benchmarked.",
+  "ownership": "apps/api/src/modules/vacancies, apps/api/src/modules/og"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Companies catalog, detail and similar",
+  "purpose": "GET /api/companies (aggregateRaw with $lookup counters, cursor paging), /api/companies/:slug, /api/companies/:slug/similar",
+  "dependencies": "companies.list.ts, companies.routes.ts, keyedCache (60 s, 200 keys), bumpDataVersion, web pages/companies/+data.ts and @slug/+data.ts",
+  "risks": "Two $lookup counters run for every matching company before sort. Cold catalog request is ~0.75 s. Cursor pages, saved=1 and /similar bypass the cache or are never reused.",
+  "ownership": "apps/api/src/modules/companies"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Employer workspace (applications, vacancies, candidates)",
+  "purpose": "Employer application inbox, per-vacancy applications, the employer's own vacancy dashboard and edit form, and the candidate database.",
+  "dependencies": "applications.routes.ts, vacancies.routes.ts, candidates.routes.ts, common/ownership.ts (owner -> company -> vacancy IDs), web EmployerVacanciesView, VacancyFormView, employer applications page",
+  "risks": "Applications list: 2000 rows with full resumes, 3.5 s and 2.6 MB. Candidate search uses relation-filter $lookup, 2 s. Vacancy dashboard returns 1000 full documents, and the edit form loads the whole list to find one vacancy.",
+  "ownership": "apps/api/src/modules/applications, candidates, vacancies"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Chat and inbox counters",
+  "purpose": "Conversation list, message history, WebSocket delivery and read receipts, and header unread/new-application counters.",
+  "dependencies": "chat.routes.ts (lastMessages aggregateRaw, deliverMessage), common/realtime.ts, web lib/messages/useMessenger.ts, lib/useInboxSummary.ts (20 s poll)",
+  "risks": "Conversation list is unpaginated (498 KB at 500 conversations). History returns 1000 messages with no cursor, and its sort tiebreaker is not in the index. The employer inbox summary re-reads all owned vacancy IDs on every poll.",
+  "ownership": "apps/api/src/modules/chat, apps/web/src/lib/messages"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Notifications, admin broadcast, alerts sweep",
+  "purpose": "In-app notification list and counts, multi-channel delivery, admin broadcast, and the saved-search alert sweep every 15 min.",
+  "dependencies": "notifications.routes.ts, notifications.service.ts, admin.routes.ts broadcast, alerts.service.ts (uses listVacancies), web useNotifications (45 s poll), notification center (limit 100)",
+  "risks": "The header bell polls the full list. No retention or TTL. A broadcast adds one document per user and takes at least ~400 s for 10k users. The center cannot page past 100.",
+  "ownership": "apps/api/src/modules/notifications, alerts, admin"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Stats, salary statistics and in-process cache",
+  "purpose": "Home stats (60 s), salary analytics dataset (5 min), and the shared cache primitives with global invalidation.",
+  "dependencies": "stats.routes.ts, salary.stats.ts, common/cache.ts (single global version)",
+  "risks": "Every vacancy, company or review write clears all caches at once. Salary dataset is capped at 20k rows. Cache is per process and not shared across API instances.",
+  "ownership": "apps/api/src/modules/stats, apps/api/src/common/cache.ts"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Admin panel lists and overview",
+  "purpose": "Moderation and support lists for users, vacancies, companies, reviews and payments, plus overview counters and a 14-day chart.",
+  "dependencies": "admin.routes.ts, requireStaff, Prisma relation filters",
+  "risks": "Text search uses relation filters, which run $lookup per document. Vacancy and Company have no createdAt index. skip goes up to page 10,000. The overview loads 14 days of rows into Node.",
+  "ownership": "apps/api/src/modules/admin"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Articles (public and CMS)",
+  "purpose": "Public article list, detail and feedback, and the staff CMS lists.",
+  "dependencies": "articles.routes.ts, articles.admin.routes.ts, indexes [status,publishedAt], [status,category], previousSlugs",
+  "risks": "Low at hundreds of articles: searchText regex and popular sort run in memory. Not benchmarked. No scale finding.",
+  "ownership": "apps/api/src/modules/articles"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "SEO sitemaps and SSR proxy",
+  "purpose": "robots.txt and sitemaps generated by the API and proxied by the web tier.",
+  "dependencies": "seo.routes.ts, web api/seo.js (Vercel, s-maxage=3600), web server/index.mjs (self-hosted, no sitemap route)",
+  "risks": "The vacancy sitemap is one 7.2 MB file rebuilt per request at the origin. The employer sitemap uses relation filters. Hard cap of 50k URLs.",
+  "ownership": "apps/api/src/modules/seo, apps/web/api"
+ },
+ {
+  "dimension": "scale-10k",
+  "subsystem": "Auth guard, rate limit and identity lookups",
+  "purpose": "Per-request user reload, global per-IP rate limit, Telegram chat and phone identity fields (the future recovery keys).",
+  "dependencies": "common/auth-guard.ts (findUnique per request), server.ts @fastify/rate-limit (600/min per IP), telegram.service.ts, schema User.phone / JobSeekerProfile.additionalPhone",
+  "risks": "All SSR API calls share the web server's IP bucket. phone has no index and no uniqueness, which recovery by phone will need. Each authenticated request adds one indexed read.",
+  "ownership": "apps/api/src/common, apps/api/src/modules/telegram, apps/api/src/server.ts"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "Vacancy public read API (list, facets, detail by slug, similar)",
+  "purpose": "Guest-facing vacancy list, filter counts, detail and similar vacancies; the home page's featured list goes through listVacancies.",
+  "dependencies": "vacancies.service.ts: buildFilters status=active (211), getVacancyBySlug status check (563), similarVacancies active-only (590-611), VACANCY_CARD_SELECT whitelist, withPublicSalary, cache.ts bumpDataVersion",
+  "risks": "Status filtering is correct on all paths. The detail endpoint uses a raw include, so rejectionReason and any future internal field reach guests. No expiry filter anywhere.",
+  "ownership": "apps/api/src/modules/vacancies"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "Search engine (Meilisearch plus Mongo fallback)",
+  "purpose": "Typo-tolerant text search with a Mongo fallback.",
+  "dependencies": "search.service.ts toDoc/indexVacancy (active only, 156), query filter status=active (238), reindexAll active keyset; vacancies.service.ts:370 re-checks status=active in Mongo",
+  "risks": "Index sync is fire-and-forget, so stale docs can remain; they are filtered out by the Mongo re-check and only engine.total can be off. No visibility leak found.",
+  "ownership": "apps/api/src/modules/search"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "Company public read (catalog, detail, similar, saved=1)",
+  "purpose": "Company catalog aggregate, public company page with active vacancies and approved reviews, similar companies, saved companies list.",
+  "dependencies": "companies.list.ts listCompanies/similarCompanies (active-only vacancy lookup 290), companies.routes.ts:185-236 (vacancies status active 206), catalogCache 60s",
+  "risks": "No owner.isBlocked condition on detail, catalog, similar or chat start; only sitemap-employer excludes blocked owners. The vacancy sub-lists are correctly active-only.",
+  "ownership": "apps/api/src/modules/companies"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "Articles public read",
+  "purpose": "Blog list, detail, related, helpful feedback, articles sitemap.",
+  "dependencies": "articles.routes.ts PUBLISHED constant on list/groupBy/detail/previousSlugs redirect/related/feedback; seo.routes.ts:137 published only; covers saved with 32-hex random names (uploads.ts:76)",
+  "risks": "Verified clean: draft, in_review and archived articles return 404 on slug and old-slug lookups; no scheduled-publish path (publishedAt=now). Covers of unpublished articles stay reachable only by their unguessable URL.",
+  "ownership": "apps/api/src/modules/articles"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "SEO sitemaps and OG images",
+  "purpose": "robots.txt, sitemap index, vacancy/company/article sitemaps, vacancy share image.",
+  "dependencies": "seo.routes.ts (vacancy status active 100, companies excluding blocked owners 116, articles published 137), og.routes.ts:26 status check plus hidden-salary label, apps/web/api/seo.js CDN s-maxage=3600 + SWR 86400",
+  "risks": "Verified clean on status. CDN caching keeps removed slugs or images for up to about 1h (plus SWR on sitemaps), an accepted trade-off from ISSUE-034.",
+  "ownership": "apps/api/src/modules/seo, apps/api/src/modules/og, apps/web/api"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "Seeker private lists (favorites, applications, chat vacancy card)",
+  "purpose": "A seeker's saved vacancies, submitted applications, and the vacancy context shown in /messages.",
+  "dependencies": "favorites.routes.ts:28 (active|archived only), applications.routes.ts:129-157 (no status filter), chat.routes.ts:398-433/483-496 (no status filter), web lib/api.ts:694, ApplicationCard.tsx, ConversationVacancyContext.tsx",
+  "risks": "Applications and the chat card return title, salary and company for rejected or moderation vacancies, including edits made after rejection; favorites filters these statuses out but the sibling paths do not.",
+  "ownership": "apps/api/src/modules/favorites, applications, chat; apps/web/src/components/applications, messages"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "Background fan-out (alert digests, notifications, Telegram texts)",
+  "purpose": "Saved-search digests, in-app/Telegram/push/email notifications, and chat Telegram pings.",
+  "dependencies": "alerts.service.ts sweep -> listVacancies (status active, publishedAt window), notifications.service.ts safeInternalPath links, telegram.service.ts sendTelegramMessage",
+  "risks": "Verified clean: digests only include active vacancies and links point to search, /applications or /messages. Notification rows keep vacancy titles after a later rejection (by design). The Telegram bot sends no vacancy content.",
+  "ownership": "apps/api/src/modules/alerts, notifications, telegram"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "Stats (home counters, salary analytics)",
+  "purpose": "Home counters and public salary statistics.",
+  "dependencies": "stats.routes.ts homeStats (vacancy count active), salary.stats.ts loadDataset (status active, 20k newest, 5-min cache invalidated by bumpDataVersion)",
+  "risks": "Only aggregates leave the API, with no titles. No expiry, so stale postings skew the numbers; the company count includes blocked or empty companies (cosmetic).",
+  "ownership": "apps/api/src/modules/stats"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "Admin visibility controls (block user, vacancy moderation, company verify)",
+  "purpose": "Admin actions that change what is public.",
+  "dependencies": "admin.routes.ts:190-215 block (revoke sessions, archive active vacancies, syncVacancyIndex), 285-312 moderate (active clears rejectionReason; archived does not)",
+  "risks": "Blocking leaves the Company row public. Moderating to archived keeps rejectionReason, which the public detail endpoint then exposes if the vacancy is re-activated.",
+  "ownership": "apps/api/src/modules/admin"
+ },
+ {
+  "dimension": "4",
+  "subsystem": "Web SSR detail pages",
+  "purpose": "SSR for /vacancies/:slug, /companies/:slug, /articles and /articles/:slug, and the home page.",
+  "dependencies": "pages/*/@slug/+data.ts fetchers -> render(404) on API 404; pages/index/+data.ts; vacancies/@slug/+Head.tsx JSON-LD",
+  "risks": "The pages add no visibility rules of their own. The company page renders blocked owners' companies, and the vacancy JSON-LD outputs validThrough even when it is in the past.",
+  "ownership": "apps/web/src/pages"
+ },
+ {
+  "dimension": "3",
+  "subsystem": "Auth responses (auth.routes.ts, auth.service.ts, common/jwt.ts)",
+  "purpose": "Register, login, refresh, Google and Telegram poll return only {accessToken} (poll also returns a status). The refresh token lives only in an httpOnly cookie. GET /api/auth/me returns the caller's own id, email, role and name (auth.service.ts:112-121). The JWT carries sub, role, v (tokenVersion) and typ (jwt.ts:35,42). No response contains passwordHash or telegramChatId, and there is no googleId field.",
+  "dependencies": "Prisma User/JobSeekerProfile/StaffProfile; in-memory Telegram login tokens; Google tokeninfo",
+  "risks": "Register returns 409 for an existing email, so guests can check which emails have accounts (finding). The Telegram login prompt sends the account email into the linked chat (telegram.service.ts:176), and poll 'not_linked' reveals whether a chat is linked. That flow is itself a rule A matter for the auth finders. tokenVersion is only visible to its owner, inside their own JWT.",
+  "ownership": "apps/api/src/modules/auth, apps/api/src/common/jwt.ts"
+ },
+ {
+  "dimension": "3",
+  "subsystem": "Own-profile PII (profile.routes.ts, telegram.routes.ts, resume.routes.ts)",
+  "purpose": "Owner only. GET/PATCH /api/profile (job seekers) returns email, phone, isPhoneVerified, additionalPhone and resumeUrl (profile.routes.ts:29-42). GET /api/telegram/status returns linked (boolean), phoneVerified and phone (telegram.routes.ts:12-22). birthDate and gender are never serialized by any route (grep over modules).",
+  "dependencies": "requireAuth (checks role, block and tokenVersion in the DB); uploads.ts",
+  "risks": "additionalPhone is unverified free text (rule F, other finders). An employer can see their own phone only through /api/telegram/status.",
+  "ownership": "apps/api/src/modules/profile, telegram, resume"
+ },
+ {
+  "dimension": "3",
+  "subsystem": "Employer candidate views (applications.routes.ts, candidates.routes.ts, common/ownership.ts)",
+  "purpose": "Candidate email and phone reach: (1) the vacancy owner, for applicants only, via /api/employer/applications (194-209, scoped by ownedVacancyIds) and /api/vacancies/:id/applications (282-298, owner check at 253); (2) /api/candidates callers only when the candidate applied to that employer (86-102, 136-137); (3) admin, who sees all. resumeUrl appears only in /api/vacancies/:id/applications (294). Both routes use explicit selects: no passwordHash, telegramChatId or isBlocked.",
+  "dependencies": "ownedVacancyIds/primaryCompany (owner only; CompanyMember is unused); requireRole backed by the DB role",
+  "risks": "resumeUrl is a public bearer URL to the file (finding). Resume content and names shown to any employer are already covered by other findings.",
+  "ownership": "apps/api/src/modules/applications, candidates"
+ },
+ {
+  "dimension": "3",
+  "subsystem": "Chat REST and WebSocket (chat.routes.ts, common/realtime.ts)",
+  "purpose": "The conversation list returns names, headline, avatar, company card, otherUserId and the last message. Email is never selected (372-379). Messages ({id, conversationId, senderId, body, isRead, createdAt}) go only to participants. /api/users/:id/summary requires a shared conversation and returns name, headline, region, rating, skills and company. WS frames: message (same shape), read {conversationId}, notification {id, type, title, body, url}. There is no presence endpoint; isOnline only decides the Telegram fallback.",
+  "dependencies": "participantsOf check; notifyUserViaTelegram, which sends the first 200 chars of a message body to the linked chat",
+  "risks": "Latent: the summary route loads the full JobSeekerProfile (birthDate, additionalPhone, resumeUrl) and company (stir, legalName) through a nested include (622-634), and only the response mapper drops those fields. A spread-based refactor would leak them, so this should be a select. Message bodies go to whichever Telegram chat is linked, so link integrity matters (other finders).",
+  "ownership": "apps/api/src/modules/chat, apps/api/src/common/realtime.ts"
+ },
+ {
+  "dimension": "3",
+  "subsystem": "Public catalog and SEO (vacancies.service.ts, companies.routes.ts, companies.list.ts, og, seo, search.service.ts, reviews)",
+  "purpose": "Guests get PUBLIC_COMPANY_(CARD_)SELECT and VACANCY_CARD_SELECT (vacancies.service.ts:44-99). The vacancy detail adds contactEmail, contactPhone, contactTelegram, address and lat/lng. These are employer-chosen and shown to every visitor (web ApplyCard.tsx:173-186), so they are public by design. The company catalog $project has no owner fields (companies.list.ts:205-224). The OG image uses only title, company, region and salary. Sitemaps list slugs only. The Meili document has no contacts or PII (search.service.ts:117-141).",
+  "dependencies": "withPublicSalary; Prisma selects; aggregateRaw",
+  "risks": "Reviewer userId and names on the company page (companies.routes.ts:195-203) are already reported by other findings. getVacancyBySlug uses include, so every Vacancy scalar goes out (including rejectionReason), and any future private column would become public automatically.",
+  "ownership": "apps/api/src/modules/vacancies, companies, og, seo, search, reviews"
+ },
+ {
+  "dimension": "3",
+  "subsystem": "Admin, team and articles admin (admin.routes.ts, team.routes.ts, articles.admin.routes.ts)",
+  "purpose": "Admin only (requireStaff, checked in the DB): the users list shows email, phone, isBlocked, isPhoneVerified and telegramLinked as a boolean (170-182); companies show ownerEmail; reviews fall back to the author's email; team members show email and isBlocked. In articles admin, a staff name with no profile falls back to the email local part (86, 273); editors see all staff, content authors only themselves.",
+  "dependencies": "requireStaff; revokeUserSessions",
+  "risks": "The invite API returns the raw invite token (finding). No route serializes telegramChatId or passwordHash.",
+  "ownership": "apps/api/src/modules/admin, team, articles"
+ },
+ {
+  "dimension": "3",
+  "subsystem": "Uploads and static files (common/uploads.ts, server.ts)",
+  "purpose": "Logos, article covers and resume PDFs are stored under random 32-hex names and served by fastifyStatic at /uploads/. Responses get nosniff, and non-PDF responses also get a sandbox CSP.",
+  "dependencies": "UPLOAD_DIR volume; @fastify/send defaults",
+  "risks": "Resume PDFs need no auth, are served with 'public, max-age=0', have no noindex and use CORP cross-origin (finding; ISSUE-029 PARTIAL).",
+  "ownership": "apps/api/src/common/uploads.ts, apps/api/src/server.ts"
+ },
+ {
+  "dimension": "3",
+  "subsystem": "Notifications, mailer and logging (notifications.service.ts, mailer.ts, server.ts logger, telegram.service.ts, support.routes.ts)",
+  "purpose": "notify() fans out to in-app/WS, Telegram, push and email. The logger's request serializer redacts ?token= and the staff-invite path (server.ts:54-72). A 500 logs only the error object. The support form and the bot's support relay send the user's email and role to the admin Telegram chat (support.routes.ts:88-98, telegram.service.ts:364-372).",
+  "dependencies": "features flags (env.ts:186-193); Telegram Bot API; nodemailer",
+  "risks": "When SMTP is off, every notification logs the recipient's email (finding). tg() logs only the Telegram error description or error string, never the URL containing the bot token (telegram.service.ts:65,70).",
+  "ownership": "apps/api/src/modules/notifications, apps/api/src/common/mailer.ts"
+ },
+ {
+  "dimension": "3",
+  "subsystem": "Web SSR and client state (pages/+config.ts, +data.ts files, api/ssr.js, server/index.mjs, lib/auth/session.ts, public/sw.js)",
+  "purpose": "passToClient holds only locale and localePathname (+config.ts:12; vike-react adds _configFromHook). +data.ts files exist only for public pages, so no authenticated data is rendered server-side. HTML is served with Cache-Control: no-cache (ssr.js:54, server/index.mjs:115). The JobPosting JSON-LD has only title, organization, address and salary (vacancies/@slug/+Head.tsx:53-107). The service worker handles push only and caches nothing (sw.js:1-3).",
+  "dependencies": "Public API endpoints; vike-react",
+  "risks": "The access token is kept in localStorage under 'ish-top:accessToken' (session.ts:25, 96-104), and the web has no CSP. This is a documented tradeoff, ISSUE-083 (NOT FIXED). Push title and body can show on the lock screen (by design).",
+  "ownership": "apps/web"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Guards and error mapping (common/auth-guard.ts, server.ts setErrorHandler)",
+  "purpose": "requireAuth loads role, isBlocked and tokenVersion from the DB on every request. requireRole, requireStaff and requirePhoneVerified are added per route. The error handler maps ZodError to 400 and Prisma P2002/P2025/P2023 to 409/404/404 (server.ts:193-204).",
+  "dependencies": "jwt.ts, prisma, AppError",
+  "risks": "The phone gate is opt-in per route and the WS path has no guards (F6). Malformed ids are only safe because of the global P2023 mapping; handlers use a mix of idParams (400), isObjectId (404) and raw params (404 via P2023) (F7).",
+  "ownership": "apps/api/src/common (no CODEOWNERS). Scoping key is the token sub, backed by the DB row."
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Notifications and push (notifications.routes.ts, common/push.ts, notifications.service.ts)",
+  "purpose": "GET list and unread count; POST :id/read; DELETE :id; GET/PUT preferences; GET push public key; POST push subscribe and unsubscribe. All require requireAuth except the public key.",
+  "dependencies": "web-push, realtime.ts, telegram.service, mailer",
+  "risks": "Read and delete by id check userId (89-113). Preferences and unsubscribe are scoped by userId. Subscribe accepts any https host (F5) and deletes another user's row for the same endpoint. Subscriptions outlive logout, session revocation and blocking (F4).",
+  "ownership": "Scoped by notification.userId / pushSubscription.userId = sub"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Favorites and saved companies (favorites.routes.ts)",
+  "purpose": "GET/POST/DELETE /api/favorites[/:vacancyId], GET ids, POST/DELETE /api/favorites/companies/:companyId. All use requireAuth + job_seeker.",
+  "dependencies": "vacancies.service withPublicSalary, companies.list (saved=1)",
+  "risks": "No IDOR found. Params are zod objectId. Every read and delete is filtered by userId. POST only accepts active vacancies. The list shows only active or archived vacancies.",
+  "ownership": "Scoped by userId = sub"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Saved searches (alerts.routes.ts)",
+  "purpose": "GET/POST /api/saved-searches, PATCH/DELETE /api/saved-searches/:id (job_seeker)",
+  "dependencies": "alerts.service sweep, notify",
+  "risks": "PATCH and DELETE check found.userId !== sub, returning 403 (121-123, 135-137). The raw :id is not validated but yields 404 via P2023, not 500 (F7).",
+  "ownership": "Scoped by savedSearch.userId"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Applications (applications.routes.ts)",
+  "purpose": "POST /api/vacancies/:id/apply (seeker + phone; the resume must be the caller's own). GET /api/applications (own). GET /api/employer/applications (via ownedVacancyIds). GET /api/vacancies/:id/applications and PATCH /api/applications/:id/status (vacancy owner or admin).",
+  "dependencies": "ownership.ts, chat deliverMessage, notify",
+  "risks": "Owner checks are correct and covered by e2e 393-406 and 1545. There is no application GET-by-id or withdraw endpoint, so there is nothing to IDOR there. The status reason posts a chat message without a phone gate (F6).",
+  "ownership": "Seeker scope is jobSeekerId = sub. Employer scope is vacancy.company.ownerUserId = sub; admin bypass is intended."
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Chat, WS frames and PeerRating (chat.routes.ts, realtime.ts)",
+  "purpose": "GET /ws/chat (read/message frames), POST /api/conversations/start (phone), GET /api/conversations, GET :id/messages, GET/POST :id/rating, GET /api/users/:id/summary, GET /api/inbox/summary",
+  "dependencies": "realtime.ts, telegram notify, ownership.ts",
+  "risks": "participantsOf guards messages, rating GET/POST and WS frames. Rating needs messages from both sides; duplicates hit findUnique + @@unique([conversationId, raterUserId]) and return 409 even under a race. Summary requires an existing conversation. An employer can only start a chat with a discoverable, applied or already-contacted seeker. The WS send path is not phone-gated (F6).",
+  "ownership": "Scoped by conversation.employerUserId / seekerUserId"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Resume, profile, candidates (resume.routes.ts, profile.routes.ts, candidates.routes.ts)",
+  "purpose": "GET/PUT /api/resume, GET/PATCH /api/profile, POST/DELETE /api/profile/resume (job_seeker); GET /api/candidates (employer/admin)",
+  "dependencies": "uploads.ts, ownership.ts",
+  "risks": "No id parameters; everything is keyed on the token sub. There is no per-candidate detail route. The candidate list and public PDF URLs are covered by other findings.",
+  "ownership": "Scoped by jobSeekerProfile.userId = sub"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Companies (companies.routes.ts, companies.list.ts)",
+  "purpose": "GET/PUT /api/employer/company, POST/DELETE /api/employer/company/logo, POST /api/companies (employer). Public GET /api/companies, GET /api/companies/:slug and /:slug/similar.",
+  "dependencies": "primaryCompany, uploads, cache",
+  "risks": "Write paths always resolve the company through primaryCompany(sub), so no cross-company access is possible. There is no company DELETE or cover route. The list cursor _id is validated with isObjectId. A rename keeps the verified badge (F2).",
+  "ownership": "Scoped by company.ownerUserId = sub"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Vacancies (vacancies.routes.ts)",
+  "purpose": "PUT /api/vacancies/:id, PATCH :id/status and DELETE :id go through ownedVacancy (owner or admin). POST requires phone. Public slug routes return active vacancies only.",
+  "dependencies": "vacancies.rules, search index, ownership.ts",
+  "risks": "Ownership is correct and covered by e2e 766 and 1532-1534. The status allowlist blocks moderation/rejected to active. The archived-to-active bypass is covered by another finding.",
+  "ownership": "Scoped by vacancy.company.ownerUserId"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Reviews (reviews.routes.ts)",
+  "purpose": "POST /api/companies/:slug/reviews (seeker + phone + has applied to the company); DELETE /api/reviews/:id (author or admin)",
+  "dependencies": "admin review moderation, cache",
+  "risks": "Ownership checks are correct. Moderation can be bypassed by deleting a rejected review and posting it again (F1).",
+  "ownership": "Scoped by companyReview.userId"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Articles CMS (articles.admin.routes.ts, articles.permissions.ts, articles.routes.ts)",
+  "purpose": "Staff routes: list, authors (editors), cover upload, GET/PUT/DELETE :id, POST :id/:action. Public routes: list, :slug, feedback.",
+  "dependencies": "requireStaff, uploads, articles.content",
+  "risks": "No IDOR found. findVisible applies canViewArticle, so a content_author sees only their own articles. edit, submit and return are limited to own draft/in_review; publish, archive and restore need an editor; delete needs admin. authorId is fixed for authors. The shared-cover guard stops cross-article file deletion. Public routes return published articles only.",
+  "ownership": "Scoped by article.authorId for content_author"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Team and staff invites (team.routes.ts)",
+  "purpose": "GET /api/admin/team, POST invites, DELETE invites/:id, PATCH /api/admin/team/:id (admin). Public GET /api/staff-invites/:token and POST :token/accept (rate limited).",
+  "dependencies": "auth.service issueTokens, revokeUserSessions, mailer",
+  "risks": "The token is hashed with SHA-256. The atomic updateMany claim on PENDING stops two accepts from racing, and a failed user creation rolls the claim back. Blocking or demoting the inviter does not revoke their pending invites (F3).",
+  "ownership": "Admin only; invite is bound to its tokenHash"
+ },
+ {
+  "dimension": "2",
+  "subsystem": "Admin, telegram, support, billing, public read routes",
+  "purpose": "All admin.routes use requireStaff('admin') + idParams. Telegram status and unlink are self-scoped. The support form is anonymous. Billing routes are only registered when features.billing is on. og, seo, stats and catalog are public reads.",
+  "dependencies": "notify, search, billing.service",
+  "risks": "No IDOR found. Telegram link/login and Google merge are covered by other findings. og and similar routes filter to active status.",
+  "ownership": "Admin, or self via token sub"
+ },
+ {
+  "dimension": "5",
+  "subsystem": "Root document lang (pages/+lang.ts, lib/i18n/index.tsx LocaleProvider, vike-react applyHeadSettings)",
+  "purpose": "Sets <html lang> per locale uz/ru/en on SSR and after client navigation",
+  "dependencies": "pageLocale(), onBeforeRoute locale, vike-react 0.5.13 `lang` setting (env server+client)",
+  "risks": "Verified OK: +lang.ts:5 sets it on SSR, vike-react onRenderClient applyHead updates it on client navigation, LocaleProvider useEffect (index.tsx:20-22) also sets it. No finding. Remaining gap: hardcoded Uzbek fallback strings ('Xatolik yuz berdi') appear on ru/en pages without a lang attribute (see company form finding).",
+  "ownership": "apps/web frontend (inferred; no owner file checked)"
+ },
+ {
+  "dimension": "5",
+  "subsystem": "Employer VacancyForm (components/employer/vacancies/VacancyForm.tsx + form/*)",
+  "purpose": "Create/edit vacancy: sections, stepper, review, save/publish",
+  "dependencies": "FormControls Field/TextInput/SelectInput/CheckboxField, WorkplaceField radios, DescriptionEditor, FormSidebar FormActions, PhoneGateNotice",
+  "risks": "Good overall: labels via htmlFor, sr-only '(required)', aria-invalid plus aria-describedby, error summary role=alert (FormSidebar.tsx:228-233), first error focused on submit, review heading focused, native select/radio. Gap: the PhoneGateNotice shown after a gated publish is silent. Inference: the role=alert summary re-announces while errors are fixed.",
+  "ownership": "apps/web employer UI (inferred)"
+ },
+ {
+  "dimension": "5",
+  "subsystem": "Candidate profile/resume editors (components/profile/ui.tsx, ResumeWizard, ProfessionalInfo, ExperienceList, EducationList, SkillsEditor, PersonalInfo, ResumeFile)",
+  "purpose": "Multi-step resume building and profile editing with inline editors and autosave",
+  "dependencies": "ui.tsx Field/TextInput/SaveStatus, ProfileNavContext go(), lib/profile/tabs.ts, pages/profile/+Page.tsx",
+  "risks": "Required state not exposed, validation errors not announced or focused, focus dropped to <body> on step change and on editor close/delete/upload, stepper done state shown only visually. SaveStatus aria-live works for server saves only.",
+  "ownership": "apps/web candidate UI (inferred)"
+ },
+ {
+  "dimension": "5",
+  "subsystem": "Employer company form (components/EmployerCompanyForm.tsx)",
+  "purpose": "Company profile create/update and logo upload on employer /profile",
+  "dependencies": "saveMyCompany/uploadCompanyLogo API, custom Select (ISSUE-075), i18n employerProfile",
+  "risks": "Legacy form not on shared primitives: no required indicator, silently disabled submit, errors/success without live regions, hardcoded Uzbek fallbacks, logo state not exposed.",
+  "ownership": "apps/web employer UI (inferred)"
+ },
+ {
+  "dimension": "5",
+  "subsystem": "Messages (components/messages/*)",
+  "purpose": "Conversation list, chat thread, composer, details panel",
+  "dependencies": "useMessenger, CompanyLogo, useDialog, ActionsMenu",
+  "risks": "No confirmed failure: role=log with delayed aria-live (MessageList.tsx:224), sr-only sender prefix and read/sent state, failed send role=alert, composer sr-only label and hint, focus moved to chat heading and restored to list item, offline role=status, alt='' logos next to visible names. Inference: sr-only status text changing inside the log may re-announce receipts.",
+  "ownership": "apps/web messaging UI (inferred)"
+ },
+ {
+  "dimension": "5",
+  "subsystem": "Employer applications workspace (components/employer/applications/*)",
+  "purpose": "List, detail tabs, status sidebar, status dialog, filters",
+  "dependencies": "useHistoryQuery, useDialog, FormControls, VacancyNotice, PhoneGateNotice",
+  "risks": "ARIA tabs with arrow keys, native selects with labels and notices role=status/alert are fine. Focus is lost when the sidebar remounts after a status change and on mobile select/back; aria-controls points to a panel that is not rendered in some states; the phone gate notice is silent.",
+  "ownership": "apps/web employer UI (inferred)"
+ },
+ {
+  "dimension": "5",
+  "subsystem": "Notifications (components/notifications/*)",
+  "purpose": "Notification list, filters, notices, per-channel preference switches",
+  "dependencies": "useNotificationCenter, FieldSelect, ListPagination",
+  "risks": "No confirmed failure: WAI-ARIA tabs, notice role=status/alert with focus after delete, live result count, role=switch with aria-describedby, aria-live save status.",
+  "ownership": "apps/web (inferred)"
+ },
+ {
+  "dimension": "5",
+  "subsystem": "Admin tables (components/AdminShell.tsx AdminTable/AdminSearchInput/RowButton, pages/admin/*)",
+  "purpose": "Moderation lists for users, vacancies, companies, reviews, payments",
+  "dependencies": "useAdminResource, AdminNotice, window.confirm",
+  "risks": "th inside thead (headers associated), AdminSelect aria-label, AdminNotice live region are fine. Polish: search input labelled only by placeholder, empty action column header, aria-label on a generic span for ratings, no row headers.",
+  "ownership": "apps/web admin UI (inferred)"
+ },
+ {
+  "dimension": "5",
+  "subsystem": "Images/avatars (CompanyLogo, CandidateAvatar, CompanyAvatar, page illustrations)",
+  "purpose": "Logos, avatars, decorative illustrations",
+  "dependencies": "absoluteUploadUrl",
+  "risks": "Checked: alt='' used where a visible name sits beside the image; initials fallback is aria-hidden; illustrations decorative; the vacancy/company gallery supplies alt text. No confirmed failure in scope.",
+  "ownership": "apps/web shared components (inferred)"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Vacancy search, MongoDB driver (default)",
+  "purpose": "Serves public GET /api/vacancies: free text plus region/category/company/experience/employment/salary/verified filters and relevance/date/salary/popular sorts",
+  "dependencies": "Prisma 5 MongoDB; searchTerms (vacancies.service.ts:137), resolveFilterIds (169), buildFilters (201), textFilter (249), listBySalary (305); region/category/company catalogs resolved to IDs first (D-033)",
+  "risks": "Literal substring matching with no apostrophe or script normalization; short terms substring-match titles and company/category names; 1-char terms and terms after the 6th are dropped silently; punctuation stays inside terms; 'relevance' is really premium plus date order",
+  "ownership": "apps/api/src/modules/vacancies/vacancies.service.ts, apps/api/src/modules/vacancies/vacancies.routes.ts"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Meilisearch driver and index sync (optional, MEILI_HOST)",
+  "purpose": "Typo-tolerant ID retrieval for text queries with sort=relevance and no company/verified/premium/date filter",
+  "dependencies": "meilisearch ^0.60; getIndex/updateSettings (search.service.ts:41-71), toDoc (117), indexVacancy/removeVacancyFromIndex (150-170), reindexAll (182), searchVacancyIds (232); sync callers vacancies.routes.ts:218,264,290, admin.routes.ts:209,311, createVacancy; warmSearchIndex at server.ts:282",
+  "risks": "Matching, total and order differ from Mongo; description/requirements truncated at 4000/2000 chars; company name in the index is not refreshed on rename; estimatedTotalHits and default maxTotalHits; enum values not allow-listed; no e2e coverage (e2e asserts engine mongodb)",
+  "ownership": "apps/api/src/modules/search/search.service.ts"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Vacancy facets",
+  "purpose": "Filter panel counts for GET /api/vacancies/facets; each dimension excludes its own filter; unfiltered result cached 60 s",
+  "dependencies": "computeFacets (vacancies.service.ts:430) reuses resolveFilterIds/buildFilters/textFilter; always MongoDB",
+  "risks": "In Meili mode the counts disagree with the list total and result set",
+  "ownership": "apps/api/src/modules/vacancies/vacancies.service.ts (computeFacets, vacancyFacets)"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Saved-search alerts",
+  "purpose": "Periodic sweep that notifies users about new vacancies matching saved queries",
+  "dependencies": "alerts.service.ts:185-195 calls listVacancies with sort=date plus publishedAfter/publishedBefore, so it always runs on MongoDB",
+  "risks": "With Meili on, alerts use stricter AND-substring semantics than the page the user saved from, so typo or partial matches never alert",
+  "ownership": "apps/api/src/modules/alerts/alerts.service.ts"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Company catalog search",
+  "purpose": "GET /api/companies: text, industry, region, size, rating, work type, verified, saved; keyset cursor; 60 s cache",
+  "dependencies": "companies.list.ts listCompanies aggregateRaw regex on name/industry/description (244-251); INDUSTRY_PATTERNS with apostrophe wildcards (30-41); catalogCache in companies.routes.ts:20,80",
+  "risks": "Free-text regex has no apostrophe normalization and no minimum length; description substring false hits; companies of blocked owners are still listed (the sitemap excludes them)",
+  "ownership": "apps/api/src/modules/companies/companies.list.ts, apps/api/src/modules/companies/companies.routes.ts"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Employer candidate search",
+  "purpose": "GET /api/candidates for employers/admin: open-to-work seekers with published resumes; contacts only for applicants",
+  "dependencies": "candidates.routes.ts:13-63 Prisma contains on headline, first/last name, resume title, skill names",
+  "risks": "The whole query is one substring per field, so full names and multi-skill queries return nothing; no apostrophe normalization",
+  "ownership": "apps/api/src/modules/candidates/candidates.routes.ts; web apps/web/src/pages/employer/candidates/+Page.tsx"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Admin list search",
+  "purpose": "Text search in admin users, vacancies and companies lists",
+  "dependencies": "admin.routes.ts:27-39 pageSchema (text max 120, not trimmed) and like() contains",
+  "risks": "Whole-string contains; untrimmed input; full names not found",
+  "ownership": "apps/api/src/modules/admin/admin.routes.ts"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Articles search",
+  "purpose": "GET /api/articles?q over a normalized searchText (title, excerpt, tags, category words in uz/ru/en)",
+  "dependencies": "articles.content.ts normalizeSearch/searchWords/articleDerived; articles.backfill.ts fills search_text",
+  "risks": "Low: apostrophes and Cyrillic category words are handled; article body is not searched (by design)",
+  "ownership": "apps/api/src/modules/articles/articles.routes.ts, apps/api/src/modules/articles/articles.content.ts"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Salary stats text filter",
+  "purpose": "In-memory term filter over the salary dataset for /api/stats/salary?q",
+  "dependencies": "salary.stats.ts normalize (97-100), terms (204-208)",
+  "risks": "Uses apostrophe normalization that vacancy search lacks, so the two pages disagree for the same word",
+  "ownership": "apps/api/src/modules/stats/salary.stats.ts"
+ },
+ {
+  "dimension": "1",
+  "subsystem": "Web search inputs and query mapping",
+  "purpose": "Home SearchBar (q, region), vacancies VacancySearch, CompanySearch, popular-search chips; maps q->text, region->area, workType->employment",
+  "dependencies": "apps/web/src/lib/vacancies/query.ts (parse 103-133, filterParams 159-172), components/vacancies/VacancySearch.tsx (MIN_CHARS 2, Enter submits any length, maxLength 100), components/companies/CompanySearch.tsx, lib/salaries/query.ts ROLE_SEARCH_TEXT (sends 'HR')",
+  "risks": "No client normalization of apostrophes or punctuation before sending; 1-char queries can be submitted; popular chip 'HR' hits the short-term substring rule",
+  "ownership": "apps/web/src/lib/vacancies, apps/web/src/components/vacancies, apps/web/src/components/companies, apps/web/src/lib/salaries/query.ts"
+ }
+]

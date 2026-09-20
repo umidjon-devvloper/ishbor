@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../common/prisma.js";
 import { Errors } from "../../common/errors.js";
 import { requireAuth, requireRole } from "../../common/auth-guard.js";
+import { idParams } from "../../common/validation.js";
 import { parseQueryParams, paramsToUrl } from "./alerts.service.js";
 
 /**
@@ -116,7 +117,8 @@ export async function alertRoutes(app: FastifyInstance) {
     "/api/saved-searches/:id",
     { preHandler: [requireAuth, requireRole("job_seeker")] },
     async (req) => {
-      const { id } = req.params as { id: string };
+      // Noto'g'ri formatdagi ID Prisma'ga yetmaydi — 400 VALIDATION_ERROR (audit R3, gap2-7)
+      const { id } = idParams.parse(req.params);
       const body = updateSchema.parse(req.body);
       const found = await prisma.savedSearch.findUnique({ where: { id }, select: { userId: true } });
       if (!found) throw Errors.notFound();
@@ -131,7 +133,8 @@ export async function alertRoutes(app: FastifyInstance) {
     "/api/saved-searches/:id",
     { preHandler: [requireAuth, requireRole("job_seeker")] },
     async (req) => {
-      const { id } = req.params as { id: string };
+      // audit R3, gap2-7: DELETE ham bir xil qoida bilan tekshiriladi
+      const { id } = idParams.parse(req.params);
       const found = await prisma.savedSearch.findUnique({ where: { id }, select: { userId: true } });
       if (!found) throw Errors.notFound();
       if (found.userId !== req.user!.sub) throw Errors.forbidden();

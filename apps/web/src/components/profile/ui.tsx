@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useState } from "react";
-import { useT } from "../../lib/i18n/index.js";
+import { useT, useLocale } from "../../lib/i18n/index.js";
 import { absoluteUploadUrl } from "../../lib/api.js";
+import { apiErrorText } from "../../lib/apiExtra.js";
 import type { ApplicationStatus } from "../../lib/types.js";
 import { IconAlert, IconCheck, IconRefresh } from "./icons.js";
 
@@ -73,7 +74,14 @@ export function inputClass(invalid = false) {
   }`;
 }
 
-/** Yorliq + maydon + izoh/xato. `children` ga `id` beriladi (render-prop orqali). */
+/**
+ * Yorliq + maydon + izoh/xato. `children` ga `id` beriladi (render-prop orqali).
+ *
+ * Audit R3, gap5-2: majburiy maydon ekran o'quvchiga ham aytiladi (yulduzcha
+ * yoniga sr-only matn, maydonga `aria-required`), xato `role="alert"` bilan
+ * e'lon qilinadi va `aria-describedby` faqat haqiqatan chizilgan elementga
+ * ishora qiladi (xato izohni almashtirgach osilib qolgan id qolmaydi).
+ */
 export function Field({
   label,
   hint,
@@ -87,25 +95,29 @@ export function Field({
   error?: string | null;
   required?: boolean;
   className?: string;
-  children: (props: { id: string; describedBy?: string; invalid: boolean }) => React.ReactNode;
+  children: (props: { id: string; describedBy?: string; invalid: boolean; required: boolean }) => React.ReactNode;
 }) {
+  const t = useT();
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
-  const describedBy = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined;
+  const describedBy = error ? errorId : hint ? hintId : undefined;
   return (
     <div className={className}>
       <label htmlFor={id} className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
         {label}
         {required && (
-          <span className="text-danger" aria-hidden>
-            *
-          </span>
+          <>
+            <span className="text-danger" aria-hidden>
+              *
+            </span>
+            <span className="sr-only">({t.profileHub.states.required})</span>
+          </>
         )}
       </label>
-      <div className="mt-1.5">{children({ id, describedBy, invalid: Boolean(error) })}</div>
+      <div className="mt-1.5">{children({ id, describedBy, invalid: Boolean(error), required: Boolean(required) })}</div>
       {error ? (
-        <p id={errorId} className="mt-1.5 flex items-center gap-1 text-xs font-medium text-danger">
+        <p id={errorId} role="alert" className="mt-1.5 flex items-center gap-1 text-xs font-medium text-danger">
           <IconAlert size={13} /> {error}
         </p>
       ) : hint ? (
@@ -117,12 +129,26 @@ export function Field({
   );
 }
 
+/**
+ * Tekshiruvdan o'tmagan birinchi maydonga fokus (audit R3, gap5-2). Xato
+ * matnlari `role="alert"` bilan chizilgandan keyin chaqiriladi, shuning uchun
+ * keyingi kadrda ishlaydi. Forma topilmasa hech narsa qilmaydi.
+ */
+export function focusFirstInvalid(form: HTMLElement | null | undefined): void {
+  if (!form || typeof window === "undefined") return;
+  window.requestAnimationFrame(() => {
+    const target = form.querySelector<HTMLElement>('[aria-invalid="true"]');
+    target?.focus();
+  });
+}
+
 export function TextInput({
   id,
   value,
   onChange,
   invalid,
   describedBy,
+  required,
   className = "",
   ...rest
 }: {
@@ -131,14 +157,17 @@ export function TextInput({
   onChange: (value: string) => void;
   invalid?: boolean;
   describedBy?: string;
+  /** Faqat `aria-required` — brauzerning o'z tekshiruv oynachasi chiqmasin. */
+  required?: boolean;
   className?: string;
-} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "required">) {
   return (
     <input
       id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       aria-invalid={invalid || undefined}
+      aria-required={required || undefined}
       aria-describedby={describedBy}
       className={`h-11 px-3.5 ${inputClass(invalid)} ${className}`}
       {...rest}
@@ -152,6 +181,7 @@ export function TextArea({
   onChange,
   invalid,
   describedBy,
+  required,
   rows = 4,
   maxLength,
   ...rest
@@ -161,9 +191,10 @@ export function TextArea({
   onChange: (value: string) => void;
   invalid?: boolean;
   describedBy?: string;
+  required?: boolean;
   rows?: number;
   maxLength?: number;
-} & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange">) {
+} & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange" | "required">) {
   return (
     <div className="relative">
       <textarea
@@ -173,6 +204,7 @@ export function TextArea({
         rows={rows}
         maxLength={maxLength}
         aria-invalid={invalid || undefined}
+        aria-required={required || undefined}
         aria-describedby={describedBy}
         className={`resize-y px-3.5 py-2.5 leading-relaxed ${inputClass(invalid)}`}
         {...rest}
@@ -314,6 +346,7 @@ export function SaveStatus({ state, errorMessage }: { state: SaveState; errorMes
 
 /** "saved" holatini bir necha soniyadan keyin o'zi tozalaydi. */
 export function useSaveState() {
+  const { locale } = useLocale();
   const [state, setState] = useState<SaveState>("idle");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -330,7 +363,10 @@ export function useSaveState() {
       setState("saved");
       return result;
     } catch (err) {
-      setError(err instanceof Error && err.message && err.message !== "Xatolik" ? err.message : null);
+      // Audit R3, i18n-3: xom server matni (o'zbekcha) faqat uz interfeysda;
+      // qolgan tillarda `SaveStatus` tarjima qilingan umumiy xabarni ko'rsatadi
+      const text = apiErrorText(err, locale, { fallback: "" });
+      setError(text && text !== "Xatolik" ? text : null);
       setState("error");
       return undefined;
     }

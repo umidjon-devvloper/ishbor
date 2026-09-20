@@ -1,5 +1,6 @@
-import React from "react";
-import { useT } from "../../lib/i18n/index.js";
+import React, { useEffect, useRef } from "react";
+import { useT, useLocale } from "../../lib/i18n/index.js";
+import { regionDisplayName } from "../../lib/format.js";
 import type { Profile, ResumeData } from "../../lib/types.js";
 import type { ProfileTab } from "../../lib/profile/tabs.js";
 import { useProfileNav } from "./ProfileNavContext.js";
@@ -44,6 +45,22 @@ export function ResumeWizard({
   const current = Math.min(Math.max(step || 1, 1), STEPS.length);
   const key: StepKey = STEPS[current - 1];
 
+  /**
+   * Audit R3, gap5-3: bosqich almashganda bosqich mazmuni qayta chiziladi va
+   * fokus `<body>` ga tushib ketadi. Sarlavhaga fokus beriladi (birinchi
+   * renderda emas — sahifa ochilganda fokus o'g'irlanmasin), bosqich raqami
+   * esa `role="status"` orqali e'lon qilinadi.
+   */
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    titleRef.current?.focus({ preventScroll: true });
+  }, [current]);
+
   const done: Record<StepKey, boolean> = {
     personal: Boolean(profile?.firstName?.trim() && profile?.lastName?.trim() && profile?.regionId),
     professional: Boolean(resume?.title?.trim() && resume?.summary?.trim()),
@@ -66,13 +83,22 @@ export function ResumeWizard({
               <IconFile size={19} />
             </span>
             <div>
-              <h1 id="resume-wizard-title" className="font-display text-[17px] font-bold leading-tight tracking-tight text-ink">
+              <h1
+                id="resume-wizard-title"
+                ref={titleRef}
+                tabIndex={-1}
+                className="font-display text-[17px] font-bold leading-tight tracking-tight text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal focus-visible:ring-offset-4 focus-visible:ring-offset-surface"
+              >
                 {r.title}
               </h1>
               <p className="mt-1 text-[13.5px] text-dusk">{r.subtitle}</p>
             </div>
           </div>
-          <span className="rounded-full bg-surface-2 px-3 py-1 font-mono text-[12px] font-semibold tabular-nums text-ink/80">
+          <span
+            role="status"
+            aria-live="polite"
+            className="rounded-full bg-surface-2 px-3 py-1 font-mono text-[12px] font-semibold tabular-nums text-ink/80"
+          >
             {r.stepOf(current, STEPS.length)}
           </span>
         </div>
@@ -119,6 +145,12 @@ export function ResumeWizard({
                     }`}
                   >
                     {complete ? <IconCheck size={15} /> : n}
+                    {/* Audit R3, gap5-3: belgi raqamni yashirmasin, "bajarildi" ham eshitilsin */}
+                    {complete && (
+                      <span className="sr-only">
+                        {n} ({t.vacancyForm.stepDone})
+                      </span>
+                    )}
                   </span>
                   <span
                     className={`text-[12.5px] leading-tight ${
@@ -239,12 +271,14 @@ function StepFooter({
 /** 1-bosqich: shaxsiy ma'lumotlar profil bo'limida tahrirlanadi — bu yerda faqat ko'rinish. */
 function PersonalSummary({ profile, email }: { profile: Profile | null; email: string }) {
   const t = useT();
+  const { locale } = useLocale();
   const nav = useProfileNav();
   const hub = t.profileHub;
   const name = [profile?.firstName, profile?.lastName].filter((x) => x?.trim()).join(" ");
   const rows: { icon: React.ReactNode; label: string; value: string | null | undefined; tab: ProfileTab }[] = [
     { icon: <IconUser size={16} />, label: `${t.profile.firstName} / ${t.profile.lastName}`, value: name, tab: "personal" },
-    { icon: <IconPin size={16} />, label: t.profile.region, value: profile?.regionName, tab: "personal" },
+    // Audit R3, i18n-4: hudud nomi ru/en da ham tarjima qilinadi
+    { icon: <IconPin size={16} />, label: t.profile.region, value: regionDisplayName(locale, profile?.regionName), tab: "personal" },
     { icon: <IconPhone size={16} />, label: t.profile.phone, value: profile?.phone, tab: "personal" },
     { icon: <IconMail size={16} />, label: t.profile.email, value: email, tab: "settings" },
   ];

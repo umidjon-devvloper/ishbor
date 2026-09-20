@@ -23,7 +23,7 @@ export function VacancyDetailHeader({ vacancy, actions }: { vacancy: VacancyDeta
   const { company } = vacancy;
 
   const region = vacancy.regionSlug ? regionName(locale, vacancy.regionSlug, vacancy.regionName) : vacancy.regionName;
-  const salary = vacancy.salary ? formatSalary(vacancy.salary.min, vacancy.salary.max, t.fmt) : null;
+  const salary = vacancy.salary ? formatSalary(vacancy.salary.min, vacancy.salary.max, t.fmt, false, locale) : null;
   const posted = formatRelativeDays(vacancy.publishedAt, t.fmt);
   const hasFootnote = Boolean(posted) || vacancy.viewsCount > 0;
 

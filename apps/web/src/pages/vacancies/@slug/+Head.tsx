@@ -7,10 +7,15 @@ import { API_URL } from "../../../lib/api.js";
 import { JsonLd } from "../../../components/JsonLd.js";
 import { Seo } from "../../../components/Seo.js";
 
+/**
+ * schema.org `employmentType`. Eski `remote` qiymati — ish JOYI, ish turi emas:
+ * uni "FULL_TIME" deb ko'rsatish ma'lumotni to'qish bo'lardi (audit R3, seo-15),
+ * shuning uchun u jadvalda yo'q va maydon umuman chiqarilmaydi (masofaviylik
+ * `jobLocationType: TELECOMMUTE` orqali allaqachon bildiriladi).
+ */
 const EMPLOYMENT_SCHEMA: Record<string, string> = {
   full_time: "FULL_TIME",
   part_time: "PART_TIME",
-  remote: "FULL_TIME",
   shift: "OTHER",
 };
 
@@ -57,24 +62,37 @@ export default function Head() {
     description: vacancy.description || vacancy.title,
     ...(vacancy.publishedAt ? { datePosted: vacancy.publishedAt } : {}),
     ...(vacancy.expiresAt ? { validThrough: vacancy.expiresAt } : {}),
-    ...(vacancy.employment ? { employmentType: EMPLOYMENT_SCHEMA[vacancy.employment] ?? "OTHER" } : {}),
-    ...(vacancy.employment === "remote" ? { jobLocationType: "TELECOMMUTE" } : {}),
-    directApply: true,
+    ...(vacancy.employment && EMPLOYMENT_SCHEMA[vacancy.employment]
+      ? { employmentType: EMPLOYMENT_SCHEMA[vacancy.employment] }
+      : {}),
+    // Masofaviy: schema.org TELECOMMUTE + nomzod joylashuvi talabi (O'zbekiston); hudud to'qilmaydi
+    ...(vacancy.workplace === "remote"
+      ? { jobLocationType: "TELECOMMUTE", applicantLocationRequirements: { "@type": "Country", name: "UZ" } }
+      : {}),
+    // `directApply` ATAYLAB yo'q (audit R3, seo-15): ariza yuborish uchun saytga
+    // kirish va telefon tasdig'i kerak — "bir bosishda ariza" da'vosi noto'g'ri bo'lardi.
     hiringOrganization: {
       "@type": "Organization",
       name: company.name,
-      sameAs: `${ORIGIN}${localizeHref(`/companies/${company.slug}`, locale)}`,
+      // Ichki kompaniya sahifasi — `url`; `sameAs` — faqat kompaniyaning o'z sayti (bo'lsa)
+      url: `${ORIGIN}${localizeHref(`/companies/${company.slug}`, locale)}`,
+      ...(company.website ? { sameAs: company.website } : {}),
       ...(company.logoUrl ? { logo: company.logoUrl } : {}),
     },
-    jobLocation: {
-      "@type": "Place",
-      address: {
-        "@type": "PostalAddress",
-        addressCountry: "UZ",
-        ...(vacancy.regionName ? { addressLocality: vacancy.regionName } : {}),
-        ...(vacancy.address ? { streetAddress: vacancy.address } : {}),
-      },
-    },
+    // Masofaviy va hududsiz e'londa jismoniy manzil yo'q — `jobLocation` qo'yilmaydi
+    ...(vacancy.workplace !== "remote" || vacancy.regionName || vacancy.address
+      ? {
+          jobLocation: {
+            "@type": "Place",
+            address: {
+              "@type": "PostalAddress",
+              addressCountry: "UZ",
+              ...(vacancy.regionName ? { addressLocality: vacancy.regionName } : {}),
+              ...(vacancy.address ? { streetAddress: vacancy.address } : {}),
+            },
+          },
+        }
+      : {}),
     ...(vacancy.experience && EXPERIENCE_MONTHS[vacancy.experience]
       ? { experienceRequirements: { "@type": "OccupationalExperienceRequirements", monthsOfExperience: EXPERIENCE_MONTHS[vacancy.experience] } }
       : {}),
@@ -84,7 +102,7 @@ export default function Head() {
       ? {
           baseSalary: {
             "@type": "MonetaryAmount",
-            currency: "UZS",
+            currency: vacancy.salary.currency,
             value: {
               "@type": "QuantitativeValue",
               ...(vacancy.salary.min ? { minValue: vacancy.salary.min } : {}),

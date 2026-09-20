@@ -17,6 +17,10 @@ export const LOCALE_COOKIE = "locale";
  * indeksdan chiqarib yuborardi.
  *
  * Oxiridagi "/" olib tashlanadi — yo'llar unga qo'shib yoziladi.
+ *
+ * Zaxira qiymat FAQAT lokal ish uchun: production build'da `VITE_SITE_URL`
+ * yo'q yoki localhost bo'lsa build to'xtaydi (`vite.config.ts` dagi tekshiruv,
+ * audit R3, seo-10) — canonical/hreflang jimgina localhost'ga ishora qilmasin.
  */
 export const SITE_ORIGIN = (
   (import.meta.env.VITE_SITE_URL as string | undefined) || "http://localhost:3001"

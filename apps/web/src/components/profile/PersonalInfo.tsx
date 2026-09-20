@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useT, useLocale } from "../../lib/i18n/index.js";
 import { regionName } from "../../lib/i18n/regions.js";
 import type { Profile, ProfileUpdate, Region } from "../../lib/types.js";
 import { PhoneInput, isPhoneComplete } from "../PhoneInput.js";
 import { Select } from "../Select.js";
 import { useProfileNav } from "./ProfileNavContext.js";
-import { Button, Card, Field, SaveStatus, SectionHeader, TabLink, TextInput, Toggle, useSaveState } from "./ui.js";
+import { Button, Card, Field, SaveStatus, SectionHeader, TabLink, TextInput, Toggle, focusFirstInvalid, useSaveState } from "./ui.js";
 import { IconLock, IconShield, IconTelegram, IconUser } from "./icons.js";
 
 type FormState = {
@@ -58,6 +58,7 @@ export function PersonalInfo({
   const [form, setForm] = useState<FormState>(initial);
   const [phoneErr, setPhoneErr] = useState(false);
   const saver = useSaveState();
+  const formRef = useRef<HTMLFormElement>(null);
   const verified = profile?.isPhoneVerified ?? false;
   const dirty = !same(form, initial);
 
@@ -74,7 +75,9 @@ export function PersonalInfo({
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!verified && !isPhoneComplete(form.phone)) {
+      // Audit R3, gap5-2: xato e'lon qilinadi va fokus telefon maydoniga qaytadi
       setPhoneErr(true);
+      focusFirstInvalid(formRef.current);
       return;
     }
     setPhoneErr(false);
@@ -100,7 +103,7 @@ export function PersonalInfo({
     <Card as="section" className="p-5 sm:p-7">
       <SectionHeader as="h1" title={t.profile.personalSection} subtitle={hub.personal.subtitle} icon={<IconUser size={19} />} />
 
-      <form onSubmit={handleSave} noValidate className="mt-6">
+      <form ref={formRef} onSubmit={handleSave} noValidate className="mt-6">
         <Group title={hub.personal.basicGroup}>
           <Field label={t.profile.firstName}>
             {(p) => (
@@ -149,6 +152,7 @@ export function PersonalInfo({
                 )}
               </>
             }
+            required={!verified}
             error={phoneErr ? t.profile.phoneInvalid : null}
             hint={
               verified ? undefined : (

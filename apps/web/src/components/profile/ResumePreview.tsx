@@ -1,6 +1,6 @@
 import React from "react";
 import { useT, useLocale } from "../../lib/i18n/index.js";
-import { formatNumber } from "../../lib/format.js";
+import { formatNumber, regionDisplayName } from "../../lib/format.js";
 import { formatYearMonth } from "../../lib/profile/format.js";
 import type { Profile, ResumeData } from "../../lib/types.js";
 import { IconMail, IconPhone, IconPin } from "./icons.js";
@@ -20,6 +20,8 @@ export function ResumePreview({
   const hub = t.profileHub;
   const name = [profile?.firstName, profile?.lastName].filter((x) => x?.trim()).join(" ");
   const missing = <span className="italic text-dusk/80">{hub.resume.notFilled}</span>;
+  // Audit R3, i18n-4: hudud nomi joriy tilda
+  const region = regionDisplayName(locale, profile?.regionName);
 
   return (
     <article className="overflow-hidden rounded-2xl border border-line bg-surface shadow-card">
@@ -27,9 +29,9 @@ export function ResumePreview({
         <p className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-ink">{name || missing}</p>
         <p className="mt-1 text-[15px] font-semibold text-signal">{resume?.title || profile?.headline || missing}</p>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[13px] text-dusk">
-          {profile?.regionName && (
+          {region && (
             <span className="inline-flex items-center gap-1.5">
-              <IconPin size={14} /> {profile.regionName}
+              <IconPin size={14} /> {region}
             </span>
           )}
           {profile?.phone && (
@@ -45,7 +47,7 @@ export function ResumePreview({
         </div>
         {resume?.desiredSalary ? (
           <p className="mt-3 inline-flex rounded-full bg-growth/10 px-3 py-1 text-[13px] font-semibold text-growth">
-            {formatNumber(resume.desiredSalary)} {hub.resume.perMonth}
+            {formatNumber(resume.desiredSalary, locale)} {hub.resume.perMonth}
           </p>
         ) : null}
       </header>

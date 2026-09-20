@@ -2,22 +2,30 @@ import React from "react";
 import { usePageContext } from "vike-react/usePageContext";
 import { useT, useHref, useLocale } from "../lib/i18n/index.js";
 import { LOCALES, LOCALE_SHORT, localizeHref } from "../lib/i18n/config.js";
+import { pageLocale } from "../lib/i18n/pageLocale.js";
 
 /** Mahsulot (dashboard) sahifalari — katta editorial footer o'rniga ixcham qator. */
-const COMPACT_PREFIXES = ["/profile", "/applications", "/favorites", "/notifications", "/messages"];
-/** Listing sahifalari — ustunli, lekin yirik so'z-belgisiz va zich footer. */
-const PRODUCT_PATHS = ["/vacancies", "/companies", "/salaries"];
+const COMPACT_PREFIXES = ["/profile", "/applications", "/favorites", "/notifications", "/messages", "/admin", "/employer/applications"];
+/** Listing va yordam sahifalari — ustunli, lekin yirik so'z-belgisiz va zich footer. */
+const PRODUCT_PATHS = ["/vacancies", "/companies", "/salaries", "/articles", "/support", "/contact"];
 
 export default function Footer() {
   const t = useT();
   const pageContext = usePageContext();
-  const pathname = (pageContext.localePathname as string) ?? "/";
+  const pathname = pageLocale(pageContext).pathname;
   const search = pageContext.urlParsed?.searchOriginal ?? "";
   if (COMPACT_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
     return <CompactFooter pathname={pathname} search={search} />;
   }
-  // Vakansiya va kompaniya detail sahifalari ham ro'yxat bilan bir xil zich footer oladi
-  const product = PRODUCT_PATHS.includes(pathname) || pathname.startsWith("/vacancies/") || pathname.startsWith("/companies/");
+  // Vakansiya, kompaniya va maqola detail sahifalari ham ro'yxat bilan bir xil zich footer oladi
+  // Ish beruvchi paneli (`/employer/...`) ham — yirik so'z-belgisiz. Tariflar havolasi yo'q (platforma hozircha bepul).
+  const employerPanel = pathname.startsWith("/employer/");
+  const product =
+    PRODUCT_PATHS.includes(pathname) ||
+    pathname.startsWith("/vacancies/") ||
+    pathname.startsWith("/companies/") ||
+    pathname.startsWith("/articles/") ||
+    employerPanel;
   return (
     <footer className="border-t border-line">
       {/* Yirik so'z-belgi qatori — editorial imzo (listing sahifalarida yo'q) */}
@@ -50,7 +58,7 @@ export default function Footer() {
             { label: t.footer.seekersVacancies, href: "/vacancies" },
             { label: t.footer.seekersResume, href: "/profile" },
             { label: t.footer.seekersSalary, href: "/salaries" },
-            { label: t.footer.seekersArticles, href: "/article" },
+            { label: t.footer.seekersArticles, href: "/articles" },
           ]}
         />
         <FooterColumn
@@ -58,7 +66,6 @@ export default function Footer() {
           links={[
             { label: t.footer.employersPost, href: "/employer" },
             { label: t.footer.employersBase, href: "/employer" },
-            { label: t.footer.employersPricing, href: "/pricing" },
           ]}
         />
         <FooterColumn
@@ -127,7 +134,7 @@ function CompactFooter({ pathname, search }: { pathname: string; search: string 
     <footer className="border-t border-line">
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-8">
-          <a href={l("/")} className="font-display text-[15px] font-bold text-ink">
+          <a href={l("/")} className="whitespace-nowrap font-display text-[15px] font-bold text-ink">
             ISH BOR<span className="text-gold" aria-hidden>!</span>
           </a>
           <nav aria-label="Footer">

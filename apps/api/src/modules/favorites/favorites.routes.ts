@@ -4,8 +4,13 @@ import { Errors } from "../../common/errors.js";
 import { requireAuth, requireRole } from "../../common/auth-guard.js";
 import { z } from "zod";
 import { objectId } from "../../common/validation.js";
+import { withPublicSalary } from "../vacancies/vacancies.service.js";
 
+const vacancyParams = z.object({ vacancyId: objectId() });
 const companyParams = z.object({ companyId: objectId() });
+
+/** Saqlanganlar sahifasidagi eng ko'p vakansiya (eng yangi saqlanganlari). */
+const FAVORITES_LIMIT = 500;
 
 /**
  * Sevimli vakansiyalar ("keyinroq ko'raman" ro'yxati).
@@ -18,8 +23,11 @@ export async function favoriteRoutes(app: FastifyInstance) {
     { preHandler: [requireAuth, requireRole("job_seeker")] },
     async (req) => {
       const rows = await prisma.favorite.findMany({
-        where: { userId: req.user!.sub },
+        // Qoralama, moderatsiyadagi va rad etilgan e'lon mazmuni saqlanganlar orqali ochilmaydi (audit ISSUE-038).
+        // Yopilgan (arxiv) e'lon ro'yxatda qoladi — UI uni "yopilgan" deb belgilaydi.
+        where: { userId: req.user!.sub, vacancy: { status: { in: ["active", "archived"] } } },
         orderBy: { createdAt: "desc" },
+        take: FAVORITES_LIMIT,
         include: {
           vacancy: {
             // Kartaga kerakli maydonlar; kompaniyaning ichki maydonlari (egasi, STIR) nomzodga chiqmaydi
@@ -45,10 +53,9 @@ export async function favoriteRoutes(app: FastifyInstance) {
           },
         },
       });
-      // Arxivlangan vakansiyalar ham ro'yxatda qoladi, lekin belgilangan holda
       return {
         items: rows.map((f: (typeof rows)[number]) => ({
-          ...f.vacancy,
+          ...withPublicSalary(f.vacancy),
           favoritedAt: f.createdAt,
           isClosed: f.vacancy.status !== "active",
         })),
@@ -73,9 +80,10 @@ export async function favoriteRoutes(app: FastifyInstance) {
     "/api/favorites/:vacancyId",
     { preHandler: [requireAuth, requireRole("job_seeker")] },
     async (req, reply) => {
-      const { vacancyId } = req.params as { vacancyId: string };
-      const vacancy = await prisma.vacancy.findUnique({
-        where: { id: vacancyId },
+      const { vacancyId } = vacancyParams.parse(req.params);
+      // Faqat ochiq e'lonni saqlash mumkin (qoralama ID'si bilan uning mazmunini o'qib bo'lmasin)
+      const vacancy = await prisma.vacancy.findFirst({
+        where: { id: vacancyId, status: "active" },
         select: { id: true },
       });
       if (!vacancy) throw Errors.notFound("Vakansiya topilmadi");
@@ -94,7 +102,7 @@ export async function favoriteRoutes(app: FastifyInstance) {
     "/api/favorites/:vacancyId",
     { preHandler: [requireAuth, requireRole("job_seeker")] },
     async (req) => {
-      const { vacancyId } = req.params as { vacancyId: string };
+      const { vacancyId } = vacancyParams.parse(req.params);
       await prisma.favorite.deleteMany({ where: { userId: req.user!.sub, vacancyId } });
       return { ok: true, favorited: false };
     }

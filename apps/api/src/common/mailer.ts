@@ -35,7 +35,9 @@ export interface MailInput {
 export async function sendMail(input: MailInput): Promise<boolean> {
   const tx = getTransporter();
   if (!tx) {
-    console.log(`[mail:o'chiq] ${input.to} — ${input.subject}`);
+    // Qabul qiluvchining emaili LOGGA YOZILMAYDI (audit R3, gap3-2 / realtime-5): SMTP sozlanmagan
+    // prodda har bildirishnoma foydalanuvchi emailini stdout'ga chiqarardi (10k ommaviy xabar — 10k manzil).
+    console.log(`[mail:o'chiq] xat yuborilmadi — SMTP sozlanmagan: ${input.subject}`);
     return false;
   }
   try {
@@ -53,16 +55,36 @@ export async function sendMail(input: MailInput): Promise<boolean> {
   }
 }
 
+/**
+ * `text/plain` variant. Teglar olib tashlangach HTML entity'lari QAYTA OCHILADI (audit R3, files-xss-9):
+ * `esc()` endi apostrof va qo'shtirnoqni ham qochiradi, aks holda o'zbekcha matn xatning
+ * matnli qismida "bo&#39;yicha" bo'lib ko'rinardi.
+ */
 function stripHtml(html: string): string {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
     .trim();
 }
 
+/**
+ * HTML uchun qochirish. Qo'shtirnoq va apostrof ham qochiriladi (audit R3, files-xss-9):
+ * `esc()` natijasi `href="..."` atributi ichida ham ishlatiladi — qo'shtirnoq qochirilmasa
+ * yo'ldagi `"` atributdan chiqib, xat HTML'iga begona atribut qo'shish mumkin edi.
+ */
 function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /**

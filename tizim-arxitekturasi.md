@@ -635,7 +635,7 @@ hozirgi kodda qay darajada bajarilgani ko'rsatilgan. Har bir o'zgarish tarixi:
 | 12. Notification | ✅ | Bitta `notify()` xizmati: sayt / Telegram / brauzer push / email |
 | 12b. Saqlangan qidiruv (alerts) | ✅ | Fon jarayoni + cron buyrug'i |
 | 13. Real-time chat | ✅ | WebSocket; o'zaro 5 yulduzli baho ham qo'shildi |
-| 14. Monetizatsiya | ✅ | Tariflar, limitlar, Payme/Click havolasi, admin tasdig'i |
+| 14. Monetizatsiya | ❌ | **O'chiq** — `BILLING_ENABLED=false` (D-014, D-065). Platforma bepul, vakansiya limiti yo'q, tariflar sahifasi `/employer` ga yo'naltiriladi. Billing kodi meros sifatida turadi. |
 | 15. Admin panel | ✅ | Moderatsiya, foydalanuvchilar, statistika, to'lovlar, ommaviy xabar |
 | — Maosh statistikasi | ✅ | Rejada alohida bo'lim yo'q edi, hh.uz tahlilidan olingan |
 | Redis + BullMQ | ⏳ | Redis konteynerda bor, lekin navbat (queue) ishlatilmayapti — xabarnomalar

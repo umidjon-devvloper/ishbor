@@ -30,6 +30,7 @@ function initials(name: string): string {
 }
 
 const SIZES = {
+  xs: "h-8 w-8 rounded-lg text-[11px]",
   sm: "h-10 w-10 rounded-xl text-sm",
   md: "h-14 w-14 rounded-2xl text-lg",
   lg: "h-16 w-16 rounded-2xl text-xl",

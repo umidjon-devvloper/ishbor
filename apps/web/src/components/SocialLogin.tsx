@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { loginWithGoogle, startTelegramLogin, pollTelegramLogin, ApiError } from "../lib/api.js";
+import { loginWithGoogle, ApiError } from "../lib/api.js";
 import { useAuth } from "./AuthContext.js";
 import { useT } from "../lib/i18n/index.js";
 import { AuthDivider } from "./AuthForm.js";
@@ -20,27 +20,26 @@ declare global {
 }
 
 /**
- * Ijtimoiy kirish bloki: Telegram (bot deep-link + polling) va Google (GIS).
- * - Telegram: faqat oldin profilda Telegram bog'lagan foydalanuvchi kira oladi.
- * - Google: login sahifasida hisob topilmasa NEED_SIGNUP xatosi keladi;
- *   signup sahifasida `role` berilgani uchun hisob darrov yaratiladi.
+ * Ijtimoiy kirish bloki: Google (GIS) va hozircha ulanmagan Apple tugmasi.
+ *
+ * Telegram kirish kanali emas (audit R3, D-041): tugma va polling olib tashlandi —
+ * Telegram faqat telefon tasdiqlash va parolni tiklash uchun ishlatiladi.
+ *
+ * Google: login sahifasida hisob topilmasa NEED_SIGNUP xatosi keladi;
+ * signup sahifasida `role` berilgani uchun hisob darrov yaratiladi.
  */
 export function SocialLogin({
   role,
   onDone,
-  showTelegram = true,
 }: {
   role?: "job_seeker" | "employer";
   onDone: () => void;
-  showTelegram?: boolean;
 }) {
   const t = useT();
   const { login } = useAuth();
-  const [tgState, setTgState] = useState<"idle" | "waiting" | "not_linked" | "expired">("idle");
   const [error, setError] = useState<string | null>(null);
   const [soon, setSoon] = useState(false);
   const googleRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<number | null>(null);
 
   // Google GIS skriptini faqat shu sahifada, async yuklaymiz (performance'ga zarar yo'q)
   useEffect(() => {
@@ -57,7 +56,8 @@ export function SocialLogin({
             await login(accessToken);
             onDone();
           } catch (err) {
-            setError(err instanceof ApiError ? err.message : "Xatolik yuz berdi");
+            // Qattiq yozilgan o'zbekcha matn emas — joriy til lug'atidan (audit R3, i18n-9)
+            setError(err instanceof ApiError ? err.message : t.login.connError);
           }
         },
       });
@@ -80,52 +80,16 @@ export function SocialLogin({
     document.head.appendChild(script);
   }, [role]);
 
-  // Komponent yopilsa pollingni to'xtatamiz
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
-    };
-  }, []);
-
-  async function handleTelegram() {
-    setError(null);
-    setTgState("waiting");
-    try {
-      const { token, link } = await startTelegramLogin();
-      window.open(link, "_blank", "noopener");
-      // Har 2.5 soniyada natijani so'raymiz (token 5 daqiqa yashaydi)
-      pollRef.current = window.setInterval(async () => {
-        try {
-          const res = await pollTelegramLogin(token);
-          if (res.status === "pending") return;
-          if (pollRef.current) window.clearInterval(pollRef.current);
-          if (res.status === "ok") {
-            await login(res.accessToken);
-            onDone();
-          } else {
-            setTgState(res.status === "not_linked" ? "not_linked" : "expired");
-          }
-        } catch {
-          /* tarmoq uzilishi — keyingi urinishda davom etadi */
-        }
-      }, 2500);
-    } catch (err) {
-      setTgState("idle");
-      setError(err instanceof ApiError ? err.message : "Xatolik yuz berdi");
-    }
-  }
-
   return (
     <div>
       <AuthDivider />
 
-      {/* Uchala usul bitta qatorda — ustma-ust uch tugma kartani ~55px
-          uzaytirardi. Yorliq qisqa (provayder nomi), to'liq ma'no
+      {/* Ikkala usul bitta qatorda. Yorliq qisqa (provayder nomi), to'liq ma'no
           `aria-label` da: "Google orqali kirish".
           Google: VITE_GOOGLE_CLIENT_ID berilganda haqiqiy GIS tugmasi
           chiziladi; berilmasa (va Apple har doim) tugma bosilganda
           "hozircha ulanmagan" izohi chiqadi — jim turgan tugmadan yaxshiroq. */}
-      <div className={`grid grid-cols-2 gap-2.5 ${showTelegram ? "sm:grid-cols-3" : ""}`}>
+      <div className="grid grid-cols-2 gap-2.5">
         {GOOGLE_CLIENT_ID ? (
           <div ref={googleRef} className="flex justify-center [color-scheme:light]" />
         ) : (
@@ -142,23 +106,15 @@ export function SocialLogin({
           title={t.login.withApple}
           onClick={() => setSoon(true)}
         />
-        {showTelegram && (
-          <ProviderButton
-            icon={<TelegramIcon />}
-            label="Telegram"
-            title={t.login.withTelegram}
-            onClick={handleTelegram}
-            disabled={tgState === "waiting"}
-            className="col-span-2 sm:col-span-1"
-          />
-        )}
       </div>
 
-      {tgState === "waiting" && <Note>{t.login.tgWaiting}</Note>}
       {soon && <Note>{t.login.socialSoon}</Note>}
-      {tgState === "not_linked" && <Note>{t.login.tgNotLinked}</Note>}
-      {tgState === "expired" && <Note>{t.login.tgExpired}</Note>}
-      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+      {error && (
+        <p className="mt-3 text-sm text-danger" role="alert">
+          <span className="sr-only">{t.login.errorLabel}: </span>
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -196,7 +152,9 @@ function ProviderButton({
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
-    <p className="animate-fade-in mt-3 rounded-lg bg-surface-2 px-3 py-2 text-xs text-dusk">{children}</p>
+    <p className="animate-fade-in mt-3 rounded-lg bg-surface-2 px-3 py-2 text-xs text-dusk" role="status">
+      {children}
+    </p>
   );
 }
 
@@ -216,18 +174,6 @@ function AppleIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
       <path d="M16.4 12.7c0-2.5 2-3.7 2.1-3.8-1.1-1.7-2.9-1.9-3.6-1.9-1.5-.2-3 .9-3.7.9-.8 0-2-.9-3.2-.8-1.7 0-3.2 1-4 2.5-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8s1.9.8 3.2.8c1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.4-.9-2.4-3.9ZM14 5.2c.7-.8 1.1-2 1-3.2-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.6 2.9-1.3Z" />
-    </svg>
-  );
-}
-
-function TelegramIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <circle cx="12" cy="12" r="12" fill="#2AABEE" />
-      <path
-        d="M5.4 11.9l11.2-4.4c.5-.2 1 .1.8.9l-1.9 9c-.14.63-.55.78-1.1.48l-3-2.2-1.45 1.4c-.16.16-.3.3-.6.3l.2-3.06 5.6-5.05c.24-.2-.06-.33-.37-.12l-6.9 4.35-2.98-.93c-.65-.2-.66-.65.14-.97z"
-        fill="#fff"
-      />
     </svg>
   );
 }

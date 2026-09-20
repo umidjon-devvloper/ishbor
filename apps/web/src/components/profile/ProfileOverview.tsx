@@ -1,5 +1,5 @@
 import React from "react";
-import { useT } from "../../lib/i18n/index.js";
+import { useT, useLocale } from "../../lib/i18n/index.js";
 import { formatNumber } from "../../lib/format.js";
 import type { CompletionItem } from "../../lib/profile/completion.js";
 import type { RemoteList } from "../../lib/profile/useProfileData.js";
@@ -195,6 +195,7 @@ function ResumeSnapshot({
   hasFile: boolean;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const nav = useProfileNav();
   const hub = t.profileHub;
   const rows: { label: string; value: string; tab: ProfileTab; step?: number; ok: boolean }[] = [
@@ -214,7 +215,7 @@ function ResumeSnapshot({
     { label: t.resume.skills, value: String(resume?.skills.length ?? 0), tab: "skills", ok: (resume?.skills.length ?? 0) > 0 },
     {
       label: t.resume.desiredSalary,
-      value: resume?.desiredSalary ? formatNumber(resume.desiredSalary) : hub.resume.notFilled,
+      value: resume?.desiredSalary ? formatNumber(resume.desiredSalary, locale) : hub.resume.notFilled,
       tab: "resume",
       step: 2,
       ok: Boolean(resume?.desiredSalary),
