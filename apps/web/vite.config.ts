@@ -69,6 +69,16 @@ export default defineConfig({
     strictPort: true,
     headers: SECURITY_HEADERS,
   },
+  // Vercel serverless (Node runtime) SSR paytida `react-streaming` package.json
+  // exports'idagi `"node": "./dist/cjs/..."` sharti CJS build'ni tanlaydi, u
+  // esa ESM-only `@brillout/picocolors` ni `require()` qilib ERR_REQUIRE_ESM
+  // beradi (vike.dev/broken-npm-package). `noExternal` uni SSR bundle ichiga
+  // qo'shadi — Vite ESM output beradi va CJS/ESM aralashuvi yo'qoladi. Uning
+  // ESM-only bog'liqliklarini ham ro'yxatga qo'yamiz, chunki Vite tashqi
+  // qoldirsa muammo qaytadi.
+  ssr: {
+    noExternal: ["react-streaming", "@brillout/picocolors"],
+  },
   // Eslatma: bu yerda `manualChunks` bor edi va u /lib/i18n/messages* ni BITTA
   // "i18n-messages" chunk'iga yopishtirardi. Endi har til alohida modul
   // (messages.uz/ru/en.ts) va dinamik import qilinadi — bundler ularni o'zi
