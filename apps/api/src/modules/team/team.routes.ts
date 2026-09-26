@@ -15,6 +15,9 @@ import { recordSecurityEvent } from "../../common/security-events.js";
 import { setRefreshCookie } from "../auth/auth.routes.js";
 import { STAFF_ROLES } from "../articles/articles.permissions.js";
 
+/** Jamoa: kontent rollari + moderator (moderator maqolalar bo'limiga kirmaydi). */
+const TEAM_ROLES: UserRole[] = [...STAFF_ROLES, "moderator"];
+
 /**
  * Kontent jamoasi: a'zolar, taklif, rol va faollik. Boshqaruv faqat SUPER_ADMIN
  * (`admin`) uchun. Jamoaga ochiq ro'yxatdan o'tish YO'Q — hisob faqat taklif
@@ -28,12 +31,13 @@ const adminOnly = { preHandler: [requireAuth, requireStaff("admin")] };
 const strictRateLimit = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const staffRole = z.enum(["admin", "content_editor", "content_author"]);
+const staffRole = z.enum(["admin", "content_editor", "content_author", "moderator"]);
 
 const ROLE_NAMES: Record<string, string> = {
   admin: "super administrator",
   content_editor: "muharrir",
   content_author: "muallif",
+  moderator: "moderator",
 };
 
 const hashToken = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
@@ -133,7 +137,7 @@ export async function teamRoutes(app: FastifyInstance) {
   app.get("/api/admin/team", adminOnly, async (req) => {
     const now = Date.now();
     const [members, invites] = await Promise.all([
-      prisma.user.findMany({ where: { role: { in: STAFF_ROLES } }, orderBy: { createdAt: "asc" }, select: memberSelect }),
+      prisma.user.findMany({ where: { role: { in: TEAM_ROLES } }, orderBy: { createdAt: "asc" }, select: memberSelect }),
       prisma.staffInvite.findMany({
         where: PENDING,
         orderBy: { createdAt: "desc" },
@@ -172,10 +176,10 @@ export async function teamRoutes(app: FastifyInstance) {
 
     const emailSent = await sendMail({
       to: email,
-      subject: "ISH BOR! kontent jamoasiga taklif",
+      subject: body.role === "moderator" ? "ISH BOR! moderatsiya jamoasiga taklif" : "ISH BOR! kontent jamoasiga taklif",
       html: renderEmail({
-        title: "Sizni ISH BOR! kontent jamoasiga taklif qilishdi",
-        body: `<p>Sizga <b>${escapeHtml(ROLE_NAMES[body.role])}</b> sifatida maqolalar bo'limida ishlash taklif qilindi.</p><p>Havola 7 kun amal qiladi va faqat bir marta ishlatiladi.</p>`,
+        title: body.role === "moderator" ? "Sizni ISH BOR! moderatsiya jamoasiga taklif qilishdi" : "Sizni ISH BOR! kontent jamoasiga taklif qilishdi",
+        body: `<p>Sizga <b>${escapeHtml(ROLE_NAMES[body.role])}</b> sifatida ${body.role === "moderator" ? "vakansiya, sharh va murojaatlar moderatsiyasida" : "maqolalar bo'limida"} ishlash taklif qilindi.</p><p>Havola 7 kun amal qiladi va faqat bir marta ishlatiladi.</p>`,
         ctaLabel: "Taklifni qabul qilish",
         ctaHref: link,
         footerNote: "Agar bu taklifni kutmagan bo'lsangiz, xatni e'tiborsiz qoldiring.",
@@ -210,7 +214,7 @@ export async function teamRoutes(app: FastifyInstance) {
       .parse(req.body);
     if (!isObjectId(id)) throw Errors.notFound();
     const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, staffProfile: { select: { id: true } } } });
-    if (!target || !STAFF_ROLES.includes(target.role)) throw Errors.notFound("Jamoa a'zosi topilmadi");
+    if (!target || !TEAM_ROLES.includes(target.role)) throw Errors.notFound("Jamoa a'zosi topilmadi");
 
     const self = id === req.user!.sub;
     if (self && body.role !== undefined && body.role !== target.role) throw Errors.badRequest("O'z rolingizni o'zgartira olmaysiz");

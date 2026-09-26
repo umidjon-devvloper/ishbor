@@ -86,7 +86,7 @@ export interface Stats {
 }
 
 /** `admin` — SUPER_ADMIN; kontent rollari faqat taklif orqali ochiladi (lib/admin/roles.ts). */
-export type UserRole = "job_seeker" | "employer" | "admin" | "content_editor" | "content_author";
+export type UserRole = "job_seeker" | "employer" | "admin" | "content_editor" | "content_author" | "moderator";
 
 export interface CurrentUser {
   id: string;
@@ -168,6 +168,12 @@ export interface MyCompany {
   employeeCount: string | null;
   foundedYear: number | null;
   isVerified: boolean;
+  legalName?: string | null;
+  stir?: string | null;
+  /** Tasdiq so'rovi yuborilgan (admin hali qaror qilmagan). */
+  verificationRequestedAt?: string | null;
+  /** Oxirgi rad etish izohi. */
+  verificationNote?: string | null;
 }
 
 export interface MyCompanyInput {
@@ -591,6 +597,10 @@ export interface AdminOverview {
   reviews: { pending: number };
   payments: { paid: number; revenue: number };
   search: { engine: string };
+  /** `autoApproveHours: 0` — avto-tasdiq o'chiq. */
+  moderation?: { autoApproveHours: number; autoApprovedUnreviewed?: number };
+  support?: { open: number };
+  verificationRequests?: number;
   chart: { date: string; users: number; applications: number }[];
 }
 
@@ -630,7 +640,163 @@ export interface AdminVacancy {
   viewsCount: number;
   applicationCount: number;
   rejectionReason: string | null;
+  /** Moderatsiyadagi e'lon qachon avtomatik tasdiqlanadi (o'chiq bo'lsa null). */
+  autoApproveAt?: string | null;
+  /** Admin ko'rmasdan avtomatik tasdiqlangan — "Tekshirildi" bosilguncha belgili. */
+  autoApprovedAt?: string | null;
+  /** Navbatdagi e'lon joylashuv qoidasidan o'tmaydi — egasi to'ldirishi kerak. */
+  placementIssue?: PlacementIssue | null;
+  ownerBlocked?: boolean;
+  companyVerified?: boolean;
+  openReports?: number;
   createdAt: string;
+}
+
+export type PlacementIssue = "categoryId" | "workplaceType" | "regionId";
+
+export interface ModerationEventView {
+  id: string;
+  entityType: "vacancy" | "review" | "company" | "ticket";
+  entityId: string;
+  action: string;
+  /** null — tizim (avto-tasdiq) */
+  actorName: string | null;
+  actorId: string | null;
+  reason: string | null;
+  meta: Record<string, string | number | boolean> | null;
+  createdAt: string;
+}
+
+export interface AdminVacancyDetail {
+  id: string;
+  slug: string;
+  title: string;
+  status: AdminVacancy["status"];
+  description: string;
+  requirements: string | null;
+  conditions: string | null;
+  categoryName: string | null;
+  regionName: string | null;
+  address: string | null;
+  employmentType: string;
+  scheduleType: string | null;
+  workplaceType: string | null;
+  experienceRequired: string;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  currency: string;
+  isSalaryHidden: boolean;
+  contactEmail: string | null;
+  contactTelegram: string | null;
+  contactPhone: string | null;
+  images: string[];
+  isPremium: boolean;
+  rejectionReason: string | null;
+  placementIssue: PlacementIssue | null;
+  autoApproveAt: string | null;
+  autoApprovedAt: string | null;
+  moderationSubmittedAt: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  viewsCount: number;
+  applicationCount: number;
+  company: {
+    id: string;
+    name: string;
+    slug: string;
+    isVerified: boolean;
+    website: string | null;
+    createdAt: string;
+    ownerUserId: string;
+    ownerEmail: string;
+    ownerBlocked: boolean;
+    ownerPhoneMasked: string | null;
+    vacancies: Partial<Record<AdminVacancy["status"], number>>;
+  };
+  reports: { id: string; subject: string | null; message: string; status: SupportTicketStatus; createdAt: string }[];
+  history: ModerationEventView[];
+}
+
+export type SupportTicketStatus = "open" | "in_progress" | "resolved" | "dismissed";
+
+export interface AdminSupportTicket {
+  id: string;
+  kind: "contact" | "vacancy_report";
+  status: SupportTicketStatus;
+  subject: string | null;
+  name: string | null;
+  email: string | null;
+  message: string;
+  adminNote: string | null;
+  handledAt: string | null;
+  repliedAt: string | null;
+  createdAt: string;
+  account: { id: string; email: string; role: UserRole } | null;
+  vacancy: { id: string; title: string; slug: string; status: AdminVacancy["status"]; companyName: string } | null;
+}
+
+export interface AdminCounters {
+  vacancies: number;
+  reviews: number;
+  companies: number;
+  support: number;
+  autoApproved: number;
+  recovery: number;
+}
+
+export interface AdminBroadcast {
+  id: string;
+  title: string;
+  audience: string;
+  total: number;
+  delivered: number;
+  status: "running" | "done" | "failed";
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface AdminUserDetail {
+  id: string;
+  email: string;
+  phoneMasked: string | null;
+  role: UserRole;
+  isBlocked: boolean;
+  isEmailVerified: boolean;
+  isPhoneVerified: boolean;
+  telegramLinked: boolean;
+  createdAt: string;
+  name: string | null;
+  headline: string | null;
+  regionName: string | null;
+  companies: { id: string; name: string; slug: string; isVerified: boolean; verificationRequestedAt: string | null; createdAt: string }[];
+  vacancies: {
+    items: { id: string; slug: string; title: string; status: AdminVacancy["status"]; autoApprovedAt: string | null; createdAt: string }[];
+    total: number;
+  };
+  applications: {
+    items: {
+      id: string;
+      status: string;
+      createdAt: string;
+      vacancyTitle: string;
+      vacancySlug: string;
+      vacancyStatus: AdminVacancy["status"];
+      companyName: string;
+    }[];
+    total: number;
+  };
+  reviews: {
+    id: string;
+    rating: number;
+    comment: string | null;
+    status: AdminReview["status"];
+    createdAt: string;
+    companyName: string;
+    companySlug: string;
+  }[];
+  tickets: { id: string; kind: AdminSupportTicket["kind"]; subject: string | null; status: SupportTicketStatus; message: string; createdAt: string }[];
+  securityEvents: { id: string; type: string; meta: Record<string, unknown> | null; actorId: string | null; createdAt: string }[];
 }
 
 export interface AdminCompany {
@@ -638,7 +804,13 @@ export interface AdminCompany {
   name: string;
   slug: string;
   ownerEmail: string;
+  ownerUserId?: string;
   isVerified: boolean;
+  legalName?: string | null;
+  stir?: string | null;
+  website?: string | null;
+  verificationRequestedAt?: string | null;
+  verificationNote?: string | null;
   planName: string | null;
   subscriptionExpiresAt: string | null;
   vacancyCount: number;
@@ -654,6 +826,8 @@ export interface AdminReview {
   companyName: string;
   companySlug: string;
   authorName: string;
+  autoApproveAt?: string | null;
+  autoApprovedAt?: string | null;
   createdAt: string;
 }
 

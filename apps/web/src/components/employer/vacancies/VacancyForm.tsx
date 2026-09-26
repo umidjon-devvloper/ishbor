@@ -214,10 +214,13 @@ export function VacancyForm({
     setGated(false);
     try {
       const payload = toVacancyPayload(values, mode);
+      let createdStatus: string | undefined;
       if (vacancy) await updateVacancy(token, vacancy.id, payload);
-      else await createVacancy(token, { ...payload, status: intent === "draft" ? "draft" : "active" });
+      else createdStatus = (await createVacancy(token, { ...payload, status: intent === "draft" ? "draft" : "active" }))?.status;
       allowLeave();
-      const notice = mode === "edit" ? "updated" : intent === "draft" ? "draft" : "created";
+      // Tasdiqlanmagan kompaniya e'loni oldindan moderatsiyaga tushadi — "e'lon qilindi" deyilmaydi
+      const notice =
+        mode === "edit" ? "updated" : intent === "draft" ? "draft" : createdStatus === "moderation" ? "submitted" : "created";
       window.location.assign(l(`/employer/vacancies?notice=${notice}`));
     } catch (err) {
       setSaving(null);

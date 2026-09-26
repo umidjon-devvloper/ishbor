@@ -3,6 +3,7 @@ import { useT, useHref } from "../../lib/i18n/index.js";
 import { useAuth } from "../../components/AuthContext.js";
 import { Skeleton } from "../../components/Skeleton.js";
 import { EmployerCompanyForm } from "../../components/EmployerCompanyForm.js";
+import { CompanyVerificationCard } from "../../components/CompanyVerificationCard.js";
 import { TelegramConnect } from "../../components/TelegramConnect.js";
 import { fetchMyApplications, fetchMyCompany, fetchRegionsStrict } from "../../lib/api.js";
 import { fetchFavoritesStrict } from "../../lib/apiExtra.js";
@@ -307,6 +308,7 @@ function EmployerProfile({ token }: { token: string }) {
       </div>
 
       <EmployerCompanyForm token={token} regions={regions} initial={company} />
+      <CompanyVerificationCard token={token} company={company} />
       <TelegramConnect />
     </div>
   );

@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { AdminShell, rememberAdminBilling } from "../../components/AdminShell.js";
 import { AdminError } from "../../components/admin/AdminStates.js";
-import { useT, useLocale } from "../../lib/i18n/index.js";
+import { useT, useLocale, useHref } from "../../lib/i18n/index.js";
 import { useAuth } from "../../components/AuthContext.js";
 import { formatNumber } from "../../lib/format.js";
 import {
   fetchAdminOverview,
+  fetchBroadcasts,
   reindexSearch,
   runAlertsNow,
+  runAutoApproveNow,
   sendBroadcast,
 } from "../../lib/apiExtra.js";
 import { useAdminResource } from "../../lib/admin/useAdminResource.js";
@@ -39,19 +41,23 @@ function Overview() {
     if (billingEnabled !== null) rememberAdminBilling(billingEnabled);
   }, [billingEnabled]);
 
-  async function run(action: "reindex" | "alerts") {
+  async function run(action: "reindex" | "alerts" | "autoApprove") {
     if (!token) return;
     // Indeksni qayta qurish va xabarnoma sweep'i — butun bazaga ta'sir qiladi (audit R3, admin-staff-12)
-    if (!window.confirm(`${t.admin.common.confirmAction}\n\n${action === "reindex" ? t.admin.overview.reindex : t.admin.overview.runAlerts}`)) return;
+    if (!window.confirm(`${t.admin.common.confirmAction}\n\n${action === "reindex" ? t.admin.overview.reindex : action === "alerts" ? t.admin.overview.runAlerts : t.admin.moderation.runNow}`)) return;
     setBusy(true);
     setMessage(null);
     try {
       if (action === "reindex") {
         const r = await reindexSearch(token);
         setMessage({ tone: "success", text: t.admin.overview.reindexDone(r.indexed) });
-      } else {
+      } else if (action === "alerts") {
         const r = await runAlertsNow(token);
         setMessage({ tone: "success", text: t.admin.overview.alertsDone(r.checked) });
+      } else {
+        const r = await runAutoApproveNow(token);
+        setMessage({ tone: "success", text: t.admin.moderation.runDone(r.vacancies, r.reviews) });
+        reload();
       }
     } catch (err) {
       setMessage({ tone: "error", text: errorText(err, t.admin.common.failed, locale) });
@@ -82,6 +88,7 @@ function Overview() {
   }
 
   const data = state.data;
+  const autoHours = data.moderation?.autoApproveHours ?? 0;
   const maxDay = Math.max(1, ...data.chart.map((d) => Math.max(d.users, d.applications)));
 
   return (
@@ -106,6 +113,27 @@ function Overview() {
           label={t.admin.overview.activeVacancies}
           value={formatNumber(data.vacancies.active)}
           details={data.vacancies.moderation > 0 ? [`${data.vacancies.moderation} ${t.admin.overview.onModeration}`] : []}
+        />
+        {/* Moderatsiya navbati: admin ko'rmasa muddat tugagach avtomatik tasdiqlanadi */}
+        <MetricCard
+          label={t.admin.moderation.queue}
+          value={formatNumber(data.vacancies.moderation + data.reviews.pending)}
+          href="/admin/vacancies?status=moderation"
+          details={[
+            t.admin.moderation.queueDetails(data.vacancies.moderation, data.reviews.pending),
+            autoHours > 0 ? t.admin.moderation.autoApproveHours(autoHours) : t.admin.moderation.autoApproveOff,
+          ]}
+        />
+        <MetricCard label={t.admin.overview.supportOpen} value={formatNumber(data.support?.open ?? 0)} href="/admin/support" />
+        <MetricCard
+          label={t.admin.overview.verificationRequests}
+          value={formatNumber(data.verificationRequests ?? 0)}
+          href="/admin/companies?filter=requested"
+        />
+        <MetricCard
+          label={t.admin.overview.autoApprovedUnreviewed}
+          value={formatNumber(data.moderation?.autoApprovedUnreviewed ?? 0)}
+          href="/admin/vacancies?status=auto"
         />
         <MetricCard
           label={t.admin.overview.applications}
@@ -182,6 +210,16 @@ function Overview() {
           >
             {t.admin.overview.runAlerts}
           </button>
+          {autoHours > 0 && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void run("autoApprove")}
+              className="rounded-xl border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-signal hover:text-signal disabled:opacity-60"
+            >
+              {t.admin.moderation.runNow}
+            </button>
+          )}
           {message && (
             <span role={message.tone === "error" ? "alert" : "status"} className={`text-sm ${message.tone === "error" ? "text-danger" : "text-growth"}`}>
               {message.text}
@@ -191,7 +229,44 @@ function Overview() {
       </section>
 
       <BroadcastForm />
+      {token && <BroadcastHistory token={token} />}
     </div>
+  );
+}
+
+/** Oxirgi ommaviy xabarlar: kimga, qancha yetkazildi, holati. */
+function BroadcastHistory({ token }: { token: string }) {
+  const t = useT();
+  const b = t.admin.broadcasts;
+  const { locale } = useLocale();
+  const { state } = useAdminResource((signal) => fetchBroadcasts(token, signal), "broadcasts");
+  if (state.kind !== "ready") return null;
+  const audience: Record<string, string> = {
+    all: t.admin.overview.audienceAll,
+    job_seeker: t.admin.overview.audienceSeekers,
+    employer: t.admin.overview.audienceEmployers,
+  };
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-5">
+      <h2 className="font-display text-base font-bold text-ink">{b.title}</h2>
+      {state.data.items.length === 0 ? (
+        <p className="mt-2 text-sm text-dusk">{b.empty}</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-line/60">
+          {state.data.items.map((item) => (
+            <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+              <span className="min-w-0">
+                <span className="font-medium text-ink">{item.title}</span>
+                <span className="text-dusk"> · {audience[item.audience] ?? item.audience}</span>
+              </span>
+              <span className="text-xs text-dusk">
+                {b.status[item.status]} · {b.delivered(item.delivered, item.total)} · {new Date(item.createdAt).toLocaleString(locale)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -200,18 +275,30 @@ function MetricCard({
   value,
   details = [],
   accent = false,
+  href,
 }: {
   label: string;
   value: string;
   details?: string[];
   accent?: boolean;
+  /** Karta bosilsa tegishli bo'limga o'tadi (navbat, murojaatlar). */
+  href?: string;
 }) {
-  return (
-    <div className={`rounded-2xl border p-5 ${accent ? "border-signal/40 bg-signal/[0.05]" : "border-line bg-surface"}`}>
+  const l = useHref();
+  const body = (
+    <>
       <p className="text-xs font-semibold uppercase tracking-wide text-dusk">{label}</p>
       <p className="mt-1.5 font-display text-2xl font-bold text-ink">{value}</p>
       {details.length > 0 && <p className="mt-1.5 text-xs text-dusk">{details.join(" · ")}</p>}
-    </div>
+    </>
+  );
+  const cls = `block rounded-2xl border p-5 ${accent ? "border-signal/40 bg-signal/[0.05]" : "border-line bg-surface"}`;
+  return href ? (
+    <a href={l(href)} className={`${cls} transition-colors hover:border-signal/40`}>
+      {body}
+    </a>
+  ) : (
+    <div className={cls}>{body}</div>
   );
 }
 

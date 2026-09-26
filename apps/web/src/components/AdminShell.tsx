@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { usePageContext } from "vike-react/usePageContext";
 import { useT, useHref } from "../lib/i18n/index.js";
-import { isStaffRole } from "../lib/admin/roles.js";
+import { canModerate, isStaffRole } from "../lib/admin/roles.js";
+import { fetchAdminCounters } from "../lib/apiExtra.js";
+import type { AdminCounters } from "../lib/types.js";
 import { pageLocale } from "../lib/i18n/pageLocale.js";
 import { useAuth } from "./AuthContext.js";
 
@@ -59,26 +61,32 @@ export function AdminShell({
   wide = false,
 }: {
   children: React.ReactNode;
-  allow?: "admin" | "staff";
+  /** "moderation" — admin va moderator (vakansiya, sharh, kompaniya, murojaatlar, jurnal). */
+  allow?: "admin" | "staff" | "moderation";
   wide?: boolean;
 }) {
   const t = useT();
   const c = t.contentAdmin;
   const l = useHref();
-  const { status, user } = useAuth();
+  const { status, user, accessToken } = useAuth();
   const pageContext = usePageContext();
   const pathname = pageLocale(pageContext).pathname;
 
   const isAdmin = status === "authed" && user?.role === "admin";
   const isStaff = status === "authed" && isStaffRole(user?.role);
-  const allowed = allow === "staff" ? isStaff : isAdmin;
+  const isModerator = status === "authed" && user?.role === "moderator";
+  const allowed = allow === "staff" ? isStaff : allow === "moderation" ? canModerate(user?.role) && status === "authed" : isAdmin;
   const redirectToArticles = status === "authed" && isStaff && !isAdmin && pathname === "/admin";
+  // Moderatorning bosh sahifasi — vakansiyalar navbati (umumiy statistika va xizmat amallari faqat adminda)
+  const redirectToQueue = isModerator && pathname === "/admin";
+  const counters = useAdminCounters(isAdmin || isModerator ? accessToken : null, pathname);
 
   const [showPayments, setShowPayments] = useState(false);
 
   useEffect(() => {
     if (redirectToArticles) window.location.replace(l("/admin/articles"));
-  }, [redirectToArticles, l]);
+    else if (redirectToQueue) window.location.replace(l("/admin/vacancies?status=moderation"));
+  }, [redirectToArticles, redirectToQueue, l]);
 
   useEffect(() => {
     const sync = () => setShowPayments(readAdminBilling());
@@ -87,22 +95,30 @@ export function AdminShell({
     return () => window.removeEventListener(BILLING_EVENT, sync);
   }, []);
 
-  const links = isAdmin
+  // Badge — navbatda kutayotganlar soni (admin/moderator e'tiborini talab qiladi)
+  const moderationLinks: NavItem[] = [
+    { href: "/admin/vacancies", label: t.admin.nav.vacancies, badge: counters?.vacancies },
+    { href: "/admin/companies", label: t.admin.nav.companies, badge: counters?.companies },
+    { href: "/admin/reviews", label: t.admin.nav.reviews, badge: counters?.reviews },
+    { href: "/admin/support", label: t.admin.nav.support, badge: counters?.support },
+    { href: "/admin/moderation-log", label: t.admin.nav.log },
+  ];
+  const links: NavItem[] = isAdmin
     ? [
         { href: "/admin", label: t.admin.nav.overview },
-        { href: "/admin/users", label: t.admin.nav.users },
-        { href: "/admin/vacancies", label: t.admin.nav.vacancies },
-        { href: "/admin/companies", label: t.admin.nav.companies },
-        { href: "/admin/reviews", label: t.admin.nav.reviews },
+        { href: "/admin/users", label: t.admin.nav.users, badge: counters?.recovery },
+        ...moderationLinks,
         // Monetizatsiya o'chiq bo'lsa to'lovlar bo'limi ko'rsatilmaydi (audit R3, D-065)
         ...(showPayments ? [{ href: "/admin/payments", label: t.admin.nav.payments }] : []),
         { href: "/admin/articles", label: c.nav.articles },
         { href: "/admin/team", label: c.nav.team },
       ]
-    : [{ href: "/admin/articles", label: c.nav.articles }];
+    : isModerator
+      ? moderationLinks
+      : [{ href: "/admin/articles", label: c.nav.articles }];
   const width = wide ? "max-w-7xl" : "max-w-6xl";
 
-  if (status === "loading" || redirectToArticles) {
+  if (status === "loading" || redirectToArticles || redirectToQueue) {
     return (
       <div className={`mx-auto ${width} px-4 py-8 sm:px-6`} aria-busy="true">
         <div className="h-8 w-48 animate-pulse rounded-lg bg-surface-2" />
@@ -116,7 +132,14 @@ export function AdminShell({
       <div className="mx-auto max-w-3xl px-4 py-16 text-center sm:px-6" data-testid="admin-access-denied">
         <h1 className="font-display text-xl font-bold text-ink">{allow === "staff" ? c.accessDenied : t.admin.common.accessDenied}</h1>
         <div className="mt-5 flex flex-wrap justify-center gap-3">
-          {isStaff ? (
+          {isModerator ? (
+            <a
+              href={l("/admin/vacancies")}
+              className="inline-block rounded-xl bg-signal px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-signal-dark"
+            >
+              {t.admin.nav.vacancies}
+            </a>
+          ) : isStaff ? (
             <a
               href={l("/admin/articles")}
               className="inline-block rounded-xl bg-signal px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-signal-dark"
@@ -156,6 +179,11 @@ export function AdminShell({
               }`}
             >
               {link.label}
+              {link.badge ? (
+                <span className="ml-1.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-signal px-1.5 text-[10.5px] font-bold leading-[18px] text-white">
+                  {link.badge > 99 ? "99+" : link.badge}
+                </span>
+              ) : null}
             </a>
           );
         })}
@@ -164,6 +192,45 @@ export function AdminShell({
       <div className="mt-6">{children}</div>
     </div>
   );
+}
+
+type NavItem = { href: string; label: string; badge?: number };
+
+/**
+ * Menyu hisoblagichlari: sahifa ochilganda va har daqiqada yangilanadi. Xatoda badge'lar
+ * shunchaki ko'rinmaydi — panel ishlashiga ta'sir qilmaydi.
+ */
+function useAdminCounters(token: string | null, pathname: string): AdminCounters | null {
+  const [counters, setCounters] = useState<AdminCounters | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    const controller = new AbortController();
+    const load = () =>
+      fetchAdminCounters(token, controller.signal).then(
+        (data) => alive && setCounters(data),
+        () => undefined
+      );
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    // Boshqa sahifadagi amal (tasdiqlash) sonlarni o'zgartiradi — bo'lim almashganda ham yangilanadi
+    const refresh = () => void load();
+    window.addEventListener(COUNTERS_EVENT, refresh);
+    return () => {
+      alive = false;
+      controller.abort();
+      window.clearInterval(timer);
+      window.removeEventListener(COUNTERS_EVENT, refresh);
+    };
+  }, [token, pathname]);
+  return counters;
+}
+
+const COUNTERS_EVENT = "admin:counters";
+
+/** Moderatsiya amalidan keyin menyu badge'larini darhol yangilash. */
+export function refreshAdminCounters(): void {
+  window.dispatchEvent(new Event(COUNTERS_EVENT));
 }
 
 /** Admin jadvallari uchun bir xil ko'rinishdagi konteyner. */

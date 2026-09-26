@@ -97,6 +97,8 @@ if (push.status !== 0) {
 const PORT = 4711;
 // TRUST_PROXY sukutini tekshirish uchun qisqa umrli ikkinchi server (audit R3, D-053)
 const PORT_TRUST = 4712;
+// Oldindan moderatsiya SUKUT sozlamasi (tasdiqlanmagan kompaniya e'loni navbatga) uchun uchinchi server
+const PORT_MOD = 4713;
 const env = {
   ...process.env,
   DATABASE_URL: uri,
@@ -108,6 +110,10 @@ const env = {
   JWT_REFRESH_SECRET: "e2e-refresh-secret-0123456789abcdef-B2",
   // Monetizatsiya o'chiq (platforma bepul) — tarif/to'lov yo'llari ro'yxatdan o'tmaydi
   BILLING_ENABLED: "false",
+  // Asosiy tekshiruvlar e'lon/sharh darhol chiqadi deb yozilgan (post-moderatsiya). Oldindan moderatsiya
+  // va 24 soatlik avto-tasdiq pastda alohida, sukut sozlamali uchinchi serverda tekshiriladi.
+  VACANCY_PREMODERATION: "off",
+  REVIEW_PREMODERATION: "false",
   ADMIN_EMAIL: "Admin@Ish.Top",
   ADMIN_PASSWORD: "admin-parol-123",
   TELEGRAM_BOT_TOKEN: "",
@@ -1292,7 +1298,7 @@ await check("jamoa: faolsizlantirish va rol o'zgarishi DARHOL kuchga kiradi (esk
   try { unlinkSync(new URL(`../uploads/${ok.body.url.split("/").pop()}`, import.meta.url)); } catch {}
 });
 
-await check("yordam/aloqa: faqat sozlangan kanallar, server validatsiyasi, sozlanmagan xizmat 503, honeypot", async () => {
+await check("yordam/aloqa: faqat sozlangan kanallar, server validatsiyasi, xabar murojaatlar qutisiga yoziladi, honeypot", async () => {
   const c = await j("/api/support/contacts");
   if (c.status !== 200) throw new Error("contacts: " + c.status);
   const b = c.body;
@@ -1301,8 +1307,9 @@ await check("yordam/aloqa: faqat sozlangan kanallar, server validatsiyasi, sozla
     throw new Error("kanallar: " + JSON.stringify(b.channels));
   }
   if (b.hours !== "Du–Ju, 09:00–18:00" || b.responseHours !== null) throw new Error("ish vaqti/muddat: " + JSON.stringify(b));
-  if (b.form?.enabled !== false || !b.form.subjects?.includes("partnership")) throw new Error("forma: " + JSON.stringify(b.form));
-  if (b.partnership !== null) throw new Error("hamkorlik (forma o'chiq, pochta yo'q): " + JSON.stringify(b.partnership));
+  // Forma har doim ishlaydi: xabar bazadagi murojaatlar qutisiga tushadi (Telegram — qo'shimcha kanal)
+  if (b.form?.enabled !== true || !b.form.subjects?.includes("partnership")) throw new Error("forma: " + JSON.stringify(b.form));
+  if (b.partnership?.email !== null || b.partnership?.viaForm !== true) throw new Error("hamkorlik (forma orqali): " + JSON.stringify(b.partnership));
 
   const badEmail = await post("/api/support", { name: "Ali", email: "ali@", subject: "general", message: "Salom, yordam kerak" });
   if (badEmail.status !== 400) throw new Error("noto'g'ri email: " + badEmail.status);
@@ -1310,10 +1317,14 @@ await check("yordam/aloqa: faqat sozlangan kanallar, server validatsiyasi, sozla
   if (blank.status !== 400) throw new Error("bo'sh xabar: " + blank.status);
   const badSubject = await post("/api/support", { email: "ali@test.uz", subject: "spam", message: "Salom, yordam kerak" });
   if (badSubject.status !== 400) throw new Error("noto'g'ri mavzu: " + badSubject.status);
-  const offline = await post("/api/support", { name: "Ali", email: "", subject: "technical", message: "Sayt <b>ochilmayapti</b>" });
-  if (offline.status !== 503 || offline.body.error !== "SUPPORT_OFFLINE") throw new Error("sozlanmagan: " + offline.status + " " + JSON.stringify(offline.body));
+  // Telegram sozlanmagan — xabar baribir yo'qolmaydi, murojaatlar qutisiga yoziladi
+  const stored = await post("/api/support", { name: "Ali", email: "", subject: "technical", message: "Sayt <b>ochilmayapti</b>" });
+  if (stored.status !== 200 || stored.body.ok !== true) throw new Error("saqlash: " + stored.status + " " + JSON.stringify(stored.body));
+  const ticket = await prisma.supportTicket.findFirst({ where: { kind: "contact", subject: "technical" }, orderBy: { createdAt: "desc" } });
+  if (!ticket || ticket.status !== "open" || !ticket.message.includes("ochilmayapti")) throw new Error("murojaat bazada yo'q: " + JSON.stringify(ticket));
   const bot = await post("/api/support", { name: "Bot", email: "bot@test.uz", message: "Reklama xabari", website: "https://spam.example" });
   if (bot.status !== 200 || bot.body.ok !== true) throw new Error("honeypot: " + bot.status);
+  if (await prisma.supportTicket.findFirst({ where: { email: "bot@test.uz" } })) throw new Error("honeypot xabari bazaga yozildi");
 });
 
 // ===================== AUDIT: xavfsizlik va miqyos regressiyasi =====================
@@ -3064,6 +3075,12 @@ await check("[admin-staff-15] admin mutatsiyalari: mehmon 401, nomzod va ish ber
     ["POST", `/api/admin/payments/${fake}/confirm`, {}, true],
     ["POST", `/api/admin/recovery-requests/${fake}/approve`, { note: "sinov" }, false],
     ["POST", `/api/admin/recovery-requests/${fake}/reject`, { note: "sinov" }, false],
+    // Moderatsiya ish joyi
+    ["POST", "/api/admin/vacancies/bulk", { ids: [fake], status: "active" }, false],
+    ["POST", "/api/admin/reviews/bulk", { ids: [fake], action: "approved" }, false],
+    ["PATCH", `/api/admin/support/${fake}`, { status: "resolved" }, false],
+    ["POST", `/api/admin/support/${fake}/reply`, { message: "Salom" }, false],
+    ["POST", "/api/admin/moderation/auto-approve/run", {}, false],
   ];
   const call = (method, path, body, token) =>
     j(path, {
@@ -3081,7 +3098,17 @@ await check("[admin-staff-15] admin mutatsiyalari: mehmon 401, nomzod va ish ber
     }
   }
   // O'qish yo'llari ham
-  for (const path of ["/api/admin/overview", "/api/admin/users", "/api/admin/recovery-requests"]) {
+  for (const path of [
+    "/api/admin/overview",
+    "/api/admin/users",
+    "/api/admin/recovery-requests",
+    "/api/admin/counters",
+    "/api/admin/support",
+    "/api/admin/moderation-log",
+    "/api/admin/broadcasts",
+    `/api/admin/vacancies/${fake}`,
+    `/api/admin/users/${fake}`,
+  ]) {
     const guest = await j(path);
     if (guest.status !== 401) throw new Error(`mehmon GET ${path}: ${guest.status}`);
     const seeker = await j(path, { headers: authH(seekerToken) });
@@ -3096,6 +3123,231 @@ await check("[D-055] Google: yaroqsiz credential seans bermaydi va 500 qaytarmay
 });
 note("[D-055] Google avtomatik birlashtirishni rad etish (409 GOOGLE_ACCOUNT_EXISTS) tekshirilmaydi: Google imzolagan haqiqiy ID token kerak, GOOGLE_CLIENT_ID esa bu yerda bo'sh. Qaror `auth.service.ts` `googleLogin` da `mergeable` sharti bilan amalga oshirilgan.");
 note("[D-045] Parolni tiklash, telefonni almashtirish, zaxira telefon va qo'lda tiklash oqimlari Telegram botisiz ishlamaydi — ular `scripts/auth-telegram-check.mjs` da (TELEGRAM_TEST_MODE=1) tekshiriladi.");
+
+
+// ===================== Moderatsiya: murojaatlar, jurnal, ommaviy amallar, moderator roli =====================
+await check("[moderatsiya] vakansiya shikoyati vakansiyaga bog'lanadi, admin navbatida va ro'yxatda ko'rinadi", async () => {
+  const created = await newVacancy({ title: "Shikoyat sinovi" });
+  if (created.status !== 201 || created.body.status !== "active") throw new Error("e'lon: " + created.status + " " + JSON.stringify(created.body).slice(0, 160));
+  const bad = await post(`/api/vacancies/${created.body.slug}/report`, { reason: "spam" });
+  if (bad.status !== 400) throw new Error("noto'g'ri sabab: " + bad.status);
+  const rep = await post(`/api/vacancies/${created.body.slug}/report`, { reason: "fraud", comment: "Oldindan pul so'rashyapti" }, seekerToken);
+  if (rep.status !== 200) throw new Error("shikoyat: " + rep.status + " " + JSON.stringify(rep.body));
+  // Bir foydalanuvchining takroriy shikoyati navbatni to'ldirmaydi
+  await post(`/api/vacancies/${created.body.slug}/report`, { reason: "fraud" }, seekerToken);
+  const count = await prisma.supportTicket.count({ where: { vacancyId: created.body.id, kind: "vacancy_report" } });
+  if (count !== 1) throw new Error("takroriy shikoyat yozildi: " + count);
+
+  const inbox = await j("/api/admin/support?kind=vacancy_report&status=open", authGet(adminToken));
+  const item = inbox.body.items?.find((x) => x.vacancy?.id === created.body.id);
+  if (inbox.status !== 200 || !item || item.subject !== "fraud" || !item.account) throw new Error("admin qutisi: " + JSON.stringify(inbox.body).slice(0, 240));
+  const list = await j(`/api/admin/vacancies?text=${encodeURIComponent("Shikoyat sinovi")}`, authGet(adminToken));
+  const row = list.body.items?.find((x) => x.id === created.body.id);
+  if (!row || row.openReports !== 1) throw new Error("ro'yxatda shikoyat soni: " + JSON.stringify(row));
+
+  const detail = await j(`/api/admin/vacancies/${created.body.id}`, authGet(adminToken));
+  if (detail.status !== 200 || detail.body.reports?.length !== 1 || !detail.body.description) throw new Error("tafsilot: " + JSON.stringify(detail.body).slice(0, 200));
+
+  // Holat o'zgarishi va izoh jurnalga tushadi
+  const upd = await patch(`/api/admin/support/${item.id}`, { status: "resolved", adminNote: "E'lon tekshirildi" }, adminToken);
+  if (upd.status !== 200 || upd.body.status !== "resolved") throw new Error("holat: " + upd.status);
+  const reply = await post(`/api/admin/support/${item.id}/reply`, { message: "Rahmat" }, adminToken);
+  if (reply.status !== 503 || reply.body.error !== "EMAIL_DISABLED") throw new Error("SMTP'siz javob: " + reply.status + " " + JSON.stringify(reply.body));
+  const logRes = await j(`/api/admin/moderation-log?entityType=ticket&entityId=${item.id}`, authGet(adminToken));
+  if (!logRes.body.items?.some((e) => e.action === "ticket_status" && e.actorId)) throw new Error("jurnal: " + JSON.stringify(logRes.body).slice(0, 200));
+});
+
+await check("[moderatsiya] ommaviy arxivlash: har biri tekshiriladi, jurnalga kim qilgani bilan yoziladi", async () => {
+  const a = await newVacancy({ title: "Ommaviy A" });
+  const b = await newVacancy({ title: "Ommaviy B" });
+  const fake = "0".repeat(24);
+  const res = await post("/api/admin/vacancies/bulk", { ids: [a.body.id, b.body.id, fake], status: "archived" }, adminToken);
+  if (res.status !== 200 || res.body.done !== 2 || res.body.failed?.length !== 1) throw new Error(JSON.stringify(res.body));
+  const rows = await prisma.vacancy.findMany({ where: { id: { in: [a.body.id, b.body.id] } }, select: { status: true, adminArchivedAt: true } });
+  if (!rows.every((r) => r.status === "archived" && r.adminArchivedAt)) throw new Error("arxivlanmadi: " + JSON.stringify(rows));
+  const logRes = await j(`/api/admin/moderation-log?entityType=vacancy&entityId=${a.body.id}`, authGet(adminToken));
+  const ev = logRes.body.items?.[0];
+  if (!ev || ev.action !== "archived" || !ev.actorName || ev.meta?.title !== "Ommaviy A") throw new Error("jurnal: " + JSON.stringify(ev));
+  const tooMany = await post("/api/admin/vacancies/bulk", { ids: Array.from({ length: 101 }, () => fake), status: "archived" }, adminToken);
+  if (tooMany.status !== 400) throw new Error("101 ta id: " + tooMany.status);
+});
+
+await check("[moderatsiya] kompaniya tasdiq so'rovi: STIR tekshiruvi, admin navbati, sababli rad etish", async () => {
+  const bad = await post("/api/employer/company/verification", { legalName: "NextBrain MChJ", stir: "12345" }, employerToken);
+  if (bad.status !== 400) throw new Error("qisqa STIR: " + bad.status);
+  const ok = await post("/api/employer/company/verification", { legalName: "NextBrain MChJ", stir: "305123456" }, employerToken);
+  if (ok.status !== 200 || !ok.body.company?.verificationRequestedAt) throw new Error("so'rov: " + ok.status + " " + JSON.stringify(ok.body));
+  const queue = await j("/api/admin/companies?requested=1", authGet(adminToken));
+  const row = queue.body.items?.find((c) => c.stir === "305123456");
+  if (!row || row.legalName !== "NextBrain MChJ") throw new Error("navbat: " + JSON.stringify(queue.body).slice(0, 200));
+  const counters = await j("/api/admin/counters", authGet(adminToken));
+  if (counters.status !== 200 || counters.body.companies < 1 || counters.body.support < 0) throw new Error("hisoblagichlar: " + JSON.stringify(counters.body));
+  const rej = await patch(`/api/admin/companies/${row.id}/verify`, { isVerified: false, note: "STIR mos kelmadi" }, adminToken);
+  if (rej.status !== 200) throw new Error("rad etish: " + rej.status);
+  const after = await prisma.company.findUnique({ where: { id: row.id }, select: { isVerified: true, verificationRequestedAt: true, verificationNote: true } });
+  if (after.isVerified || after.verificationRequestedAt || after.verificationNote !== "STIR mos kelmadi") throw new Error("holat: " + JSON.stringify(after));
+  const ev = await prisma.moderationEvent.findFirst({ where: { entityType: "company", entityId: row.id }, orderBy: { createdAt: "desc" } });
+  if (ev?.action !== "verification_rejected" || ev.reason !== "STIR mos kelmadi") throw new Error("jurnal: " + JSON.stringify(ev));
+});
+
+await check("[moderatsiya] moderator roli: moderatsiya bo'limlari ochiq, foydalanuvchilar/umumiy/ommaviy xabar yopiq", async () => {
+  const argon2 = (await import("argon2")).default;
+  await prisma.user.create({
+    data: { email: "moderator@test.uz", passwordHash: await argon2.hash("parol12345"), role: "moderator", isEmailVerified: true, isPhoneVerified: true },
+  });
+  const modToken = await loginAs("moderator@test.uz");
+  if (!modToken) throw new Error("moderator kira olmadi");
+  for (const path of ["/api/admin/vacancies", "/api/admin/reviews", "/api/admin/companies", "/api/admin/support", "/api/admin/moderation-log", "/api/admin/counters"]) {
+    const res = await j(path, authGet(modToken));
+    if (res.status !== 200) throw new Error(`moderator GET ${path}: ${res.status}`);
+  }
+  for (const path of ["/api/admin/overview", "/api/admin/users", "/api/admin/recovery-requests", "/api/admin/broadcasts", "/api/admin/team", "/api/admin/articles"]) {
+    const res = await j(path, authGet(modToken));
+    if (res.status !== 403) throw new Error(`moderator GET ${path}: ${res.status}`);
+  }
+  const bc = await post("/api/admin/broadcast", { title: "Sinov", body: "Sinov xabari", role: "all" }, modToken);
+  if (bc.status !== 403) throw new Error("moderator ommaviy xabar: " + bc.status);
+  // Moderatorning qarori jurnalda uning nomi bilan
+  const v = await newVacancy({ title: "Moderator arxivlaydi" });
+  const mod = await patch(`/api/admin/vacancies/${v.body.id}/moderate`, { status: "archived" }, modToken);
+  if (mod.status !== 200) throw new Error("moderator qarori: " + mod.status);
+  const ev = await prisma.moderationEvent.findFirst({ where: { entityId: v.body.id }, orderBy: { createdAt: "desc" } });
+  const modRow = await prisma.user.findUnique({ where: { email: "moderator@test.uz" }, select: { id: true } });
+  if (ev?.actorId !== modRow.id) throw new Error("jurnalda moderator yo'q: " + JSON.stringify(ev));
+});
+
+await check("[moderatsiya] foydalanuvchi kartochkasi: kompaniya, e'lonlar, murojaatlar bir joyda", async () => {
+  const hr = await prisma.user.findUnique({ where: { email: "hr@test.uz" }, select: { id: true } });
+  const res = await j(`/api/admin/users/${hr.id}`, authGet(adminToken));
+  if (res.status !== 200 || res.body.role !== "employer" || res.body.companies?.length < 1 || res.body.vacancies?.total < 1) {
+    throw new Error(JSON.stringify(res.body).slice(0, 240));
+  }
+  if ("passwordHash" in res.body || JSON.stringify(res.body).includes("password")) throw new Error("maxfiy maydon");
+  const seeker = await prisma.user.findUnique({ where: { email: "seeker@test.uz" }, select: { id: true } });
+  const s = await j(`/api/admin/users/${seeker.id}`, authGet(adminToken));
+  if (s.status !== 200 || s.body.applications?.total < 1 || s.body.tickets?.length < 1) throw new Error("nomzod: " + JSON.stringify(s.body).slice(0, 240));
+});
+
+// Oldindan moderatsiya va 24 soatlik avto-tasdiq — SUKUT sozlamali uchinchi server (bir xil baza)
+const modEnv = { ...env, PORT: String(PORT_MOD), REDIS_PREFIX: "ishbor-e2e-3:" };
+delete modEnv.VACANCY_PREMODERATION;
+delete modEnv.REVIEW_PREMODERATION;
+const modServer = spawn(process.execPath, [SERVER], { cwd: ROOT, env: modEnv, stdio: ["ignore", "pipe", "pipe"] });
+let modLog = "";
+modServer.stdout.on("data", (d) => (modLog += d));
+modServer.stderr.on("data", (d) => (modLog += d));
+const MOD_BASE = `http://127.0.0.1:${PORT_MOD}`;
+const j3 = async (path, init) => {
+  const res = await fetch(MOD_BASE + path, init);
+  const text = await res.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = text; }
+  return { status: res.status, body };
+};
+const post3 = (path, data, token, ip) =>
+  j3(path, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(token ? authH(token) : {}), ...(ip ? { "x-forwarded-for": ip } : {}) },
+    body: JSON.stringify(data ?? {}),
+  });
+let modReady = false;
+for (let i = 0; i < 60; i++) {
+  try {
+    const r = await fetch(`${MOD_BASE}/health`);
+    if (r.ok) { modReady = true; break; }
+  } catch {}
+  await sleep(500);
+}
+
+await check("[moderatsiya] sukut: tasdiqlanmagan kompaniya e'loni navbatga tushadi, admin tasdig'i bilan chiqadi", async () => {
+  if (!modReady) throw new Error("uchinchi server ko'tarilmadi:\n" + modLog.slice(-800));
+  const reg = await post3("/api/auth/register", { email: "premod@test.uz", password: "parol12345", role: "employer", companyName: "Premod MChJ" }, null, nextIp());
+  if (reg.status !== 200) throw new Error("ro'yxat: " + reg.status + " " + JSON.stringify(reg.body));
+  await prisma.user.update({ where: { email: "premod@test.uz" }, data: { isPhoneVerified: true } });
+  const token = reg.body.accessToken;
+  const base = { description: "Oldindan moderatsiya tavsifi", employmentType: "full_time", categoryId: cats[0].id, regionId: regions[0].id, workplaceType: "office" };
+  const v = await post3("/api/vacancies", { ...base, title: "Premod birinchi" }, token);
+  if (v.status !== 201 || v.body.status !== "moderation" || v.body.publishedAt) throw new Error("navbatga tushmadi: " + JSON.stringify(v.body).slice(0, 200));
+  if ((await j3(`/api/vacancies/${v.body.slug}`)).status !== 404) throw new Error("navbatdagi e'lon ochiq sahifada");
+  // Qoralama birinchi marta chiqarilganda ham navbatga
+  const draft = await post3("/api/vacancies", { ...base, title: "Premod qoralama", status: "draft" }, token);
+  const pub = await j3(`/api/vacancies/${draft.body.id}/status`, { method: "PATCH", headers: { "content-type": "application/json", ...authH(token) }, body: JSON.stringify({ status: "active" }) });
+  if (pub.status !== 200 || pub.body.status !== "moderation") throw new Error("qoralama navbatni chetlab o'tdi: " + JSON.stringify(pub.body).slice(0, 160));
+
+  const approve = await j3(`/api/admin/vacancies/${v.body.id}/moderate`, { method: "PATCH", headers: { "content-type": "application/json", ...authH(adminToken) }, body: JSON.stringify({ status: "active" }) });
+  if (approve.status !== 200 || approve.body.status !== "active") throw new Error("tasdiq: " + approve.status + " " + JSON.stringify(approve.body));
+  // Bildirishnoma fonda yoziladi — qisqa kutish
+  let note = null;
+  for (let i = 0; i < 20 && !note; i++) {
+    note = await prisma.notification.findFirst({ where: { title: "Vakansiya e'lon qilindi", user: { email: "premod@test.uz" } } });
+    if (!note) await sleep(150);
+  }
+  if (!note) throw new Error("ish beruvchiga tasdiq xabari bormadi");
+
+  // Tasdiqlangan kompaniya — darhol e'lon qilinadi
+  await prisma.company.updateMany({ where: { name: "Premod MChJ" }, data: { isVerified: true } });
+  const fast = await post3("/api/vacancies", { ...base, title: "Premod tasdiqlangan" }, token);
+  if (fast.body.status !== "active") throw new Error("tasdiqlangan kompaniya navbatga tushdi: " + fast.body.status);
+  await prisma.company.updateMany({ where: { name: "Premod MChJ" }, data: { isVerified: false } });
+});
+
+await check("[moderatsiya] 24 soatlik avto-tasdiq: muddati o'tgani faollashadi, yangisi va to'ldirilmagani navbatda qoladi", async () => {
+  if (!modReady) throw new Error("uchinchi server ishlamadi");
+  const H = 3600_000;
+  const owner = await prisma.user.findUnique({ where: { email: "premod@test.uz" }, select: { id: true } });
+  const company = await prisma.company.findFirst({ where: { ownerUserId: owner.id } });
+  const mk = (title, extra) => prisma.vacancy.create({
+    data: {
+      companyId: company.id, title, slug: `avto-${title.toLowerCase().replace(/\W+/g, "-")}-${Date.now()}`, description: "Avto tasdiq",
+      employmentType: "full_time", categoryId: cats[0].id, regionId: regions[0].id, workplaceType: "office", status: "moderation", ...extra,
+    },
+  });
+  const due = await mk("Avto eski", { moderationSubmittedAt: new Date(Date.now() - 25 * H) });
+  const fresh = await mk("Avto yangi", { moderationSubmittedAt: new Date(Date.now() - 1 * H) });
+  const incomplete = await mk("Avto to'liqmas", { moderationSubmittedAt: new Date(Date.now() - 30 * H), categoryId: null });
+
+  const run = await j3("/api/admin/moderation/auto-approve/run", { method: "POST", headers: { "content-type": "application/json", ...authH(adminToken) }, body: "{}" });
+  if (run.status !== 200 || !run.body.enabled || run.body.vacancies < 1) throw new Error("sweep: " + JSON.stringify(run.body));
+  const rows = await prisma.vacancy.findMany({ where: { id: { in: [due.id, fresh.id, incomplete.id] } }, select: { id: true, status: true, autoApprovedAt: true, publishedAt: true, moderationNudgedAt: true } });
+  const by = new Map(rows.map((r) => [r.id, r]));
+  if (by.get(due.id).status !== "active" || !by.get(due.id).autoApprovedAt || !by.get(due.id).publishedAt) throw new Error("eski: " + JSON.stringify(by.get(due.id)));
+  if (by.get(fresh.id).status !== "moderation") throw new Error("yangi faollashdi");
+  if (by.get(incomplete.id).status !== "moderation" || !by.get(incomplete.id).moderationNudgedAt) throw new Error("to'liqmas: " + JSON.stringify(by.get(incomplete.id)));
+  const ev = await prisma.moderationEvent.findFirst({ where: { entityId: due.id, action: "auto_approved" } });
+  if (!ev || ev.actorId) throw new Error("jurnal (tizim): " + JSON.stringify(ev));
+  await sleep(500);
+  const nudge = await prisma.notification.count({ where: { userId: owner.id, title: "Vakansiyani to'ldiring" } });
+  // Ikkinchi yurish — xabar takrorlanmaydi
+  await j3("/api/admin/moderation/auto-approve/run", { method: "POST", headers: { "content-type": "application/json", ...authH(adminToken) }, body: "{}" });
+  await sleep(500);
+  const nudge2 = await prisma.notification.count({ where: { userId: owner.id, title: "Vakansiyani to'ldiring" } });
+  if (nudge !== 1 || nudge2 !== 1) throw new Error(`"to'ldiring" xabari: ${nudge} -> ${nudge2}`);
+
+  // "Tekshirildi": admin avto-tasdiqlangan e'lonni ko'rib chiqadi — belgi olinadi
+  const reviewed = await j3(`/api/admin/vacancies/${due.id}/moderate`, { method: "PATCH", headers: { "content-type": "application/json", ...authH(adminToken) }, body: JSON.stringify({ status: "active" }) });
+  if (reviewed.status !== 200 || reviewed.body.autoApprovedAt !== null) throw new Error("tekshirildi: " + JSON.stringify(reviewed.body));
+});
+
+await check("[moderatsiya] sukut: yangi sharh navbatga tushadi, 24 soatdan keyin avtomatik chop etiladi", async () => {
+  if (!modReady) throw new Error("uchinchi server ishlamadi");
+  const v = await prisma.vacancy.findFirst({ where: { title: "Premod birinchi", status: "active" } });
+  const company = await prisma.company.findUnique({ where: { id: v.companyId }, select: { slug: true } });
+  const reg = await post3("/api/auth/register", { email: "premod-seeker@test.uz", password: "parol12345", role: "job_seeker", firstName: "Sharh", lastName: "Yozuvchi" }, null, nextIp());
+  await prisma.user.update({ where: { email: "premod-seeker@test.uz" }, data: { isPhoneVerified: true } });
+  const token = reg.body.accessToken;
+  // Sharh uchun shu kompaniyaga ariza bo'lishi shart — ariza oqimi boshqa tekshiruvlarda sinalgan
+  const seekerRow = await prisma.user.findUnique({ where: { email: "premod-seeker@test.uz" }, select: { id: true } });
+  await prisma.application.create({ data: { vacancyId: v.id, jobSeekerId: seekerRow.id } });
+  const review = await post3(`/api/companies/${company.slug}/reviews`, { rating: 4, comment: "Yaxshi jamoa" }, token);
+  if (review.status !== 201 || review.body.status !== "pending") throw new Error("sharh: " + JSON.stringify(review.body));
+  await prisma.companyReview.update({ where: { id: review.body.id }, data: { submittedAt: new Date(Date.now() - 25 * 3600_000) } });
+  const run = await j3("/api/admin/moderation/auto-approve/run", { method: "POST", headers: { "content-type": "application/json", ...authH(adminToken) }, body: "{}" });
+  if (run.body.reviews < 1) throw new Error("sweep: " + JSON.stringify(run.body));
+  const after = await prisma.companyReview.findUnique({ where: { id: review.body.id }, select: { status: true, autoApprovedAt: true } });
+  if (after.status !== "approved" || !after.autoApprovedAt) throw new Error("sharh: " + JSON.stringify(after));
+});
+
+modServer.kill("SIGTERM");
 
 await check("[ISSUE-030] [PHASE6-U34] loglarda WebSocket access tokeni yo'q (token= ko'rinishida ham, tokenning o'zi ham)", async () => {
   if (/token=eyJ/.test(log)) throw new Error("token logda");

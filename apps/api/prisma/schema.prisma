@@ -29,6 +29,9 @@ enum UserRole {
   admin
   content_editor
   content_author
+  // Moderator: vakansiya, sharh, kompaniya tasdig'i va murojaatlar. Foydalanuvchi bloklash, rollar,
+  // to'lovlar, ommaviy xabar va maqolalar — yo'q. Faqat jamoa taklifi orqali ochiladi.
+  moderator
 }
 
 // Maqola hayot sikli: muallif qoralama yozadi -> ko'rib chiqishga yuboradi ->
@@ -314,28 +317,32 @@ model ResumeSkill {
 // ------------------------------------------------------------
 
 model Company {
-  id                    String    @id @default(auto()) @map("_id") @db.ObjectId
-  ownerUserId           String    @map("owner_user_id") @db.ObjectId
-  name                  String
-  legalName             String?   @map("legal_name")
-  stir                  String?
-  slug                  String    @unique
-  logoUrl               String?   @map("logo_url")
-  description           String?
-  website               String?
-  industryId            String?   @map("industry_id")
-  industry              String?
-  employeeCount         String?   @map("employee_count")
-  foundedYear           Int?      @map("founded_year")
+  id                      String    @id @default(auto()) @map("_id") @db.ObjectId
+  ownerUserId             String    @map("owner_user_id") @db.ObjectId
+  name                    String
+  legalName               String?   @map("legal_name")
+  stir                    String?
+  slug                    String    @unique
+  logoUrl                 String?   @map("logo_url")
+  description             String?
+  website                 String?
+  industryId              String?   @map("industry_id")
+  industry                String?
+  employeeCount           String?   @map("employee_count")
+  foundedYear             Int?      @map("founded_year")
   // Ofis/jamoa rasmlari (to'liq URL yoki /uploads/...). Bo'sh bo'lsa vakansiya
   // sahifasidagi "Kompaniya rasmlari" bloki umuman chiqmaydi.
-  images                String[]  @default([])
-  regionId              String?   @map("region_id") @db.ObjectId
-  isVerified            Boolean   @default(false) @map("is_verified")
-  subscriptionPlanId    String?   @map("subscription_plan_id") @db.ObjectId
-  subscriptionExpiresAt DateTime? @map("subscription_expires_at")
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  images                  String[]  @default([])
+  regionId                String?   @map("region_id") @db.ObjectId
+  isVerified              Boolean   @default(false) @map("is_verified")
+  // Tasdiq so'rovi (ish beruvchi yuridik nom va STIR bilan yuboradi). Admin qarori bilan tozalanadi.
+  verificationRequestedAt DateTime? @map("verification_requested_at")
+  // Oxirgi rad etish izohi (ish beruvchiga ko'rinadi)
+  verificationNote        String?   @map("verification_note")
+  subscriptionPlanId      String?   @map("subscription_plan_id") @db.ObjectId
+  subscriptionExpiresAt   DateTime? @map("subscription_expires_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
 
   owner            User              @relation("CompanyOwner", fields: [ownerUserId], references: [id])
   region           Region?           @relation(fields: [regionId], references: [id])
@@ -405,46 +412,53 @@ model Region {
 // ------------------------------------------------------------
 
 model Vacancy {
-  id                 String             @id @default(auto()) @map("_id") @db.ObjectId
-  companyId          String             @map("company_id") @db.ObjectId
-  title              String
-  slug               String             @unique
-  description        String
-  requirements       String?
-  conditions         String?
-  categoryId         String?            @map("category_id") @db.ObjectId
-  regionId           String?            @map("region_id") @db.ObjectId
-  address            String?
-  latitude           Float?
-  longitude          Float?
+  id                    String             @id @default(auto()) @map("_id") @db.ObjectId
+  companyId             String             @map("company_id") @db.ObjectId
+  title                 String
+  slug                  String             @unique
+  description           String
+  requirements          String?
+  conditions            String?
+  categoryId            String?            @map("category_id") @db.ObjectId
+  regionId              String?            @map("region_id") @db.ObjectId
+  address               String?
+  latitude              Float?
+  longitude             Float?
   // Ish joyi rasmlari (to'liq URL yoki /uploads/...). Bo'sh bo'lsa galereya chiqmaydi.
-  images             String[]           @default([])
-  employmentType     EmploymentType     @map("employment_type")
-  scheduleType       ScheduleType?      @map("schedule_type")
+  images                String[]           @default([])
+  employmentType        EmploymentType     @map("employment_type")
+  scheduleType          ScheduleType?      @map("schedule_type")
   // Eski yozuvlarda bo'sh bo'lishi mumkin (migratsiyasiz); yangi va tahrirlangan e'lonlarda majburiy (API)
-  workplaceType      WorkplaceType?     @map("workplace_type")
-  experienceRequired ExperienceRequired @default(none) @map("experience_required")
-  salaryMin          Int?               @map("salary_min")
-  salaryMax          Int?               @map("salary_max")
-  currency           String             @default("UZS")
-  salaryType         SalaryType?        @map("salary_type")
-  isSalaryHidden     Boolean            @default(false) @map("is_salary_hidden")
-  applyWithoutResume Boolean            @default(false) @map("apply_without_resume")
+  workplaceType         WorkplaceType?     @map("workplace_type")
+  experienceRequired    ExperienceRequired @default(none) @map("experience_required")
+  salaryMin             Int?               @map("salary_min")
+  salaryMax             Int?               @map("salary_max")
+  currency              String             @default("UZS")
+  salaryType            SalaryType?        @map("salary_type")
+  isSalaryHidden        Boolean            @default(false) @map("is_salary_hidden")
+  applyWithoutResume    Boolean            @default(false) @map("apply_without_resume")
   // Ish beruvchining ixtiyoriy bog'lanish yo'llari — vakansiya sahifasida ko'rsatiladi
-  contactEmail       String?            @map("contact_email")
-  contactTelegram    String?            @map("contact_telegram")
-  contactPhone       String?            @map("contact_phone")
-  status             VacancyStatus      @default(draft)
-  isUrgent           Boolean            @default(false) @map("is_urgent")
-  isPremium          Boolean            @default(false) @map("is_premium")
-  rejectionReason    String?            @map("rejection_reason")
+  contactEmail          String?            @map("contact_email")
+  contactTelegram       String?            @map("contact_telegram")
+  contactPhone          String?            @map("contact_phone")
+  status                VacancyStatus      @default(draft)
+  isUrgent              Boolean            @default(false) @map("is_urgent")
+  isPremium             Boolean            @default(false) @map("is_premium")
+  rejectionReason       String?            @map("rejection_reason")
   // Admin yopgan e'lon (arxiv, rad etish, bloklash yoki rol o'zgarishi): ish beruvchi qayta faollashtira olmaydi (audit R3, D-070)
-  adminArchivedAt    DateTime?          @map("admin_archived_at")
-  publishedAt        DateTime?          @map("published_at")
-  expiresAt          DateTime?          @map("expires_at")
-  viewsCount         Int                @default(0) @map("views_count")
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
+  adminArchivedAt       DateTime?          @map("admin_archived_at")
+  // Moderatsiya navbatiga tushgan vaqt: admin shu paytdan boshlab MODERATION_AUTO_APPROVE_HOURS ichida
+  // qaror qilmasa, e'lon avtomatik faollashadi. Eski hujjatlarda yo'q — `updatedAt` zaxira sifatida olinadi.
+  moderationSubmittedAt DateTime?          @map("moderation_submitted_at")
+  // Admin emas, muddat tugagani uchun avtomatik tasdiqlangan (admin keyin qayta ko'rib chiqishi uchun belgi)
+  autoApprovedAt        DateTime?          @map("auto_approved_at")
+  // Avto-tasdiq qoidadan o'tmay to'xtaganda ish beruvchiga "to'ldiring" xabari bir marta yuboriladi
+  moderationNudgedAt    DateTime?          @map("moderation_nudged_at")
+  publishedAt           DateTime?          @map("published_at")
+  expiresAt             DateTime?          @map("expires_at")
+  viewsCount            Int                @default(0) @map("views_count")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
 
   company      Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category     VacancyCategory? @relation(fields: [categoryId], references: [id])
@@ -453,6 +467,8 @@ model Vacancy {
   favorites    Favorite[]
 
   @@index([status, publishedAt])
+  // Avto-tasdiq sweep'i: moderatsiyadagi e'lonlar navbatga tushgan vaqti bo'yicha
+  @@index([status, moderationSubmittedAt])
   // Asosiy ro'yxat saralashi ("Eng dolzarb": premium, keyin sana) indeks bo'yicha
   @@index([status, isPremium, publishedAt])
   @@index([companyId])
@@ -757,13 +773,17 @@ model StaffInvite {
 // ------------------------------------------------------------
 
 model CompanyReview {
-  id        String       @id @default(auto()) @map("_id") @db.ObjectId
-  companyId String       @map("company_id") @db.ObjectId
-  userId    String       @map("user_id") @db.ObjectId
-  rating    Int
-  comment   String?
-  status    ReviewStatus @default(pending)
-  createdAt DateTime     @default(now()) @map("created_at")
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  companyId      String       @map("company_id") @db.ObjectId
+  userId         String       @map("user_id") @db.ObjectId
+  rating         Int
+  comment        String?
+  status         ReviewStatus @default(pending)
+  // Moderatsiyaga (qayta) yuborilgan vaqt — avto-tasdiq muddati shundan hisoblanadi.
+  // Eski hujjatlarda yo'q — `createdAt` zaxira sifatida olinadi.
+  submittedAt    DateTime?    @map("submitted_at")
+  autoApprovedAt DateTime?    @map("auto_approved_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -772,6 +792,7 @@ model CompanyReview {
   @@unique([companyId, userId])
   @@index([userId])
   @@index([status])
+  @@index([status, submittedAt])
   @@map("company_reviews")
 }
 
@@ -954,4 +975,97 @@ model SecurityEvent {
   @@index([userId, createdAt])
   @@index([type, createdAt])
   @@map("security_events")
+}
+
+// ------------------------------------------------------------
+// Moderatsiya jurnali: vakansiya, sharh, kompaniya va murojaatlar bo'yicha har bir qaror.
+// `actorId` null — tizim (masalan, 24 soatlik avto-tasdiq).
+// ------------------------------------------------------------
+
+enum ModerationEntity {
+  vacancy
+  review
+  company
+  ticket
+}
+
+model ModerationEvent {
+  id         String           @id @default(auto()) @map("_id") @db.ObjectId
+  entityType ModerationEntity @map("entity_type")
+  entityId   String           @map("entity_id") @db.ObjectId
+  // approved | rejected | archived | premium_on | premium_off | reviewed | auto_approved |
+  // auto_skipped | deleted | pending | verified | unverified | verification_rejected | ticket_status | ticket_reply
+  action     String
+  actorId    String?          @map("actor_id") @db.ObjectId
+  reason     String?
+  // Qisqa kontekst: sarlavha, kompaniya nomi, eski/yangi holat (maxfiy ma'lumotsiz)
+  meta       Json?
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  @@index([entityType, entityId, createdAt])
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@map("moderation_events")
+}
+
+// ------------------------------------------------------------
+// Murojaatlar: aloqa formasi va vakansiya shikoyatlari. Telegram faqat qo'shimcha kanal —
+// xabar avval bazaga yoziladi, admin panelda ko'rib chiqiladi.
+// ------------------------------------------------------------
+
+enum SupportTicketKind {
+  contact
+  vacancy_report
+}
+
+enum SupportTicketStatus {
+  open
+  in_progress
+  resolved
+  dismissed
+}
+
+model SupportTicket {
+  id          String              @id @default(auto()) @map("_id") @db.ObjectId
+  kind        SupportTicketKind
+  status      SupportTicketStatus @default(open)
+  // contact: general | technical | ...; vacancy_report: outdated | wrong | fraud | other
+  subject     String?
+  name        String?
+  email       String?
+  message     String
+  userId      String?             @map("user_id") @db.ObjectId
+  vacancyId   String?             @map("vacancy_id") @db.ObjectId
+  adminNote   String?             @map("admin_note")
+  handledById String?             @map("handled_by_id") @db.ObjectId
+  handledAt   DateTime?           @map("handled_at")
+  // Admin emailga javob yuborgan vaqt
+  repliedAt   DateTime?           @map("replied_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([kind, status, createdAt])
+  @@index([vacancyId, status])
+  @@index([userId])
+  @@map("support_tickets")
+}
+
+// Ommaviy xabarlar tarixi (kim, kimga, qancha yetkazildi)
+model Broadcast {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  title      String
+  body       String
+  audience   String
+  url        String?
+  actorId    String    @map("actor_id") @db.ObjectId
+  total      Int
+  delivered  Int       @default(0)
+  // running | done | failed
+  status     String    @default("running")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  finishedAt DateTime? @map("finished_at")
+
+  @@index([createdAt])
+  @@map("broadcasts")
 }

@@ -117,8 +117,11 @@ export function EmployerVacanciesView({ token }: { token: string }) {
   // Forma sahifasidan qaytganda (`?notice=created|updated`) — xabar, parametr URL'dan olib tashlanadi
   useEffect(() => {
     const flag = new URLSearchParams(window.location.search).get("notice");
-    if (flag !== "created" && flag !== "updated" && flag !== "draft") return;
-    showNotice("success", flag === "created" ? p.notices.created : flag === "draft" ? p.notices.draft : p.notices.updated);
+    if (flag !== "created" && flag !== "submitted" && flag !== "updated" && flag !== "draft") return;
+    showNotice(
+      "success",
+      flag === "created" ? p.notices.created : flag === "submitted" ? p.notices.submitted : flag === "draft" ? p.notices.draft : p.notices.updated
+    );
     window.history.replaceState(null, "", window.location.pathname + employerVacancySearch(queryRef.current) + window.location.hash);
     // faqat birinchi ochilishda
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -155,9 +158,13 @@ export function EmployerVacanciesView({ token }: { token: string }) {
   async function changeStatus(vacancy: EmployerVacancyVM, next: "active" | "archived") {
     setBusyId(vacancy.id);
     try {
-      await setVacancyStatus(tokenRef.current, vacancy.id, next);
+      const result = await setVacancyStatus(tokenRef.current, vacancy.id, next);
       setPhoneGated(false);
-      showNotice("success", next === "active" ? p.notices.activated : p.notices.closed);
+      // Qoralamani birinchi marta chiqarish tasdiqlanmagan kompaniyada moderatsiyaga tushadi
+      showNotice(
+        "success",
+        next === "active" ? (result?.status === "moderation" ? p.notices.submitted : p.notices.activated) : p.notices.closed
+      );
       // Sonlar va holat filtri serverdan keladi — qayta so'raladi
       reload();
     } catch (err) {

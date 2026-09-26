@@ -5,8 +5,16 @@
 // bo'sh natija — sayt server o'chiq bo'lganda ham ochiladi.
 import { API_URL, ApiError, ssrHeaders, withServerTimeout } from "./api.js";
 import type {
+  AdminBroadcast,
   AdminCompany,
+  AdminCounters,
   AdminOverview,
+  AdminSupportTicket,
+  AdminUserDetail,
+  AdminVacancyDetail,
+  ModerationEventView,
+  MyCompany,
+  SupportTicketStatus,
   AdminPayment,
   AdminReview,
   AdminUser,
@@ -456,7 +464,7 @@ export function setUserRole(token: string, id: string, role: "job_seeker" | "emp
 
 export function fetchAdminVacancies(
   token: string,
-  params: { text?: string; status?: string; page?: number } = {},
+  params: { text?: string; status?: string; autoApproved?: boolean; page?: number } = {},
   signal?: AbortSignal
 ) {
   return getStrict<Paged<AdminVacancy>>(`/api/admin/vacancies${adminQuery(params)}`, token, signal);
@@ -477,22 +485,97 @@ export function moderateVacancy(
 
 export function fetchAdminCompanies(
   token: string,
-  params: { text?: string; verified?: boolean; page?: number } = {},
+  params: { text?: string; verified?: boolean; requested?: boolean; page?: number } = {},
   signal?: AbortSignal
 ) {
   return getStrict<Paged<AdminCompany>>(`/api/admin/companies${adminQuery(params)}`, token, signal);
 }
 
-export function verifyCompany(token: string, id: string, isVerified: boolean) {
+export function verifyCompany(token: string, id: string, isVerified: boolean, note?: string) {
   return send<{ id: string; isVerified: boolean }>(
     `/api/admin/companies/${id}/verify`,
     "PATCH",
     token,
-    { isVerified }
+    { isVerified, ...(note ? { note } : {}) }
   );
 }
 
-export function fetchAdminReviews(token: string, params: { status?: string; page?: number } = {}, signal?: AbortSignal) {
+// ---------------------------------------------------------------- moderatsiya ish joyi
+
+export function fetchAdminCounters(token: string, signal?: AbortSignal) {
+  return getStrict<AdminCounters>("/api/admin/counters", token, signal);
+}
+
+export function fetchAdminVacancy(token: string, id: string, signal?: AbortSignal) {
+  return getStrict<AdminVacancyDetail>(`/api/admin/vacancies/${id}`, token, signal);
+}
+
+export type BulkResult = { done: number; failed: { id: string; code: string; message: string }[] };
+
+export function bulkModerateVacancies(token: string, ids: string[], status: "active" | "rejected" | "archived", reason?: string) {
+  return send<BulkResult>("/api/admin/vacancies/bulk", "POST", token, { ids, status, ...(reason ? { reason } : {}) });
+}
+
+export function bulkModerateReviews(token: string, ids: string[], action: "approved" | "rejected" | "delete") {
+  return send<BulkResult>("/api/admin/reviews/bulk", "POST", token, { ids, action });
+}
+
+export function fetchModerationLog(
+  token: string,
+  params: { entityType?: string; entityId?: string; actor?: string; page?: number } = {},
+  signal?: AbortSignal
+) {
+  return getStrict<Paged<ModerationEventView>>(`/api/admin/moderation-log${adminQuery(params)}`, token, signal);
+}
+
+export function fetchAdminSupport(
+  token: string,
+  params: { status?: string; kind?: string; page?: number } = {},
+  signal?: AbortSignal
+) {
+  return getStrict<Paged<AdminSupportTicket> & { canReply: boolean }>(`/api/admin/support${adminQuery(params)}`, token, signal);
+}
+
+export function updateSupportTicket(token: string, id: string, input: { status?: SupportTicketStatus; adminNote?: string | null }) {
+  return send<{ id: string; status: SupportTicketStatus; adminNote: string | null }>(`/api/admin/support/${id}`, "PATCH", token, input);
+}
+
+export function replySupportTicket(token: string, id: string, message: string) {
+  return send<{ ok: true }>(`/api/admin/support/${id}/reply`, "POST", token, { message });
+}
+
+export function fetchAdminUser(token: string, id: string, signal?: AbortSignal) {
+  return getStrict<AdminUserDetail>(`/api/admin/users/${id}`, token, signal);
+}
+
+export function fetchBroadcasts(token: string, signal?: AbortSignal) {
+  return getStrict<{ items: AdminBroadcast[] }>("/api/admin/broadcasts", token, signal);
+}
+
+/** Ish beruvchi: kompaniyani tasdiqlash so'rovi (yuridik nom + STIR). */
+export function requestCompanyVerification(token: string, input: { legalName: string; stir: string }) {
+  return send<{ company: Pick<MyCompany, "id" | "isVerified" | "legalName" | "stir" | "verificationRequestedAt" | "verificationNote"> }>(
+    "/api/employer/company/verification",
+    "POST",
+    token,
+    input
+  );
+}
+
+/** Vakansiya shikoyati (sabab + izoh), vakansiyaga bog'lanadi. */
+export function reportVacancy(
+  slug: string,
+  input: { reason: "outdated" | "wrong" | "fraud" | "other"; comment?: string; email?: string },
+  token: string | null
+) {
+  return send<{ ok: true }>(`/api/vacancies/${encodeURIComponent(slug)}/report`, "POST", token, input);
+}
+
+export function fetchAdminReviews(
+  token: string,
+  params: { status?: string; autoApproved?: boolean; page?: number } = {},
+  signal?: AbortSignal
+) {
   return getStrict<Paged<AdminReview>>(`/api/admin/reviews${adminQuery(params)}`, token, signal);
 }
 
@@ -523,6 +606,15 @@ export function reindexSearch(token: string) {
 export function runAlertsNow(token: string) {
   return send<{ checked: number; notified: number; matched: number }>(
     "/api/admin/alerts/run",
+    "POST",
+    token,
+    {}
+  );
+}
+
+export function runAutoApproveNow(token: string) {
+  return send<{ enabled: boolean; vacancies: number; vacanciesSkipped: number; reviews: number }>(
+    "/api/admin/moderation/auto-approve/run",
     "POST",
     token,
     {}

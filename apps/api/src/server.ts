@@ -42,9 +42,12 @@ import { notificationRoutes } from "./modules/notifications/notifications.routes
 import { favoriteRoutes } from "./modules/favorites/favorites.routes.js";
 import { alertRoutes } from "./modules/alerts/alerts.routes.js";
 import { startAlertScheduler, stopAlertScheduler } from "./modules/alerts/alerts.service.js";
+import { startAutoApproveScheduler, stopAutoApproveScheduler } from "./modules/moderation/auto-approve.service.js";
 import { billingRoutes } from "./modules/billing/billing.routes.js";
 import { ensurePlans } from "./modules/billing/billing.service.js";
 import { adminRoutes } from "./modules/admin/admin.routes.js";
+import { adminModerationRoutes } from "./modules/admin/admin.moderation.routes.js";
+import { adminSupportRoutes } from "./modules/admin/admin.support.routes.js";
 import { warmSearchIndex } from "./modules/search/search.service.js";
 import { ensureCatalog } from "./common/ensure-catalog.js";
 import { ensureAdminUser } from "./common/ensure-admin.js";
@@ -433,6 +436,8 @@ await app.register(alertRoutes);
 // Monetizatsiya o'chiq (platforma bepul): tariflar, checkout va webhook'lar faqat BILLING_ENABLED=true bo'lsa
 if (features.billing) await app.register(billingRoutes);
 await app.register(adminRoutes);
+await app.register(adminModerationRoutes);
+await app.register(adminSupportRoutes);
 await app.register(articleAdminRoutes);
 await app.register(teamRoutes);
 
@@ -465,6 +470,8 @@ async function bootstrap() {
   void startTelegramBot(app.log);
   void warmSearchIndex();
   startAlertScheduler(app.log);
+  // Admin 24 soat ichida ko'rmagan moderatsiya navbati avtomatik tasdiqlanadi
+  startAutoApproveScheduler(app.log);
   startHeartbeat();
   // Ko'rishlar buferini davriy ravishda bazaga yozadi (audit: views-1)
   startCounterFlush(app.log);
@@ -487,6 +494,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     // Osilib qolgan ulanishlar deployni to'xtatib qo'ymasin — 10 soniyadan keyin majburan chiqamiz
     setTimeout(() => process.exit(1), 10_000).unref();
     stopAlertScheduler();
+    stopAutoApproveScheduler();
     stopTelegramBot();
     stopHeartbeat();
     stopCounterFlush();

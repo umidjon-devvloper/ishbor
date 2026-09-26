@@ -776,8 +776,11 @@ export interface CreateVacancyInput {
   salaryMax?: number | null;
   isSalaryHidden?: boolean;
   applyWithoutResume?: boolean;
-  /** "draft" — qoralama: e'lon qilinmaydi, qidiruv indeksiga tushmaydi. Standart — darhol faol. */
-  status?: "active" | "draft";
+  /**
+   * "draft" — qoralama: e'lon qilinmaydi, qidiruv indeksiga tushmaydi. "moderation" — oldindan
+   * moderatsiya (admin yoki 24 soatlik avto-tasdiq kutiladi). Standart — darhol faol.
+   */
+  status?: "active" | "draft" | "moderation";
   contactEmail?: string;
   contactTelegram?: string;
   contactPhone?: string;
@@ -809,6 +812,7 @@ export async function createVacancy(input: CreateVacancyInput) {
       contactPhone: input.contactPhone || null,
       status,
       publishedAt: status === "active" ? new Date() : null,
+      ...(status === "moderation" ? { moderationSubmittedAt: new Date() } : {}),
     },
   });
 

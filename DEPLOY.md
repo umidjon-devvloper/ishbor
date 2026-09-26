@@ -82,6 +82,9 @@ Ixtiyoriy, lekin xavfsizlik va tezlik uchun muhim (2026-09 audit, Round 3):
 | `BILLING_ENABLED` | sukut `false`. Platforma bepul - tarif/checkout/webhook yo'llari faqat `true` bo'lsa yoqiladi |
 | `REDIS_URL` | ixtiyoriy (`redis://` yoki `rediss://`). Bo'sh bo'lsa hammasi jarayon xotirasida — sayt to'liq ishlaydi, lekin faqat bitta nusxada. Berilsa kvota, rate-limit, ko'rishlar buferi, kesh yangilanishi va WebSocket fan-out nusxalar orasida umumiy bo'ladi ("Redis va bir nechta nusxa" bo'limi) |
 | `VIEW_FLUSH_MS` | sukut `30000`. Ko'rishlar buferi shu oraliqda bitta bulk yozuv bilan bazaga tushadi |
+| `MODERATION_AUTO_APPROVE_HOURS` | sukut `24`. Admin shu muddat ichida ko'rmagan navbatdagi vakansiya/sharh avtomatik tasdiqlanadi; `0` — o'chiq |
+| `VACANCY_PREMODERATION` | sukut `unverified`. Yangi e'lon avval moderatsiyaga: `unverified` (tasdiqlanmagan kompaniyalar), `all`, `off` |
+| `REVIEW_PREMODERATION` | sukut `true`. Yangi kompaniya sharhlari avval moderatsiyaga tushadi |
 | `VIEW_DEDUPE_SEC` | sukut `86400` (24 soat). Bitta ko'ruvchi shu muddat ichida bir marta sanaladi |
 | `AUTH_CACHE_MS` | sukut `10000`. Foydalanuvchi holati keshi — har bir avtorizatsiyalangan so'rovdagi baza o'qishini olib tashlaydi. Bloklash va rol o'zgarishi keshni darhol bekor qiladi. `0` — o'chiq |
 | `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | S3-mos fayl xotirasi (R2, S3, B2, MinIO). Uchtasi birga beriladi. Berilsa Volume kerak emas ("Fayl yuklashlar" bo'limi) |

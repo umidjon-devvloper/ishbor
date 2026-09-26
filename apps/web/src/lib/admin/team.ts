@@ -1,10 +1,10 @@
 import { adminRequest } from "./http.js";
-import type { StaffRole } from "./roles.js";
+import type { TeamRole } from "./roles.js";
 
 export interface TeamMember {
   id: string;
   email: string;
-  role: StaffRole;
+  role: TeamRole;
   isBlocked: boolean;
   name: string | null;
   position: string | null;
@@ -16,7 +16,7 @@ export interface TeamMember {
 export interface TeamInvite {
   id: string;
   email: string;
-  role: StaffRole;
+  role: TeamRole;
   createdAt: string;
   expiresAt: string;
   expired: boolean;
@@ -33,7 +33,7 @@ export function fetchTeam(token: string, signal?: AbortSignal) {
 }
 
 /** Havola javobda bir marta qaytadi (bazada faqat hash saqlanadi). */
-export function createTeamInvite(token: string, input: { email: string; role: StaffRole }) {
+export function createTeamInvite(token: string, input: { email: string; role: TeamRole }) {
   return adminRequest<{ invite: TeamInvite; link: string; emailSent: boolean }>("/api/admin/team/invites", {
     token,
     method: "POST",
@@ -48,20 +48,20 @@ export function revokeTeamInvite(token: string, id: string) {
 export function updateTeamMember(
   token: string,
   id: string,
-  patch: { role?: StaffRole; isBlocked?: boolean; fullName?: string; position?: string | null }
+  patch: { role?: TeamRole; isBlocked?: boolean; fullName?: string; position?: string | null }
 ) {
   return adminRequest<TeamMember>(`/api/admin/team/${encodeURIComponent(id)}`, { token, method: "PATCH", body: patch });
 }
 
 export function fetchStaffInvite(inviteToken: string, signal?: AbortSignal) {
-  return adminRequest<{ email: string; role: StaffRole; expiresAt: string }>(`/api/staff-invites/${encodeURIComponent(inviteToken)}`, {
+  return adminRequest<{ email: string; role: TeamRole; expiresAt: string }>(`/api/staff-invites/${encodeURIComponent(inviteToken)}`, {
     token: null,
     signal,
   });
 }
 
 export function acceptStaffInvite(inviteToken: string, input: { fullName: string; position?: string; password: string }) {
-  return adminRequest<{ accessToken: string; role: StaffRole }>(`/api/staff-invites/${encodeURIComponent(inviteToken)}/accept`, {
+  return adminRequest<{ accessToken: string; role: TeamRole }>(`/api/staff-invites/${encodeURIComponent(inviteToken)}/accept`, {
     token: null,
     method: "POST",
     body: input,

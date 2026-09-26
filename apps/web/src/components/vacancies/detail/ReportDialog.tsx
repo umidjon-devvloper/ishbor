@@ -1,5 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { ApiError, submitSupport } from "../../../lib/api.js";
+import { ApiError } from "../../../lib/api.js";
+import { reportVacancy } from "../../../lib/apiExtra.js";
+import { useAuth } from "../../AuthContext.js";
 import { useHref, useT } from "../../../lib/i18n/index.js";
 import { useDialog } from "../../../lib/useDialog.js";
 import { IconCheckCircle, IconX, Spinner } from "./icons.js";
@@ -9,22 +11,24 @@ const REASONS: Reason[] = ["outdated", "wrong", "fraud", "other"];
 type Status = "idle" | "sending" | "done" | "offline" | "error";
 
 /**
- * "Noto'g'ri ma'lumot?" oynasi. Alohida shikoyat API'si yo'q — xabar mavjud
- * `POST /api/support` orqali moderatorlarga (admin Telegram) yuboriladi:
- * sabab, vakansiya nomi va havolasi bilan. Xizmat sozlanmagan bo'lsa (503)
- * foydalanuvchiga yordam markazi havolasi ko'rsatiladi.
+ * "Noto'g'ri ma'lumot?" oynasi. Shikoyat `POST /api/vacancies/:slug/report` orqali
+ * vakansiyaga bog'lanib admin paneldagi "Murojaatlar" qutisiga tushadi (sabab, izoh,
+ * ixtiyoriy email); Telegram sozlangan bo'lsa admin chatiga ham uzatiladi.
  */
 export function ReportDialog({
   open,
   onClose,
   vacancyTitle,
   companyName,
+  vacancySlug,
 }: {
   open: boolean;
   onClose: () => void;
   vacancyTitle: string;
   companyName: string;
+  vacancySlug: string;
 }) {
+  const { accessToken } = useAuth();
   const t = useT();
   const r = t.vacancyDetail.report;
   const l = useHref();
@@ -57,18 +61,12 @@ export function ReportDialog({
       return;
     }
     setStatus("sending");
-    const url = `${window.location.origin}${window.location.pathname}`;
-    const message = [
-      `Vakansiya haqida xabar: ${r.reasons[reason]}`,
-      `${vacancyTitle} — ${companyName}`,
-      url,
-      comment.trim() ? `Izoh: ${comment.trim()}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n")
-      .slice(0, 4000);
     try {
-      await submitSupport({ email: mail || undefined, message });
+      await reportVacancy(
+        vacancySlug,
+        { reason, ...(comment.trim() ? { comment: comment.trim().slice(0, 2000) } : {}), ...(mail ? { email: mail } : {}) },
+        accessToken ?? null
+      );
       setStatus("done");
     } catch (err) {
       setStatus(err instanceof ApiError && err.status === 503 ? "offline" : "error");

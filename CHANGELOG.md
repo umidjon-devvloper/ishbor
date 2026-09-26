@@ -2,6 +2,39 @@
 
 ## Chiqarilmagan
 
+### Admin panel: moderatsiya qayta qurildi
+
+- **24 soatlik avto-tasdiq**: navbatdagi vakansiya va sharhlarni admin
+  `MODERATION_AUTO_APPROVE_HOURS` (sukut 24) soat ichida ko'rib chiqmasa, ular avtomatik
+  tasdiqlanadi. Fon vazifasi har 10 daqiqada ishlaydi, bir nechta server nusxasida Redis qulfi bilan.
+  Egasi bloklangan yoki kategoriya, ish joylashuvi yoki hudud to'ldirilmagan e'lon avtomatik
+  chiqmaydi: ish beruvchiga bir marta "to'ldiring" degan xabar boradi. Avtomatik tasdiqlanganlar
+  "Avto-tasdiqlangan" belgisini oladi, admin ularni keyin "Tekshirildi" qiladi.
+- **Oldindan moderatsiya**: tasdiqlanmagan kompaniyaning yangi e'loni (qoralamani birinchi marta
+  chiqarish ham) avval navbatga tushadi. Bu `VACANCY_PREMODERATION=unverified|all|off` bilan
+  sozlanadi. Yangi sharhlar ham navbatga tushadi (`REVIEW_PREMODERATION`).
+- **Vakansiyani to'liq ko'rish paneli**: matn, aloqa, kompaniya konteksti, shikoyatlar va
+  qarorlar tarixi.
+- **Rad etish oynasi** tayyor sabablar bilan (3 tilda) — `window.prompt` o'rniga.
+- **Ommaviy amallar**: vakansiya va sharhlarni tanlab tasdiqlash, rad etish, arxivlash yoki
+  o'chirish mumkin. Har bir yozuv alohida tekshiriladi, bir martada ko'pi bilan 100 ta.
+- **Moderatsiya jurnali** (`/admin/moderation-log`): vakansiya, sharh, kompaniya va murojaatlar
+  bo'yicha kim, qachon, qanday qaror qilgani qayd etiladi. Avto-tasdiq "Tizim" nomi bilan yoziladi.
+- **Murojaatlar qutisi** (`/admin/support`): aloqa formasi va vakansiya shikoyatlari
+  (`POST /api/vacancies/:slug/report`) endi bazaga yoziladi, Telegram esa qo'shimcha kanal.
+  Qutida holat, ichki izoh, emailga javob (SMTP sozlangan bo'lsa) va shikoyat qilingan
+  e'lonni yopish bor. Aloqa formasi Telegram'siz ham ishlaydi.
+- **Kompaniya tasdiq so'rovi**: ish beruvchi yuridik nom va STIR bilan so'rov yuboradi, admin
+  tasdiqlaydi yoki sabab bilan rad etadi.
+- **Moderator roli**: moderator vakansiya, sharh, kompaniya tasdig'i, murojaatlar va jurnal
+  bo'limlariga kira oladi. Foydalanuvchilar, to'lovlar, ommaviy xabar va maqolalar bo'limlari
+  unga yopiq. Moderator jamoa taklifi orqali qo'shiladi.
+- **Foydalanuvchi kartochkasi** (`/admin/users/:id`): hisob, kompaniya, e'lonlar, arizalar,
+  sharhlar, murojaatlar va xavfsizlik hodisalari bir sahifada ko'rinadi.
+- Menyuda navbatdagilar soni (badge) ko'rsatiladi. Holat nomlari to'g'rilandi: "draft"
+  tarjima qilindi, fe'l o'rniga holat nomi chiqadi. Bosh sahifa grafigi endi bazaning o'zida
+  hisoblanadi. Ommaviy xabar Redis qulfi bilan himoyalangan va yuborilganlar tarixi saqlanadi.
+
 ### Ko'rishlar hisoblagichi qayta ishlandi (views-1, views-2)
 
 - **Ko'rish endi sahifa ma'lumoti so'ralganda emas, brauzerdan alohida signal bilan

@@ -169,7 +169,7 @@ export function VacancyDetailView({ vacancy, similar }: { vacancy: VacancyDetail
       </div>
 
       <StickyApplyBar visible={!cardVisible} vacancy={vacancy} apply={apply} links={links} />
-      <ReportDialog open={reportOpen} onClose={closeReport} vacancyTitle={vacancy.title} companyName={vacancy.company.name} />
+      <ReportDialog open={reportOpen} onClose={closeReport} vacancyTitle={vacancy.title} companyName={vacancy.company.name} vacancySlug={vacancy.slug} />
 
       <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-24 z-[70] flex justify-center px-4 lg:bottom-8">
         {notice && (

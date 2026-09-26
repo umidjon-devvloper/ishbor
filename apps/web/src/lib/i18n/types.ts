@@ -643,6 +643,24 @@ export interface BaseMessages {
   };
 
   employerProfile: {
+    verification: {
+      title: string;
+      intro: string;
+      verified: string;
+      verifiedHint: string;
+      pending: string;
+      pendingHint: (date: string) => string;
+      rejected: string;
+      legalName: string;
+      legalNamePlaceholder: string;
+      stir: string;
+      stirHint: string;
+      stirInvalid: string;
+      submit: string;
+      resubmit: string;
+      sent: string;
+      needCompany: string;
+    };
     title: string;
     subtitle: string;
     createHint: string;
@@ -806,9 +824,12 @@ export type NotificationTemplateKey =
   | "application.statusChanged"
   | "alerts.newMatches"
   | "vacancy.rejected"
+  | "vacancy.approved"
   | "vacancy.archivedByAdmin"
   | "company.verified"
   | "company.verificationRemoved"
+  | "company.verificationRejected"
+  | "vacancy.incomplete"
   | "payment.confirmed"
   | "security.phone_changed"
   | "security.recovery_completed"
@@ -1721,8 +1742,13 @@ export interface ExtraMessages {
       companies: string;
       reviews: string;
       payments: string;
+      support: string;
+      log: string;
     };
     overview: {
+      supportOpen: string;
+      verificationRequests: string;
+      autoApprovedUnreviewed: string;
       users: string;
       seekers: string;
       employers: string;
@@ -1818,6 +1844,158 @@ export interface ExtraMessages {
       eventType: Record<string, string>;
       empty: string;
     };
+    statuses: {
+      vacancy: { draft: string; moderation: string; active: string; archived: string; rejected: string };
+      review: { pending: string; approved: string; rejected: string };
+    };
+    roleNames: Record<"job_seeker" | "employer" | "admin" | "content_editor" | "content_author" | "moderator", string>;
+    placementIssue: { categoryId: string; workplaceType: string; regionId: string };
+    flags: { ownerBlocked: string; unverifiedCompany: string; reports: (n: number) => string };
+    detail: {
+      open: string;
+      close: string;
+      loadError: string;
+      description: string;
+      requirements: string;
+      conditions: string;
+      contacts: string;
+      company: string;
+      owner: string;
+      phone: string;
+      website: string;
+      companyVacancies: string;
+      salary: string;
+      salaryHidden: string;
+      category: string;
+      region: string;
+      workplace: string;
+      employment: string;
+      submitted: string;
+      published: string;
+      created: string;
+      history: string;
+      noHistory: string;
+      reports: string;
+      noReports: string;
+      openPublic: string;
+      ownerProfile: string;
+    };
+    reject: {
+      title: string;
+      templatesLabel: string;
+      templates: string[];
+      placeholder: string;
+      submit: string;
+      cancel: string;
+      required: string;
+    };
+    bulk: {
+      selectAll: string;
+      select: (title: string) => string;
+      selected: (n: number) => string;
+      approve: string;
+      reject: string;
+      archive: string;
+      remove: string;
+      clear: string;
+      result: (done: number, failed: number) => string;
+    };
+    companiesExtra: {
+      filterLabel: string;
+      filterAll: string;
+      filterRequested: string;
+      filterVerified: string;
+      filterUnverified: string;
+      requested: string;
+      legalName: string;
+      stir: string;
+      rejectRequest: string;
+      rejectPrompt: string;
+      lastNote: string;
+    };
+    support: {
+      kindLabel: string;
+      allKinds: string;
+      kinds: { contact: string; vacancy_report: string };
+      statusLabel: string;
+      allStatuses: string;
+      statuses: { open: string; in_progress: string; resolved: string; dismissed: string };
+      reportReasons: { outdated: string; wrong: string; fraud: string; other: string };
+      subjects: Record<"general" | "technical" | "partnership" | "vacancy" | "suggestion" | "other", string>;
+      from: string;
+      anonymous: string;
+      vacancy: string;
+      note: string;
+      notePlaceholder: string;
+      saveNote: string;
+      markInProgress: string;
+      resolve: string;
+      dismiss: string;
+      reopen: string;
+      reply: string;
+      replyPlaceholder: string;
+      send: string;
+      cancel: string;
+      replyUnavailable: string;
+      noEmail: string;
+      replied: string;
+      archiveVacancy: string;
+      empty: string;
+    };
+    log: {
+      entityLabel: string;
+      allEntities: string;
+      entities: { vacancy: string; review: string; company: string; ticket: string };
+      actorLabel: string;
+      allActors: string;
+      systemOnly: string;
+      system: string;
+      when: string;
+      what: string;
+      object: string;
+      actions: Record<string, string>;
+      empty: string;
+    };
+    userDetail: {
+      back: string;
+      open: string;
+      notFound: string;
+      account: string;
+      emailVerified: string;
+      phone: string;
+      telegram: string;
+      registered: string;
+      companies: string;
+      vacancies: string;
+      applications: string;
+      reviews: string;
+      tickets: string;
+      security: string;
+      none: string;
+      showing: (shown: number, total: number) => string;
+    };
+    broadcasts: {
+      title: string;
+      empty: string;
+      status: { running: string; done: string; failed: string };
+      delivered: (delivered: number, total: number) => string;
+    };
+    /** Moderatsiya navbati va 24 soatlik avto-tasdiq. */
+    moderation: {
+      queue: string;
+      queueDetails: (vacancies: number, reviews: number) => string;
+      autoApproveHours: (hours: number) => string;
+      autoApproveOff: string;
+      autoApproveIn: (time: string) => string;
+      autoApproveDue: string;
+      duration: (hours: number, minutes: number) => string;
+      autoApproved: string;
+      autoApprovedHint: string;
+      filterAutoApproved: string;
+      markReviewed: string;
+      runNow: string;
+      runDone: (vacancies: number, reviews: number) => string;
+    };
     vacancies: {
       searchPlaceholder: string;
       status: string;
@@ -1881,7 +2059,7 @@ export interface ExtraMessages {
   /** Kontent boshqaruvi: /admin/articles, /admin/team, /admin/invite. */
   contentAdmin: {
     nav: { articles: string; team: string };
-    roles: { admin: string; content_editor: string; content_author: string };
+    roles: { admin: string; content_editor: string; content_author: string; moderator: string };
     accessDenied: string;
     toArticles: string;
     articles: {
@@ -2016,7 +2194,7 @@ export interface ExtraMessages {
         copied: string;
         emailSent: string;
         emailNotSent: string;
-        roleHints: { admin: string; content_editor: string; content_author: string };
+        roleHints: { admin: string; content_editor: string; content_author: string; moderator: string };
       };
       members: {
         title: string;
@@ -2121,7 +2299,7 @@ export interface ExtraMessages {
     noResults: { title: string; text: string; reset: string };
     error: { title: string; text: string; retry: string };
     deleteDialog: { title: string; text: (title: string) => string; confirm: string; cancel: string };
-    notices: { created: string; updated: string; draft: string; closed: string; activated: string; deleted: string; dismiss: string };
+    notices: { created: string; submitted: string; updated: string; draft: string; closed: string; activated: string; deleted: string; dismiss: string };
     errors: { generic: string; transition: string; hasApplications: string; incomplete: string; phoneGate: string };
     pagination: {
       label: string;

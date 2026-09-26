@@ -25,8 +25,8 @@ export type DemoCover = (typeof DEMO_COVERS)[number];
 export const coverFileName = (cover: DemoCover) => `article-${cover.replace(/_/g, "-")}.webp`;
 
 export interface DemoStaff {
-  key: "editor" | "author" | "author2";
-  role: "content_editor" | "content_author";
+  key: "editor" | "author" | "author2" | "moderator";
+  role: "content_editor" | "content_author" | "moderator";
   fullName: string;
   position: string;
   blocked?: boolean;
@@ -39,6 +39,8 @@ export const DEMO_STAFF: DemoStaff[] = [
   { key: "author", role: "content_author", fullName: "Jasur Qodirov", position: "Karyera bo'yicha muallif", avatarHue: 200, daysAgo: 60 },
   // Faolsizlantirilgan a'zo — jamoa sahifasida "Faol emas" holati ko'rinsin
   { key: "author2", role: "content_author", fullName: "Sardor Umarov", position: "HR muallif", blocked: true, avatarHue: null, daysAgo: 120 },
+  // Moderator: vakansiya/sharh navbati, kompaniya tasdig'i, murojaatlar (maqolalarga kirmaydi)
+  { key: "moderator", role: "moderator", fullName: "Bekzod Tursunov", position: "Moderator", avatarHue: 150, daysAgo: 45 },
 ];
 
 /** Demo admin (SUPER_ADMIN) — avatarsiz: bosh harf belgisi ham ko'rinsin. */

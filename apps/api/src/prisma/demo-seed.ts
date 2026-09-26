@@ -1566,6 +1566,23 @@ async function resetDemo(): Promise<void> {
     where: { OR: [{ conversationId: { in: conversationIds } }, { raterUserId: { in: userIds } }, { ratedUserId: { in: userIds } }] },
   });
   await prisma.conversation.deleteMany({ where: { id: { in: conversationIds } } });
+  // Moderatsiya jurnali, murojaatlar va ommaviy xabarlar tarixi (demo obyektlar yoki demo xodimlar bo'yicha)
+  const reviewIds = (
+    await prisma.companyReview.findMany({ where: { OR: [{ companyId: { in: companyIds } }, { userId: { in: userIds } }] }, select: { id: true } })
+  ).map((r) => r.id);
+  const ticketIds = (
+    await prisma.supportTicket.findMany({
+      where: {
+        OR: [{ userId: { in: userIds } }, { vacancyId: { in: vacancyIds } }, { handledById: { in: userIds } }, { email: { endsWith: DOMAIN } }],
+      },
+      select: { id: true },
+    })
+  ).map((t) => t.id);
+  await prisma.moderationEvent.deleteMany({
+    where: { OR: [{ actorId: { in: userIds } }, { entityId: { in: [...vacancyIds, ...companyIds, ...reviewIds, ...ticketIds] } }] },
+  });
+  await prisma.supportTicket.deleteMany({ where: { id: { in: ticketIds } } });
+  await prisma.broadcast.deleteMany({ where: { actorId: { in: userIds } } });
   await prisma.companyReview.deleteMany({ where: { OR: [{ companyId: { in: companyIds } }, { userId: { in: userIds } }] } });
   await prisma.payment.deleteMany({ where: { OR: [{ companyId: { in: companyIds } }, { transactionId: { startsWith: "demo-" } }] } });
   await prisma.companyMember.deleteMany({ where: { OR: [{ companyId: { in: companyIds } }, { userId: { in: userIds } }] } });
@@ -1813,8 +1830,16 @@ async function createDemo(): Promise<SeedIds> {
   for (const [seeker, key, rating, comment] of PENDING_REVIEWS) {
     await prisma.companyReview.upsert({
       where: { companyId_userId: { companyId: companyId[key], userId: seekerId[seeker] } },
-      update: { rating, comment, status: "pending", createdAt: ago(0, between(2, 20)) },
-      create: { companyId: companyId[key], userId: seekerId[seeker], rating, comment, status: "pending", createdAt: ago(0, between(2, 20)) },
+      update: { rating, comment, status: "pending", createdAt: ago(0, between(2, 20)), submittedAt: ago(0, between(1, 20)) },
+      create: {
+        companyId: companyId[key],
+        userId: seekerId[seeker],
+        rating,
+        comment,
+        status: "pending",
+        createdAt: ago(0, between(2, 20)),
+        submittedAt: ago(0, between(1, 20)),
+      },
     });
   }
 
@@ -1919,6 +1944,10 @@ async function createDemo(): Promise<SeedIds> {
     });
   }
 
+
+  // ---- Moderatsiya: navbat muddatlari, jurnal, murojaatlar, tasdiq so'rovlari, ommaviy xabarlar ----
+  await seedModeration(ids, seekerId, staffId);
+
   // ---- Bildirishnomalar ----
   await seedNotifications(NOTIFICATIONS, (key) => (key === "hr" ? ownerId.nextbrain : key === "admin" ? admin.id : seekerId[key]));
 
@@ -1934,7 +1963,155 @@ async function createDemo(): Promise<SeedIds> {
   console.log(`  Admin         admin${DOMAIN}   (super admin: panel, maqolalar, jamoa)`);
   console.log(`  Muharrir      editor${DOMAIN}   (maqolalarni ko'rib chiqadi va chop etadi)`);
   console.log(`  Muallif       author${DOMAIN}   (qoralama yozadi, ko'rib chiqishga yuboradi)`);
+  console.log(`  Moderator     moderator${DOMAIN}   (vakansiya/sharh navbati, kompaniya tasdig'i, murojaatlar)`);
   return ids;
+}
+
+/**
+ * Moderatsiya bo'limlari demo hisoblarda bo'sh ko'rinmasin: navbatdagi e'lonlarning turli avto-tasdiq
+ * muddatlari, avto-tasdiqlangan (tekshirilmagan) e'lonlar, qarorlar jurnali, murojaatlar qutisi,
+ * kompaniya tasdiq so'rovlari va ommaviy xabarlar tarixi.
+ */
+async function seedModeration(ids: SeedIds, seekerId: Record<string, string>, staffId: Record<string, string>): Promise<void> {
+  const { companyId, adminId } = ids;
+  const moderatorId = staffId.moderator ?? adminId;
+
+  // Navbat: har xil kutish vaqti — "3 soatdan keyin avto-tasdiq", "20 soatdan keyin" va h.k.
+  const queued = await prisma.vacancy.findMany({ where: { companyId: { in: Object.values(companyId) }, status: "moderation" }, select: { id: true } });
+  const waits = [21, 9, 2];
+  for (const [i, v] of queued.entries()) {
+    const submitted = ago(0, waits[i % waits.length]);
+    await prisma.vacancy.update({ where: { id: v.id }, data: { moderationSubmittedAt: submitted, createdAt: new Date(submitted.getTime() - 10 * 60_000) } });
+  }
+
+  // Avto-tasdiqlangan, admin hali ko'rmagan e'lonlar (tasdiqlanmagan kompaniyalardan)
+  const autoApproved = await prisma.vacancy.findMany({
+    where: { companyId: { in: [companyId.brandwave, companyId.tafakkur, companyId.grandbuild] }, status: "active" },
+    select: { id: true, title: true, company: { select: { name: true } } },
+    take: 2,
+  });
+  for (const [i, v] of autoApproved.entries()) {
+    const at = ago(0, 4 + i * 7);
+    await prisma.vacancy.update({ where: { id: v.id }, data: { autoApprovedAt: at, moderationSubmittedAt: new Date(at.getTime() - DAY) } });
+    await prisma.moderationEvent.create({
+      data: { entityType: "vacancy", entityId: v.id, action: "auto_approved", meta: { title: v.title, company: v.company.name }, createdAt: at },
+    });
+  }
+
+  // Qarorlar jurnali: admin va moderator qarorlari
+  const decided = await prisma.vacancy.findMany({
+    where: { companyId: { in: Object.values(companyId) }, status: { in: ["active", "rejected", "archived"] }, OR: [{ autoApprovedAt: null }, { autoApprovedAt: { isSet: false } }] },
+    select: { id: true, title: true, status: true, rejectionReason: true, company: { select: { name: true } } },
+    take: 12,
+  });
+  for (const [i, v] of decided.entries()) {
+    const action = v.status === "active" ? "approved" : v.status;
+    await prisma.moderationEvent.create({
+      data: {
+        entityType: "vacancy",
+        entityId: v.id,
+        action,
+        actorId: i % 3 === 0 ? moderatorId : adminId,
+        reason: v.status === "rejected" ? v.rejectionReason : null,
+        meta: { title: v.title, company: v.company.name },
+        createdAt: ago(1 + i * 2, between(1, 8)),
+      },
+    });
+  }
+  const reviews = await prisma.companyReview.findMany({
+    where: { companyId: { in: Object.values(companyId) }, status: "approved" },
+    select: { id: true, rating: true, company: { select: { name: true } } },
+    take: 4,
+  });
+  for (const [i, r] of reviews.entries()) {
+    await prisma.moderationEvent.create({
+      data: {
+        entityType: "review",
+        entityId: r.id,
+        action: "approved",
+        actorId: moderatorId,
+        meta: { company: r.company.name, rating: r.rating },
+        createdAt: ago(3 + i * 4, 2),
+      },
+    });
+  }
+  for (const key of ["nextbrain", "payla", "orzubank"]) {
+    const c = await prisma.company.findUnique({ where: { id: companyId[key] }, select: { name: true } });
+    await prisma.moderationEvent.create({
+      data: { entityType: "company", entityId: companyId[key], action: "verified", actorId: adminId, meta: { company: c?.name ?? key }, createdAt: ago(40 + key.length) },
+    });
+  }
+
+  // Tasdiq so'rovlari: biri kutilmoqda, biri avval rad etilgan (izoh bilan)
+  await prisma.company.update({
+    where: { id: companyId.tafakkur },
+    data: { legalName: "«Tafakkur Ta'lim» MChJ", stir: "306512874", verificationRequestedAt: ago(0, 6), verificationNote: null },
+  });
+  await prisma.company.update({
+    where: { id: companyId.grandbuild },
+    data: {
+      legalName: "«Grand Build» MChJ",
+      stir: "307001245",
+      verificationRequestedAt: null,
+      verificationNote: "STIR yuridik nomga mos kelmadi — guvohnomadagi nomni kiriting.",
+    },
+  });
+  await prisma.moderationEvent.create({
+    data: {
+      entityType: "company",
+      entityId: companyId.grandbuild,
+      action: "verification_rejected",
+      actorId: moderatorId,
+      reason: "STIR yuridik nomga mos kelmadi — guvohnomadagi nomni kiriting.",
+      meta: { company: "Grand Build" },
+      createdAt: ago(2, 3),
+    },
+  });
+
+  // Murojaatlar: aloqa formasi va vakansiya shikoyatlari (turli holatlarda)
+  const reported = await prisma.vacancy.findMany({
+    where: { companyId: { in: [companyId.brandwave, companyId.registon, companyId.tezyetkaz] }, status: "active" },
+    select: { id: true },
+    take: 2,
+  });
+  const tickets: Parameters<typeof prisma.supportTicket.create>[0]["data"][] = [
+    { kind: "contact", subject: "technical", name: "Aziz", email: `seeker${DOMAIN}`, userId: seekerId.seeker, message: "Rezyumeni PDF qilib yuklab bo'lmayapti — sahifa qotib qolyapti.", status: "open", createdAt: ago(0, 3) },
+    { kind: "contact", subject: "partnership", name: "Madina Yusupova", email: "madina@hamkor.example", message: "Universitetimiz bitiruvchilari uchun karyera kuni o'tkazmoqchimiz, hamkorlik qilsak bo'ladimi?", status: "in_progress", adminNote: "Marketing bilan gaplashildi, javob yozamiz", handledById: adminId, createdAt: ago(1, 5) },
+    { kind: "contact", subject: "suggestion", name: "Kamola", email: `kamola${DOMAIN}`, userId: seekerId.kamola, message: "Maosh bo'yicha filtrda \"qo'lga\" va \"yalpi\" ni ajratib qo'yish mumkinmi?", status: "resolved", adminNote: "Rejaga qo'shildi", handledById: moderatorId, handledAt: ago(3), createdAt: ago(5) },
+    ...(reported[0]
+      ? [
+          { kind: "vacancy_report" as const, subject: "fraud", message: "Ishga olishdan oldin \"forma uchun\" 300 ming so'm to'lashni so'rashdi.", vacancyId: reported[0].id, userId: seekerId.javlon, status: "open" as const, createdAt: ago(0, 2) },
+          { kind: "vacancy_report" as const, subject: "wrong", message: "Maosh e'londagidan ikki baravar kam ekan.", vacancyId: reported[0].id, email: "anonim@pochta.example", status: "open" as const, createdAt: ago(0, 9) },
+        ]
+      : []),
+    ...(reported[1]
+      ? [{ kind: "vacancy_report" as const, subject: "outdated", message: "Bu vakansiya allaqachon yopilgan, telefon qilganimda aytishdi.", vacancyId: reported[1].id, userId: seekerId.zarina, status: "dismissed" as const, adminNote: "Kompaniya e'lon faol ekanini tasdiqladi", handledById: moderatorId, handledAt: ago(1), createdAt: ago(2) }]
+      : []),
+  ];
+  for (const data of tickets) {
+    const t = await prisma.supportTicket.create({ data });
+    if (data.status === "resolved" || data.status === "dismissed") {
+      await prisma.moderationEvent.create({
+        data: {
+          entityType: "ticket",
+          entityId: t.id,
+          action: "ticket_status",
+          actorId: data.handledById ?? moderatorId,
+          reason: data.adminNote ?? null,
+          meta: { from: "open", to: data.status, kind: data.kind, subject: (data.subject as string | null | undefined) ?? null },
+          createdAt: (data.handledAt as Date | undefined) ?? ago(1),
+        },
+      });
+    }
+  }
+
+  // Ommaviy xabarlar tarixi
+  await prisma.broadcast.createMany({
+    data: [
+      { title: "Yangi funksiya: saqlangan qidiruvlar", body: "Endi qidiruvni saqlab, mos vakansiyalar haqida xabar olishingiz mumkin.", audience: "job_seeker", url: "/alerts", actorId: adminId, total: 42, delivered: 42, status: "done", createdAt: ago(6), finishedAt: ago(6) },
+      { title: "Kompaniya tasdig'i", body: "Tasdiqlangan ish beruvchilar e'lonlari moderatsiyasiz chiqadi — profil sahifasidan so'rov yuboring.", audience: "employer", url: "/profile", actorId: adminId, total: 18, delivered: 18, status: "done", createdAt: ago(2), finishedAt: ago(2) },
+    ],
+  });
 }
 
 // ============================================================

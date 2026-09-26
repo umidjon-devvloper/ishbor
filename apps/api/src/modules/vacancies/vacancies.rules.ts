@@ -1,3 +1,4 @@
+import { env } from "../../common/env.js";
 import { prisma } from "../../common/prisma.js";
 import { AppError } from "../../common/errors.js";
 
@@ -47,4 +48,28 @@ export async function assertVacancyPlacement(p: VacancyPlacement): Promise<void>
   ]);
   if (!category) throw invalid("categoryId", "Kategoriya topilmadi");
   if (p.regionId && !region) throw invalid("regionId", "Hudud topilmadi");
+}
+
+/**
+ * Yangi e'lon avval moderatsiyaga tushadimi (VACANCY_PREMODERATION). Sukut — faqat tasdiqlanmagan
+ * kompaniyalar: tasdiqlangan ish beruvchi darhol e'lon qiladi, yangi/noma'lum kompaniya e'loni
+ * admin ko'rgunicha (yoki 24 soatlik avto-tasdiqgacha) saytga chiqmaydi.
+ */
+export function requiresPremoderation(company: { isVerified: boolean }): boolean {
+  if (env.VACANCY_PREMODERATION === "off") return false;
+  if (env.VACANCY_PREMODERATION === "all") return true;
+  return !company.isVerified;
+}
+
+export type PlacementIssue = "categoryId" | "workplaceType" | "regionId";
+
+/** Joylashuv qoidasidan o'tmasa — qaysi maydon yetishmaydi (admin navbatida sabab sifatida). */
+export async function placementIssue(p: VacancyPlacement): Promise<PlacementIssue | null> {
+  try {
+    await assertVacancyPlacement(p);
+    return null;
+  } catch (err) {
+    const field = /^(\w+):/.exec((err as Error).message)?.[1];
+    return field === "categoryId" || field === "workplaceType" || field === "regionId" ? field : "categoryId";
+  }
 }

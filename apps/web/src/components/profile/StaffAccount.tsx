@@ -77,8 +77,8 @@ export function StaffAccount({ token, user }: { token: string; user: CurrentUser
   const roleLabel =
     user.role === "admin"
       ? t.contentAdmin.roles.admin
-      : isStaffRole(user.role)
-        ? t.contentAdmin.roles[user.role as "content_editor" | "content_author"]
+      : isStaffRole(user.role) || user.role === "moderator"
+        ? t.contentAdmin.roles[user.role as "content_editor" | "content_author" | "moderator"]
         : t.profileHub.staff.title;
 
   return (

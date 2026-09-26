@@ -111,6 +111,15 @@ const envSchema = z.object({
   // Ish qidiruv obunalari (saved search alerts) tekshirilish oralig'i, daqiqada
   ALERTS_INTERVAL_MINUTES: z.coerce.number().optional().default(15),
 
+  // Moderatsiya navbatidagi vakansiya va sharhlar admin shu muddat (soat) ichida qaror qilmasa
+  // avtomatik tasdiqlanadi. 0 — avto-tasdiq o'chiq (navbat faqat admin qo'lida).
+  MODERATION_AUTO_APPROVE_HOURS: z.coerce.number().min(0).max(24 * 30).optional().default(24),
+  // Yangi vakansiyalarni oldindan moderatsiya: "unverified" — faqat tasdiqlanmagan kompaniyalarniki
+  // (sukut), "all" — hammasi, "off" — darhol e'lon qilinadi (post-moderatsiya).
+  VACANCY_PREMODERATION: z.enum(["unverified", "all", "off"]).optional().default("unverified"),
+  // Yangi kompaniya sharhlari avval moderatsiyaga tushadimi (sukut: ha)
+  REVIEW_PREMODERATION: boolish().optional().default(true),
+
   // --- Tarmoq va xavfsizlik ---
   // Reverse-proxy'ga ishonch: hop soni ("1" — SUKUT), "true", "false" yoki IP/CIDR ro'yxati.
   // Audit R3, D-053 (headers-infra-1, auth-core-9): sukut `true` edi — Fastify X-Forwarded-For ning ENG CHAP

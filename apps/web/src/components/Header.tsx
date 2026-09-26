@@ -104,9 +104,10 @@ export default function Header() {
   const isEmployer = status === "authed" && user?.role === "employer";
   const isSeeker = status === "authed" && user?.role === "job_seeker";
   const isAdmin = status === "authed" && user?.role === "admin";
-  // Kontent jamoasi (muharrir, muallif): profil/xabarlar yo'q — faqat maqolalar paneli
-  const isContentStaff = status === "authed" && isStaffRole(user?.role) && !isAdmin;
-  const adminHref = isAdmin ? "/admin" : "/admin/articles";
+  const isModerator = status === "authed" && user?.role === "moderator";
+  // Jamoa (muharrir, muallif, moderator): profil/xabarlar yo'q — faqat o'z paneli
+  const isContentStaff = status === "authed" && (isStaffRole(user?.role) || isModerator) && !isAdmin;
+  const adminHref = isAdmin ? "/admin" : isModerator ? "/admin/vacancies" : "/admin/articles";
   // Asosiy navigatsiya — ochiq bo'limlar. Akkaunt sahifalari (arizalar,
   // saqlanganlar, sozlamalar) bu yerda emas, avatar menyusida.
   const navLinks: NavLink[] = isEmployer

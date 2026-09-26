@@ -2,7 +2,7 @@ import React, { useRef, useState } from "react";
 import { useLocale, useT } from "../../../lib/i18n/index.js";
 import { formatDate } from "../../../lib/format.js";
 import { revokeTeamInvite, updateTeamMember, type TeamData, type TeamMember } from "../../../lib/admin/team.js";
-import type { StaffRole } from "../../../lib/admin/roles.js";
+import type { TeamRole } from "../../../lib/admin/roles.js";
 import { authorInitials } from "../../../lib/articles/adapter.js";
 import { errorText, useNotice } from "../../../lib/admin/useNotice.js";
 import { useDialog } from "../../../lib/useDialog.js";
@@ -38,7 +38,7 @@ export function TeamList({ token, data, onChanged }: { token: string; data: Team
 
   const displayName = (m: TeamMember) => m.name ?? m.email;
 
-  const changeRole = (member: TeamMember, role: StaffRole) => {
+  const changeRole = (member: TeamMember, role: TeamRole) => {
     if (role === member.role) return;
     if (!window.confirm(team.confirm.role(displayName(member), roles[role]))) return;
     void run(`role-${member.id}`, () => updateTeamMember(token, member.id, { role }), team.done.role);

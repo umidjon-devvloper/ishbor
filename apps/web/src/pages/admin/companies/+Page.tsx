@@ -1,15 +1,20 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   AdminActionsHeader,
   AdminShell,
   AdminTable,
   AdminFilters,
   AdminSearchInput,
+  AdminSelect,
   Pager,
   RowButton,
+  refreshAdminCounters,
   useAdminBilling,
 } from "../../../components/AdminShell.js";
 import { AdminError, AdminNotice } from "../../../components/admin/AdminStates.js";
+import { ReasonDialog } from "../../../components/admin/AdminDialog.js";
+import { Flag } from "../../../components/admin/VacancyReviewPanel.js";
+import { canModerate } from "../../../lib/admin/roles.js";
 import { useT, useHref, useLocale } from "../../../lib/i18n/index.js";
 import { useAuth } from "../../../components/AuthContext.js";
 import { fetchAdminCompanies, verifyCompany } from "../../../lib/apiExtra.js";
@@ -19,7 +24,7 @@ import type { AdminCompany } from "../../../lib/types.js";
 
 export default function Page() {
   return (
-    <AdminShell>
+    <AdminShell allow="moderation">
       <CompaniesTable />
     </AdminShell>
   );
@@ -33,17 +38,52 @@ function CompaniesTable() {
   const [text, setText] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  // "requested" — tasdiq so'rovi yuborganlar (navbat)
+  const [filter, setFilter] = useState<"" | "requested" | "verified" | "unverified">("");
+  // `?filter=requested` — bosh sahifadagi "Tasdiq so'rovlari" kartasidan
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get("filter");
+    if (value === "requested" || value === "verified" || value === "unverified") setFilter(value);
+  }, []);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState<AdminCompany | null>(null);
   const { notice, show } = useNotice();
   // Tarif ustuni faqat monetizatsiya yoqilganda (audit R3, D-065)
   const billingEnabled = useAdminBilling();
 
-  const token = status === "authed" && user?.role === "admin" ? accessToken : null;
+  const token = status === "authed" && canModerate(user?.role) ? accessToken : null;
   // Xato bo'sh jadval bo'lib ko'rinmaydi, eski javob yangi filtr ustiga yozilmaydi (audit ISSUE-021)
   const { state, pending, reload } = useAdminResource(
-    token ? (signal) => fetchAdminCompanies(token, { text: query, page }, signal) : null,
-    JSON.stringify({ query, page })
+    token
+      ? (signal) =>
+          fetchAdminCompanies(
+            token,
+            {
+              text: query,
+              page,
+              ...(filter === "requested" ? { requested: true } : {}),
+              ...(filter === "verified" ? { verified: true } : filter === "unverified" ? { verified: false } : {}),
+            },
+            signal
+          )
+      : null,
+    JSON.stringify({ query, page, filter })
   );
+
+  async function decide(row: AdminCompany, isVerified: boolean, note?: string) {
+    if (!token || busyId) return;
+    setBusyId(row.id);
+    try {
+      await verifyCompany(token, row.id, isVerified, note);
+      show("success", t.admin.common.done);
+      reload();
+      refreshAdminCounters();
+    } catch (err) {
+      show("error", errorText(err, t.admin.common.failed, locale));
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function toggleVerify(row: AdminCompany) {
     if (!token || busyId) return;
@@ -54,6 +94,7 @@ function CompaniesTable() {
       await verifyCompany(token, row.id, !row.isVerified);
       show("success", t.admin.common.done);
       reload();
+      refreshAdminCounters();
     } catch (err) {
       show("error", errorText(err, t.admin.common.failed, locale));
     } finally {
@@ -74,6 +115,20 @@ function CompaniesTable() {
             setQuery(text.trim());
           }}
           placeholder={t.admin.companies.searchPlaceholder}
+        />
+        <AdminSelect
+          label={t.admin.companiesExtra.filterLabel}
+          value={filter}
+          onChange={(v) => {
+            setPage(1);
+            setFilter(v as typeof filter);
+          }}
+          options={[
+            { value: "", label: t.admin.companiesExtra.filterAll },
+            { value: "requested", label: t.admin.companiesExtra.filterRequested },
+            { value: "verified", label: t.admin.companiesExtra.filterVerified },
+            { value: "unverified", label: t.admin.companiesExtra.filterUnverified },
+          ]}
         />
       </AdminFilters>
 
@@ -123,6 +178,24 @@ function CompaniesTable() {
                       {t.admin.companies.verified}
                     </span>
                   )}
+                  {!row.isVerified && row.verificationRequestedAt && (
+                    <span className="mt-1 block">
+                      <Flag tone="warn">{t.admin.companiesExtra.requested}</Flag>{" "}
+                      <span className="text-xs text-dusk">{new Date(row.verificationRequestedAt).toLocaleString(locale)}</span>
+                    </span>
+                  )}
+                  {(row.legalName || row.stir) && (
+                    <span className="mt-1 block text-xs text-dusk">
+                      {row.legalName ? `${t.admin.companiesExtra.legalName}: ${row.legalName}` : ""}
+                      {row.stir ? ` · ${t.admin.companiesExtra.stir}: ${row.stir}` : ""}
+                    </span>
+                  )}
+                  {row.website && <span className="block text-xs text-dusk">{row.website}</span>}
+                  {row.verificationNote && !row.isVerified && (
+                    <span className="mt-1 block text-xs text-dusk">
+                      ↳ {t.admin.companiesExtra.lastNote}: {row.verificationNote}
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-dusk">{row.ownerEmail}</td>
                 {billingEnabled && (
@@ -137,9 +210,16 @@ function CompaniesTable() {
                   {row.vacancyCount} · {row.reviewCount} {t.admin.companies.reviews}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <RowButton tone={row.isVerified ? "neutral" : "primary"} disabled={busyId !== null} onClick={() => void toggleVerify(row)}>
-                    {row.isVerified ? t.admin.companies.unverify : t.admin.companies.verify}
-                  </RowButton>
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    <RowButton tone={row.isVerified ? "neutral" : "primary"} disabled={busyId !== null} onClick={() => void toggleVerify(row)}>
+                      {row.isVerified ? t.admin.companies.unverify : t.admin.companies.verify}
+                    </RowButton>
+                    {!row.isVerified && row.verificationRequestedAt && (
+                      <RowButton tone="danger" disabled={busyId !== null} onClick={() => setRejecting(row)}>
+                        {t.admin.companiesExtra.rejectRequest}
+                      </RowButton>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -148,6 +228,20 @@ function CompaniesTable() {
       )}
 
       {data && <Pager page={data.page} pageCount={data.pageCount} total={data.total} onChange={setPage} />}
+
+      <ReasonDialog
+        open={rejecting !== null}
+        title={t.admin.companiesExtra.rejectRequest}
+        subject={rejecting?.name}
+        placeholder={t.admin.companiesExtra.rejectPrompt}
+        submitLabel={t.admin.companiesExtra.rejectRequest}
+        onCancel={() => setRejecting(null)}
+        onSubmit={(note) => {
+          const row = rejecting;
+          setRejecting(null);
+          if (row) void decide(row, false, note);
+        }}
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocale, useT } from "../../../lib/i18n/index.js";
 import { createTeamInvite } from "../../../lib/admin/team.js";
-import type { StaffRole } from "../../../lib/admin/roles.js";
+import type { TeamRole } from "../../../lib/admin/roles.js";
 import { errorText } from "../../../lib/admin/useNotice.js";
 import { useShare } from "../../../lib/useShare.js";
 import { ADMIN_CARD, ADMIN_INPUT, ADMIN_LABEL, ADMIN_PRIMARY, ADMIN_SECONDARY } from "../AdminStates.js";
@@ -19,7 +19,7 @@ export function TeamInvite({ token, onCreated }: { token: string; onCreated: () 
   const { locale } = useLocale();
   const { copy, notice } = useShare();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<StaffRole>("content_author");
+  const [role, setRole] = useState<TeamRole>("content_author");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ email: string; link: string; emailSent: boolean } | null>(null);

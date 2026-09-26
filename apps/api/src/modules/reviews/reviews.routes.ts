@@ -5,6 +5,7 @@ import { AppError, Errors } from "../../common/errors.js";
 import { idParams } from "../../common/validation.js";
 import { bumpDataVersion } from "../../common/cache.js";
 import { requireAuth, requireRole, requirePhoneVerified } from "../../common/auth-guard.js";
+import { env } from "../../common/env.js";
 
 const reviewSchema = z.object({
   rating: z.number().int().min(1).max(5),
@@ -13,7 +14,8 @@ const reviewSchema = z.object({
 
 export async function reviewRoutes(app: FastifyInstance) {
   // Kompaniyaga 5 yulduzli sharh qoldirish (slug bo'yicha).
-  // Yangi sharh oldindan moderatsiyasiz — darrov ko'rinadi (mahsulot qarori; admin keyin o'chira oladi).
+  // Yangi sharh avval moderatsiyaga tushadi (REVIEW_PREMODERATION, sukut yoqiq): admin ko'rmasa
+  // 24 soatdan keyin avtomatik chop etiladi. O'chirilsa — darhol ko'rinadi (eski xulq).
   app.post(
     "/api/companies/:slug/reviews",
     { preHandler: [requireAuth, requireRole("job_seeker"), requirePhoneVerified] },
@@ -54,6 +56,8 @@ export async function reviewRoutes(app: FastifyInstance) {
               // Admin rad etgan (yoki qayta ko'rib chiqishga qo'ygan) sharh tahrirlansa — moderatsiyaga
               // tushadi, o'z-o'zidan tasdiqlanmaydi (audit ISSUE-027). Tasdiqlangan sharh tasdiqlanganicha qoladi.
               status: existing.status === "approved" ? "approved" : "pending",
+              // Avto-tasdiq muddati qayta yuborilgan paytdan hisoblanadi
+              ...(existing.status === "approved" ? {} : { submittedAt: new Date(), autoApprovedAt: null }),
             },
           })
         : await prisma.companyReview.create({
@@ -62,7 +66,7 @@ export async function reviewRoutes(app: FastifyInstance) {
               userId: req.user!.sub,
               rating: body.rating,
               comment: body.comment ?? null,
-              status: "approved",
+              ...(env.REVIEW_PREMODERATION ? { status: "pending" as const, submittedAt: new Date() } : { status: "approved" as const }),
             },
           });
 

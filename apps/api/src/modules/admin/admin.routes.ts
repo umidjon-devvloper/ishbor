@@ -15,12 +15,16 @@ import { DAY_MS, startOfTashkentDay, tashkentDayKey } from "../../common/time.js
 import { features } from "../../common/env.js";
 import { revokeUserSessions } from "../auth/auth.service.js";
 import { assertNotLastActiveAdmin, revokePendingStaffInvites } from "../team/team.routes.js";
-import { assertVacancyPlacement, effectiveWorkplaceType } from "../vacancies/vacancies.rules.js";
+import { effectiveWorkplaceType, placementIssue } from "../vacancies/vacancies.rules.js";
 import { notify } from "../notifications/notifications.service.js";
 import { reindexAll, isSearchEngineEnabled } from "../search/search.service.js";
 import { syncVacancyIndex } from "../vacancies/vacancies.service.js";
+import { deleteReview, moderateReview, moderateVacancy } from "../moderation/moderation.service.js";
+import { recordModeration } from "../../common/moderation-log.js";
+import { acquireLock, releaseLock } from "../../common/redis.js";
 import { runAlertSweep } from "../alerts/alerts.service.js";
 import { markPaymentPaid } from "../billing/billing.service.js";
+import { autoApproveAt, autoApproveHours, runAutoApproveSweep } from "../moderation/auto-approve.service.js";
 
 /**
  * Admin paneli: moderatsiya, foydalanuvchi boshqaruvi, statistika, to'lovlar.
@@ -29,6 +33,8 @@ import { markPaymentPaid } from "../billing/billing.service.js";
  * roli olingan yoki bloklangan admin 15 daqiqalik access token tugashini kutmasdan kirolmaydi.
  */
 const adminOnly = { preHandler: [requireAuth, requireStaff("admin")] };
+/** Moderatsiya bo'limlari: vakansiya, sharh, kompaniya tasdig'i — admin va moderator. */
+const moderatorOnly = { preHandler: [requireAuth, requireStaff("admin", "moderator")] };
 
 const pageSchema = z.object({
   text: z.string().max(120).optional(),
@@ -79,6 +85,17 @@ async function applicationCounts(vacancyIds: string[]): Promise<Map<string, numb
   return new Map(groups.map((g) => [g.vacancyId, g._count._all]));
 }
 
+/** Vakansiyalar bo'yicha ochiq (ko'rib chiqilmagan) shikoyatlar soni. */
+async function openReportCounts(vacancyIds: string[]): Promise<Map<string, number>> {
+  if (vacancyIds.length === 0) return new Map();
+  const groups = await prisma.supportTicket.groupBy({
+    by: ["vacancyId"],
+    where: { vacancyId: { in: vacancyIds }, kind: "vacancy_report", status: { in: ["open", "in_progress"] } },
+    _count: { _all: true },
+  });
+  return new Map(groups.filter((g) => g.vacancyId).map((g) => [g.vacancyId as string, g._count._all]));
+}
+
 /**
  * Bloklash yoki rol o'zgarishi natijasida ish beruvchining faol e'lonlari yopiladi va
  * `adminArchivedAt` bilan QULFLANADI (audit R3, D-070/D-077): egasi ularni qayta ocholmaydi.
@@ -96,18 +113,29 @@ async function archiveOwnerVacancies(userId: string, reason: string, log?: { war
   return vacancies.length;
 }
 
-/** Toshkent kalendar kunlari bo'yicha sanaydi. */
-function countByDay(rows: { createdAt: Date }[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const key = tashkentDayKey(row.createdAt);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
+/**
+ * Toshkent kalendar kunlari bo'yicha sanash — bazaning o'zida (`$group`). Ilgari 14 kunlik barcha
+ * yozuvlar xotiraga yuklanib sanalardi: foydalanuvchi va arizalar ko'payganda panel sekinlashardi.
+ */
+async function countByDay(collection: "users" | "applications", since: Date): Promise<Map<string, number>> {
+  const raw = (await prisma.$runCommandRaw({
+    aggregate: collection,
+    pipeline: [
+      { $match: { created_at: { $gte: { $date: since.toISOString() } } } },
+      { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$created_at", timezone: "+05:00" } }, n: { $sum: 1 } } },
+    ],
+    cursor: {},
+  })) as { cursor?: { firstBatch?: { _id: string; n: number }[] } };
+  return new Map((raw.cursor?.firstBatch ?? []).map((row) => [row._id, row.n]));
 }
 
-/** Ommaviy xabar bir vaqtda faqat bittadan yuboriladi (API bitta nusxada ishlaydi). */
+/**
+ * Ommaviy xabar bir vaqtda faqat bittadan yuboriladi. Bir nechta API nusxasida jarayon ichidagi bayroq
+ * yetmaydi — Redis qulfi ham olinadi (Redis sozlanmagan bo'lsa bitta nusxa, bayroq yetarli).
+ */
 let broadcastRunning = false;
+const BROADCAST_LOCK = "admin:broadcast";
+const BROADCAST_LOCK_TTL_MS = 6 * 60 * 60 * 1000;
 const BROADCAST_BATCH = 500;
 /**
  * Foydalanuvchilar orasidagi eng kam oraliq — soniyasiga ko'pi bilan ~25 ta (Telegram bot limiti ~30/s).
@@ -144,6 +172,9 @@ export async function adminRoutes(app: FastifyInstance) {
       reviewsPending,
       paymentsPaid,
       revenueRows,
+      ticketsOpen,
+      verificationRequests,
+      autoApprovedUnreviewed,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { role: "job_seeker" } }),
@@ -159,20 +190,15 @@ export async function adminRoutes(app: FastifyInstance) {
       prisma.companyReview.count({ where: { status: "pending" } }),
       prisma.payment.count({ where: { status: "paid" } }),
       prisma.payment.aggregate({ where: { status: "paid" }, _sum: { amount: true } }),
+      prisma.supportTicket.count({ where: { status: { in: ["open", "in_progress"] } } }),
+      prisma.company.count({ where: { isVerified: false, verificationRequestedAt: { not: null } } }),
+      prisma.vacancy.count({ where: { status: "active", autoApprovedAt: { not: null } } }),
     ]);
 
     // Oxirgi 14 kunlik ro'yxatdan o'tish/ariza dinamikasi — Toshkent kunlari bo'yicha
     // (ilgari server vaqti va UTC aralashib, kun chegarasi 5 soatga siljirdi; audit ISSUE-052)
     const since = new Date(todayStart.getTime() - 13 * DAY_MS);
-    const [recentUsers, recentApps] = await Promise.all([
-      prisma.user.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true } }),
-      prisma.application.findMany({
-        where: { createdAt: { gte: since } },
-        select: { createdAt: true },
-      }),
-    ]);
-    const usersByDay = countByDay(recentUsers);
-    const appsByDay = countByDay(recentApps);
+    const [usersByDay, appsByDay] = await Promise.all([countByDay("users", since), countByDay("applications", since)]);
     const days = Array.from({ length: 14 }, (_, i) => {
       const date = tashkentDayKey(new Date(since.getTime() + i * DAY_MS));
       return { date, users: usersByDay.get(date) ?? 0, applications: appsByDay.get(date) ?? 0 };
@@ -188,6 +214,14 @@ export async function adminRoutes(app: FastifyInstance) {
       // Monetizatsiya o'chiq (audit R3, D-065): panel tushum/tarif ko'rinishlarini shu bayroq bo'yicha yashiradi
       billingEnabled: features.billing,
       search: { engine: isSearchEngineEnabled() ? "meilisearch" : "mongodb" },
+      // 0 — avto-tasdiq o'chiq
+      moderation: {
+        autoApproveHours: autoApproveHours(),
+        // Admin ko'rmasdan e'lon qilingan va hali "tekshirildi" deb belgilanmaganlar
+        autoApprovedUnreviewed,
+      },
+      support: { open: ticketsOpen },
+      verificationRequests,
       chart: days,
     };
   });
@@ -325,10 +359,12 @@ export async function adminRoutes(app: FastifyInstance) {
   // ---------------------------------------------------------
   // Vakansiyalar moderatsiyasi
   // ---------------------------------------------------------
-  app.get("/api/admin/vacancies", adminOnly, async (req) => {
+  app.get("/api/admin/vacancies", moderatorOnly, async (req) => {
     const query = pageSchema
       .extend({
         status: z.enum(["draft", "moderation", "active", "archived", "rejected"]).optional(),
+        // Admin ko'rmasdan, muddat tugagani uchun faollashganlar — keyin qayta ko'rib chiqish uchun
+        autoApproved: boolish().optional(),
       })
       .parse(req.query);
     const { page, pageSize, skip, take } = paging(query);
@@ -348,6 +384,7 @@ export async function adminRoutes(app: FastifyInstance) {
     }
     const where: Prisma.VacancyWhereInput = {
       ...(query.status ? { status: query.status } : {}),
+      ...(query.autoApproved ? { autoApprovedAt: { not: null } } : {}),
       ...(variants.length
         ? {
             OR: [
@@ -361,17 +398,30 @@ export async function adminRoutes(app: FastifyInstance) {
     const [rows, total] = await Promise.all([
       prisma.vacancy.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        // Moderatsiya navbati — eng uzoq kutayotgani birinchi (avto-tasdiq muddati yaqinlashganlar)
+        orderBy: query.status === "moderation" ? [{ moderationSubmittedAt: "asc" }, { updatedAt: "asc" }] : { createdAt: "desc" },
         skip,
         take,
         include: {
-          company: { select: { name: true, slug: true } },
+          company: { select: { name: true, slug: true, isVerified: true, owner: { select: { isBlocked: true } } } },
           region: { select: { name: true } },
         },
       }),
       prisma.vacancy.count({ where }),
     ]);
-    const counts = await applicationCounts(rows.map((v: (typeof rows)[number]) => v.id));
+    const ids = rows.map((v: (typeof rows)[number]) => v.id);
+    const [counts, reports, issues] = await Promise.all([
+      applicationCounts(ids),
+      openReportCounts(ids),
+      // Navbatdagi e'lon nega avtomatik o'tmayotgani (admin ham tasdiqlay olmaydi — egasi to'ldirishi kerak)
+      Promise.all(
+        rows.map(async (v: (typeof rows)[number]) =>
+          v.status === "moderation"
+            ? [v.id, await placementIssue({ categoryId: v.categoryId, regionId: v.regionId, workplaceType: effectiveWorkplaceType({}, v) })] as const
+            : [v.id, null] as const
+        )
+      ).then((pairs) => new Map(pairs)),
+    ]);
 
     return {
       items: rows.map((v: (typeof rows)[number]) => ({
@@ -381,6 +431,7 @@ export async function adminRoutes(app: FastifyInstance) {
         status: v.status,
         companyName: v.company.name,
         companySlug: v.company.slug,
+        companyVerified: v.company.isVerified,
         regionName: v.region?.name ?? null,
         salaryMin: v.salaryMin,
         salaryMax: v.salaryMax,
@@ -390,6 +441,12 @@ export async function adminRoutes(app: FastifyInstance) {
         rejectionReason: v.rejectionReason,
         // Admin yopgan e'lon (audit R3, D-070): ish beruvchi uni qayta ocholmaydi
         adminArchivedAt: v.adminArchivedAt,
+        // Avto-tasdiq (eski hujjatlarda navbatga tushish vaqti yo'q — `updatedAt`)
+        autoApproveAt: v.status === "moderation" ? autoApproveAt(v.moderationSubmittedAt ?? v.updatedAt) : null,
+        autoApprovedAt: v.autoApprovedAt,
+        placementIssue: issues.get(v.id) ?? null,
+        ownerBlocked: v.company.owner.isBlocked,
+        openReports: reports.get(v.id) ?? 0,
         createdAt: v.createdAt,
       })),
       total,
@@ -399,7 +456,7 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
-  app.patch("/api/admin/vacancies/:id/moderate", adminOnly, async (req) => {
+  app.patch("/api/admin/vacancies/:id/moderate", moderatorOnly, async (req) => {
     const { id } = idParams.parse(req.params);
     const { status, reason, isPremium } = z
       .object({
@@ -409,83 +466,24 @@ export async function adminRoutes(app: FastifyInstance) {
       })
       .parse(req.body);
 
-    const vacancy = await prisma.vacancy.findUnique({
-      where: { id },
-      include: { company: { select: { ownerUserId: true, owner: { select: { isBlocked: true } } } } },
-    });
-    if (!vacancy) throw Errors.notFound();
+    const updated = await moderateVacancy(id, { status, reason, isPremium }, req.user!.sub);
 
-    if (status === "active") {
-      // Bloklangan hisobning e'loni saytga qaytmaydi (audit R3, data-integrity-3): avval blok olinadi
-      if (vacancy.company.owner.isBlocked) {
-        throw new AppError(409, "OWNER_BLOCKED", "E'lon egasi bloklangan — avval hisob blokini oching");
-      }
-      // Qoralama — ish beruvchining shaxsiy ishi: moderator uni chop eta olmaydi (audit R3, D-070, admin-staff-6)
-      if (vacancy.status === "draft") {
-        throw new AppError(
-          409,
-          "VACANCY_IS_DRAFT",
-          "Qoralama e'lonni chop etib bo'lmaydi — uni faqat ish beruvchining o'zi joylashi mumkin"
-        );
-      }
-      // Tasdiqlashda ham kategoriya / ish joylashuvi / hudud qoidalari tekshiriladi:
-      // ilgari admin to'ldirilmagan e'lonni faollashtirib, ochiq ro'yxatga yaroqsiz yozuv tushardi
-      await assertVacancyPlacement({
-        categoryId: vacancy.categoryId,
-        regionId: vacancy.regionId,
-        workplaceType: effectiveWorkplaceType({}, vacancy),
-      });
-    }
-
-    const now = new Date();
-    const updated = await prisma.vacancy.update({
-      where: { id },
-      data: {
-        ...(status ? { status } : {}),
-        ...(status === "rejected" ? { rejectionReason: reason ?? null } : {}),
-        ...(status === "active" ? { rejectionReason: null, publishedAt: vacancy.publishedAt ?? now } : {}),
-        // Admin qulfi (audit R3, D-070): rad etilgan/arxivlangan e'lonni ish beruvchi qayta ocholmaydi,
-        // admin faollashtirsa qulf ochiladi.
-        ...(status === "rejected" || status === "archived" ? { adminArchivedAt: now } : {}),
-        ...(status === "active" ? { adminArchivedAt: null } : {}),
-        ...(isPremium !== undefined ? { isPremium } : {}),
-      },
-    });
-
-    void syncVacancyIndex(updated.id, updated.status);
-    bumpDataVersion();
-
-    if (status === "rejected") {
-      void notify({
-        userId: vacancy.company.ownerUserId,
-        type: "system",
-        title: "Vakansiya rad etildi",
-        body: `"${vacancy.title}" moderatsiyadan o'tmadi${reason ? `: ${reason}` : ""}`,
-        url: "/employer/vacancies",
-        // Web matnni o'z tilida chizadi (audit R3, D-059)
-        i18n: { key: "vacancy.rejected", params: { vacancyTitle: vacancy.title, reason: reason ?? "" } },
-      });
-    }
-    if (status === "archived") {
-      // Ish beruvchi e'loni nega yo'qolganini bilsin (audit R3, employer-flows-14)
-      void notify({
-        userId: vacancy.company.ownerUserId,
-        type: "system",
-        title: "Vakansiya yopildi",
-        body: `"${vacancy.title}" administrator tomonidan yopildi.`,
-        url: "/employer/vacancies",
-        i18n: { key: "vacancy.archivedByAdmin", params: { vacancyTitle: vacancy.title } },
-      });
-    }
-
-    return { id: updated.id, status: updated.status, isPremium: updated.isPremium, adminArchivedAt: updated.adminArchivedAt };
+    return {
+      id: updated.id,
+      status: updated.status,
+      isPremium: updated.isPremium,
+      adminArchivedAt: updated.adminArchivedAt,
+      autoApprovedAt: updated.autoApprovedAt,
+    };
   });
 
   // ---------------------------------------------------------
   // Kompaniyalar
   // ---------------------------------------------------------
-  app.get("/api/admin/companies", adminOnly, async (req) => {
-    const query = pageSchema.extend({ verified: boolish().optional() }).parse(req.query);
+  app.get("/api/admin/companies", moderatorOnly, async (req) => {
+    const query = pageSchema
+      .extend({ verified: boolish().optional(), requested: boolish().optional() })
+      .parse(req.query);
     const { page, pageSize, skip, take } = paging(query);
 
     // Maxsus regex belgilari zararsizlantiriladi (audit R3, admin-staff-11)
@@ -493,13 +491,15 @@ export async function adminRoutes(app: FastifyInstance) {
     const variants = textVariants(text);
     const where: Prisma.CompanyWhereInput = {
       ...(query.verified !== undefined ? { isVerified: query.verified } : {}),
+      // Tasdiq so'rovi yuborganlar (hali qaror qilinmagan)
+      ...(query.requested ? { isVerified: false, verificationRequestedAt: { not: null } } : {}),
       ...(variants.length ? { OR: variants.map((v) => ({ name: like(v) })) } : {}),
     };
 
     const [rows, total] = await Promise.all([
       prisma.company.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy: query.requested ? { verificationRequestedAt: "asc" } : { createdAt: "desc" },
         skip,
         take,
         include: {
@@ -517,7 +517,13 @@ export async function adminRoutes(app: FastifyInstance) {
         name: c.name,
         slug: c.slug,
         ownerEmail: c.owner.email,
+        ownerUserId: c.ownerUserId,
         isVerified: c.isVerified,
+        legalName: c.legalName,
+        stir: c.stir,
+        website: c.website,
+        verificationRequestedAt: c.verificationRequestedAt,
+        verificationNote: c.verificationNote,
         planName: c.subscriptionPlan?.name ?? null,
         subscriptionExpiresAt: c.subscriptionExpiresAt,
         vacancyCount: c._count.vacancies,
@@ -531,17 +537,40 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
-  app.patch("/api/admin/companies/:id/verify", adminOnly, async (req) => {
+  app.patch("/api/admin/companies/:id/verify", moderatorOnly, async (req) => {
     const { id } = idParams.parse(req.params);
-    const { isVerified } = z.object({ isVerified: z.boolean() }).parse(req.body);
+    // `isVerified: false` + `note` — so'rovni rad etish (egasiga sabab bilan xabar)
+    const { isVerified, note } = z
+      .object({ isVerified: z.boolean(), note: z.string().trim().max(500).optional() })
+      .parse(req.body);
+    const before = await prisma.company.findUnique({
+      where: { id },
+      select: { isVerified: true, verificationRequestedAt: true },
+    });
+    if (!before) throw Errors.notFound();
     const company = await prisma.company.update({
       where: { id },
-      data: { isVerified },
+      data: {
+        isVerified,
+        // Qaror qilindi — so'rov yopiladi
+        verificationRequestedAt: null,
+        verificationNote: isVerified ? null : (note ?? null),
+      },
       select: { id: true, isVerified: true, ownerUserId: true, name: true },
     });
     bumpDataVersion();
 
-    if (isVerified) {
+    const rejectedRequest = !isVerified && !before.isVerified && Boolean(before.verificationRequestedAt);
+    recordModeration({
+      entityType: "company",
+      entityId: id,
+      action: isVerified ? "verified" : rejectedRequest ? "verification_rejected" : "unverified",
+      actorId: req.user!.sub,
+      reason: note,
+      meta: { company: company.name },
+    });
+
+    if (isVerified && !before.isVerified) {
       void notify({
         userId: company.ownerUserId,
         type: "system",
@@ -551,18 +580,31 @@ export async function adminRoutes(app: FastifyInstance) {
         i18n: { key: "company.verified", params: { companyName: company.name } },
       });
     }
+    if (rejectedRequest) {
+      void notify({
+        userId: company.ownerUserId,
+        type: "system",
+        title: "Tasdiq so'rovi rad etildi",
+        body: `"${company.name}" tasdiqlanmadi${note ? `: ${note}` : ""}`,
+        url: "/profile",
+        i18n: { key: "company.verificationRejected", params: { companyName: company.name, reason: note ?? "" } },
+      });
+    }
     return { id: company.id, isVerified: company.isVerified };
   });
 
   // ---------------------------------------------------------
   // Sharhlar moderatsiyasi
   // ---------------------------------------------------------
-  app.get("/api/admin/reviews", adminOnly, async (req) => {
+  app.get("/api/admin/reviews", moderatorOnly, async (req) => {
     const query = pageSchema
-      .extend({ status: z.enum(["pending", "approved", "rejected"]).optional() })
+      .extend({ status: z.enum(["pending", "approved", "rejected"]).optional(), autoApproved: boolish().optional() })
       .parse(req.query);
     const { page, pageSize, skip, take } = paging(query);
-    const where: Prisma.CompanyReviewWhereInput = query.status ? { status: query.status } : {};
+    const where: Prisma.CompanyReviewWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.autoApproved ? { autoApprovedAt: { not: null } } : {}),
+    };
 
     const [rows, total] = await Promise.all([
       prisma.companyReview.findMany({
@@ -592,6 +634,8 @@ export async function adminRoutes(app: FastifyInstance) {
           [r.user.jobSeekerProfile?.firstName, r.user.jobSeekerProfile?.lastName]
             .filter(Boolean)
             .join(" ") || r.user.email,
+        autoApproveAt: r.status === "pending" ? autoApproveAt(r.submittedAt ?? r.createdAt) : null,
+        autoApprovedAt: r.autoApprovedAt,
         createdAt: r.createdAt,
       })),
       total,
@@ -601,18 +645,16 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
-  app.patch("/api/admin/reviews/:id", adminOnly, async (req) => {
+  app.patch("/api/admin/reviews/:id", moderatorOnly, async (req) => {
     const { id } = idParams.parse(req.params);
     const { status } = z.object({ status: z.enum(["pending", "approved", "rejected"]) }).parse(req.body);
-    const review = await prisma.companyReview.update({ where: { id }, data: { status } });
-    bumpDataVersion();
+    const review = await moderateReview(id, status, req.user!.sub);
     return { id: review.id, status: review.status };
   });
 
-  app.delete("/api/admin/reviews/:id", adminOnly, async (req) => {
+  app.delete("/api/admin/reviews/:id", moderatorOnly, async (req) => {
     const { id } = idParams.parse(req.params);
-    await prisma.companyReview.delete({ where: { id } });
-    bumpDataVersion();
+    await deleteReview(id, req.user!.sub);
     return { ok: true };
   });
 
@@ -695,6 +737,9 @@ export async function adminRoutes(app: FastifyInstance) {
   // Obuna xabarnomalarini hoziroq tekshirish
   app.post("/api/admin/alerts/run", adminOnly, async () => runAlertSweep());
 
+  // Muddati o'tgan moderatsiya navbatini hoziroq avto-tasdiqlash (fon jadvalini kutmasdan)
+  app.post("/api/admin/moderation/auto-approve/run", adminOnly, async (req) => runAutoApproveSweep(req.log));
+
   // Ommaviy xabar (tanlangan rolga)
   app.post("/api/admin/broadcast", adminOnly, async (req, reply) => {
     const { title, body, role, url } = z
@@ -706,15 +751,28 @@ export async function adminRoutes(app: FastifyInstance) {
       })
       .parse(req.body);
 
-    if (broadcastRunning) {
+    if (broadcastRunning || !(await acquireLock(BROADCAST_LOCK, BROADCAST_LOCK_TTL_MS, "deny"))) {
       throw new AppError(409, "BROADCAST_RUNNING", "Oldingi ommaviy xabar hali yuborilmoqda — tugagach qayta urinib ko'ring");
     }
 
     const where: Prisma.UserWhereInput = { isBlocked: false, ...(role === "all" ? {} : { role }) };
-    const total = await prisma.user.count({ where });
     // Faqat sayt ichidagi yo'l: "//host" va "/\host" tashqi saytga ochiladi (audit ISSUE-054)
     const target = safeInternalPath(url) ?? "/";
     const log = req.log;
+    let total: number;
+    let record: { id: string };
+    try {
+      total = await prisma.user.count({ where });
+      // Tarix: kim, kimga, qancha yetkazildi
+      record = await prisma.broadcast.create({
+        data: { title, body, audience: role, url: target, actorId: req.user!.sub, total },
+        select: { id: true },
+      });
+    } catch (err) {
+      // Yuborish boshlanmadi — qulf 6 soat osilib qolmasin
+      await releaseLock(BROADCAST_LOCK).catch(() => undefined);
+      throw err;
+    }
 
     // Minglab foydalanuvchida HTTP so'rov kutib qolmasin (audit ISSUE-054): javob darhol (202),
     // yuborish fonda, foydalanuvchilar 500 talik bo'laklarda o'qiladi.
@@ -738,6 +796,9 @@ export async function adminRoutes(app: FastifyInstance) {
             // Tashqi kanallar kutiladi va foydalanuvchilar orasida kamida 40 ms (≈25/s) — audit PHASE 6, V9
             await notify({ userId: user.id, type: "system", title, body, url: target, awaitChannels: true });
             delivered += 1;
+            if (delivered % 100 === 0) {
+              await prisma.broadcast.update({ where: { id: record.id }, data: { delivered } }).catch(() => undefined);
+            }
             const wait = BROADCAST_MIN_GAP_MS - (Date.now() - startedAt);
             if (wait > 0) await sleep(wait);
           }
@@ -745,14 +806,38 @@ export async function adminRoutes(app: FastifyInstance) {
           if (batch.length < BROADCAST_BATCH) break;
         }
         log.info({ delivered }, "Ommaviy xabar yuborildi");
+        await prisma.broadcast
+          .update({ where: { id: record.id }, data: { delivered, status: "done", finishedAt: new Date() } })
+          .catch(() => undefined);
       } catch (err) {
         log.error({ err, delivered }, "Ommaviy xabar yuborish to'xtadi");
+        await prisma.broadcast
+          .update({ where: { id: record.id }, data: { delivered, status: "failed", finishedAt: new Date() } })
+          .catch(() => undefined);
       } finally {
         broadcastRunning = false;
+        await releaseLock(BROADCAST_LOCK).catch(() => undefined);
       }
     })();
 
-    return reply.status(202).send({ sent: total });
+    return reply.status(202).send({ sent: total, id: record.id });
+  });
+
+  // Ommaviy xabarlar tarixi (oxirgilari)
+  app.get("/api/admin/broadcasts", adminOnly, async () => {
+    const rows = await prisma.broadcast.findMany({ orderBy: { createdAt: "desc" }, take: 10 });
+    return {
+      items: rows.map((b) => ({
+        id: b.id,
+        title: b.title,
+        audience: b.audience,
+        total: b.total,
+        delivered: b.delivered,
+        status: b.status,
+        createdAt: b.createdAt,
+        finishedAt: b.finishedAt,
+      })),
+    };
   });
   // ---------------------------------------------------------
   // Qo'lda tiklash so'rovlari (audit R3, D-049; telegram-6, admin-staff-2)

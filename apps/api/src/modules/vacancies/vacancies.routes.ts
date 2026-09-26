@@ -16,7 +16,7 @@ import { AppError, Errors } from "../../common/errors.js";
 import { bumpDataVersion } from "../../common/cache.js";
 import { recordView } from "../../common/views.js";
 import { ownedCompanyIds, primaryCompany } from "../../common/ownership.js";
-import { WORKPLACE_VALUES, assertVacancyPlacement, effectiveWorkplaceType } from "./vacancies.rules.js";
+import { WORKPLACE_VALUES, assertVacancyPlacement, effectiveWorkplaceType, requiresPremoderation } from "./vacancies.rules.js";
 
 /** "1" / "true" → true; boshqa har qanday qiymat → false; berilmasa — undefined. */
 const flag = z.preprocess((v) => (v === undefined || v === "" ? undefined : v === "1" || v === "true" || v === true), z.boolean().optional());
@@ -404,7 +404,10 @@ export async function vacancyRoutes(app: FastifyInstance) {
 
       await assertVacancyPlacement(body);
       assertWorkplaceMatchesEmployment(body.employmentType, body.workplaceType);
-      const vacancy = await createVacancy({ ...body, companyId: company.id });
+      // Oldindan moderatsiya: tasdiqlanmagan kompaniya e'loni admin (yoki 24 soatlik avto-tasdiq) kutadi
+      const status =
+        body.status === "draft" ? "draft" : req.user!.role !== "admin" && requiresPremoderation(company) ? "moderation" : "active";
+      const vacancy = await createVacancy({ ...body, status, companyId: company.id });
       return reply.status(201).send(vacancy);
     }
   );
@@ -460,7 +463,10 @@ export async function vacancyRoutes(app: FastifyInstance) {
             ? { contactTelegram: body.contactTelegram || null }
             : {}),
           ...(body.contactPhone !== undefined ? { contactPhone: body.contactPhone || null } : {}),
-          ...(resubmit ? { status: "moderation" as const } : {}),
+          // Avto-tasdiq muddati navbatga tushgan paytdan hisoblanadi
+          ...(resubmit ? { status: "moderation" as const, moderationSubmittedAt: new Date(), autoApprovedAt: null } : {}),
+          // Tahrirdan keyin qoidadan yana o'tmasa — "to'ldiring" xabari qaytadan yuborilishi mumkin
+          ...(resubmit || vacancy.status === "moderation" ? { moderationNudgedAt: null } : {}),
         },
       });
 
@@ -510,13 +516,22 @@ export async function vacancyRoutes(app: FastifyInstance) {
         });
       }
 
+      // Hech qachon e'lon qilinmagan (qoralama) e'lon birinchi marta chiqarilganda — oldindan moderatsiya.
+      // Ilgari tasdiqlangan e'lonni qayta ochish moderatsiyasiz.
+      let nextStatus: "active" | "archived" | "moderation" = status;
+      if (status === "active" && !isAdmin && !vacancy.publishedAt) {
+        const company = await prisma.company.findUnique({ where: { id: vacancy.companyId }, select: { isVerified: true } });
+        if (company && requiresPremoderation(company)) nextStatus = "moderation";
+      }
+
       const updated = await prisma.vacancy.update({
         where: { id },
         data: {
-          status,
-          ...(status === "active" && !vacancy.publishedAt ? { publishedAt: new Date() } : {}),
+          status: nextStatus,
+          ...(nextStatus === "moderation" ? { moderationSubmittedAt: new Date(), autoApprovedAt: null } : {}),
+          ...(nextStatus === "active" && !vacancy.publishedAt ? { publishedAt: new Date() } : {}),
           // Faollashtirish qulfni ochadi; admin yopsa qulf qo'yiladi (audit R3, D-070)
-          ...(status === "active" ? { adminArchivedAt: null } : {}),
+          ...(nextStatus === "active" ? { adminArchivedAt: null } : {}),
           // Rad etilgan yoki moderatsiyadagi e'lonni ish beruvchi yopsa ham qulf qo'yiladi: aks holda
           // "moderatsiya -> yopilgan -> faol" yo'li tekshiruvni chetlab o'tardi (audit R3 ikkinchi audit, backend-2).
           // Qayta e'lon qilish — tahrirlash (moderatsiyaga qaytadi) yoki admin orqali.

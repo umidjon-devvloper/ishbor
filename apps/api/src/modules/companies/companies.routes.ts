@@ -3,7 +3,7 @@ import { z } from "zod";
 import { objectId } from "../../common/validation.js";
 import { prisma } from "../../common/prisma.js";
 import { AppError, Errors } from "../../common/errors.js";
-import { requireAuth, requireRole } from "../../common/auth-guard.js";
+import { requireAuth, requireRole, requirePhoneVerified } from "../../common/auth-guard.js";
 import { verifyAccessToken } from "../../common/jwt.js";
 import { uniqueSlug } from "../../common/slug.js";
 import { removeUploadedFile, saveUpload } from "../../common/uploads.js";
@@ -401,6 +401,35 @@ export async function companyRoutes(app: FastifyInstance) {
       });
       bumpDataVersion();
       return reply.status(201).send(company);
+    }
+  );
+
+  // Tasdiq so'rovi: ish beruvchi yuridik nom va STIR bilan yuboradi; admin/moderator ko'rib chiqadi.
+  // STIR — 9 raqamli soliq identifikatori (O'zbekiston).
+  app.post(
+    "/api/employer/company/verification",
+    { preHandler: [requireAuth, requireRole("employer"), requirePhoneVerified], config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (req) => {
+      const body = z
+        .object({
+          legalName: z.string().trim().min(2).max(200),
+          stir: z.string().trim().regex(/^\d{9}$/, "stir: STIR 9 ta raqamdan iborat bo'lishi kerak"),
+        })
+        .parse(req.body);
+      const company = await primaryCompany(req.user!.sub);
+      if (!company) throw Errors.badRequest("Avval kompaniya profilini to'ldiring");
+      if (company.isVerified) throw new AppError(409, "ALREADY_VERIFIED", "Kompaniya allaqachon tasdiqlangan");
+      const updated = await prisma.company.update({
+        where: { id: company.id },
+        data: {
+          legalName: body.legalName,
+          stir: body.stir,
+          verificationRequestedAt: new Date(),
+          verificationNote: null,
+        },
+        select: { id: true, isVerified: true, legalName: true, stir: true, verificationRequestedAt: true, verificationNote: true },
+      });
+      return { company: updated };
     }
   );
 }

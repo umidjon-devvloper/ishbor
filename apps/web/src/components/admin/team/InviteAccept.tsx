@@ -4,14 +4,14 @@ import { useHref, useLocale, useT } from "../../../lib/i18n/index.js";
 import { useAuth } from "../../AuthContext.js";
 import { ApiError } from "../../../lib/api.js";
 import { acceptStaffInvite, fetchStaffInvite } from "../../../lib/admin/team.js";
-import type { StaffRole } from "../../../lib/admin/roles.js";
+import type { TeamRole } from "../../../lib/admin/roles.js";
 import { errorText } from "../../../lib/admin/useNotice.js";
 import { ADMIN_INPUT, ADMIN_LABEL, ADMIN_PRIMARY, ADMIN_SECONDARY } from "../AdminStates.js";
 import { IconAlert, IconEye, IconEyeOff, IconUserPlus, Spinner } from "../icons.js";
 
 type InviteState =
   | { kind: "loading" }
-  | { kind: "ready"; email: string; role: StaffRole }
+  | { kind: "ready"; email: string; role: TeamRole }
   | { kind: "invalid" }
   | { kind: "used" }
   | { kind: "expired" }
@@ -66,7 +66,8 @@ export function InviteAccept() {
     try {
       const res = await acceptStaffInvite(token, { fullName: fullName.trim(), position: position.trim() || undefined, password });
       await login(res.accessToken);
-      window.location.assign(l("/admin/articles"));
+      // Moderator maqolalarga emas, moderatsiya navbatiga tushadi
+      window.location.assign(l(res.role === "moderator" ? "/admin/vacancies" : res.role === "admin" ? "/admin" : "/admin/articles"));
     } catch (err) {
       if (err instanceof ApiError && err.code === "INVITE_USED") setState({ kind: "used" });
       else if (err instanceof ApiError && err.code === "INVITE_EXPIRED") setState({ kind: "expired" });

@@ -63,6 +63,7 @@ function ViewToggle({ view }: { view: "users" | "recovery" }) {
 
 function UsersTable() {
   const t = useT();
+  const l = useHref();
   const { locale } = useLocale();
   const { accessToken, status, user } = useAuth();
   const [text, setText] = useState("");
@@ -98,6 +99,9 @@ function UsersTable() {
     job_seeker: t.admin.overview.seekers,
     employer: t.admin.overview.employers,
     admin: t.navExtra.admin,
+    moderator: t.admin.roleNames.moderator,
+    content_editor: t.admin.roleNames.content_editor,
+    content_author: t.admin.roleNames.content_author,
   };
 
   const data = state.kind === "ready" ? state.data : null;
@@ -165,7 +169,9 @@ function UsersTable() {
             {(data?.items ?? []).map((row) => (
               <tr key={row.id} className="border-b border-line/60 last:border-0">
                 <td className="px-4 py-3">
-                  <span className="block font-semibold text-ink">{row.name ?? row.email}</span>
+                  <a href={l(`/admin/users/${row.id}`)} className="block font-semibold text-ink transition-colors hover:text-signal">
+                    {row.name ?? row.email}
+                  </a>
                   <span className="block text-xs text-dusk">{row.email}</span>
                   <span className="mt-1 flex flex-wrap gap-1.5">
                     {row.isBlocked && <Tag tone="warn">{t.admin.users.blocked}</Tag>}

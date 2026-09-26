@@ -1,9 +1,9 @@
 import React from "react";
 import { useT } from "../../../lib/i18n/index.js";
-import { STAFF_ROLES, type StaffRole } from "../../../lib/admin/roles.js";
+import { TEAM_ROLES, type TeamRole } from "../../../lib/admin/roles.js";
 import { ADMIN_INPUT } from "../AdminStates.js";
 
-/** Jamoa roli tanlovi: Super admin / Muharrir / Muallif. */
+/** Jamoa roli tanlovi: Super admin / Muharrir / Muallif / Moderator. */
 export function TeamRoleSelect({
   id,
   label,
@@ -15,8 +15,8 @@ export function TeamRoleSelect({
 }: {
   id: string;
   label: string;
-  value: StaffRole;
-  onChange: (role: StaffRole) => void;
+  value: TeamRole;
+  onChange: (role: TeamRole) => void;
   disabled?: boolean;
   visibleLabel?: boolean;
   className?: string;
@@ -31,10 +31,10 @@ export function TeamRoleSelect({
         id={id}
         value={value}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.value as StaffRole)}
+        onChange={(e) => onChange(e.target.value as TeamRole)}
         className={`${ADMIN_INPUT} ${visibleLabel ? "mt-1.5" : ""} h-10 py-0`}
       >
-        {STAFF_ROLES.map((role) => (
+        {TEAM_ROLES.map((role) => (
           <option key={role} value={role}>
             {roles[role]}
           </option>

@@ -841,6 +841,8 @@ export async function setVacancyStatus(token: string, id: string, status: "activ
     body: JSON.stringify({ status }),
   });
   if (!res.ok) await throwApiError(res);
+  // Yangi holat: qoralama birinchi marta chiqarilganda "moderation" bo'lishi mumkin
+  return (await res.json().catch(() => null)) as { status?: string } | null;
 }
 
 export async function deleteVacancy(token: string, id: string) {
