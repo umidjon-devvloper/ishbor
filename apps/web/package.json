@@ -35,6 +35,6 @@
     "vite": "^5.4.8"
   },
   "overrides": {
-    "@brillout/picocolors": "1.0.20"
+    "@brillout/picocolors": "1.0.28"
   }
 }
